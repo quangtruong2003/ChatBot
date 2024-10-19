@@ -95,4 +95,11 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
+
+    fun clearChat() {
+        viewModelScope.launch {
+            repository.deleteAllChats()
+            _chatState.update { it.copy(chatList = emptyList()) }
+        }
+    }
 }

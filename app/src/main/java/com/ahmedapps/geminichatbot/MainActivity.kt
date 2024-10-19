@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
@@ -67,23 +68,7 @@ class MainActivity : ComponentActivity() {
                 ) {
 
                     Scaffold(
-                        topBar = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.primary)
-                                    .height(35.dp)
-                                    .padding(horizontal = 16.dp)
-                            ) {
-                                Text(
-                                    modifier = Modifier
-                                        .align(Alignment.Center),
-                                    text = stringResource(id = R.string.app_name),
-                                    fontSize = 19.sp,
-                                    color = MaterialTheme.colorScheme.onPrimary
-                                )
-                            }
-                        }
+
                     ) {
                         ChatScreen(paddingValues = it)
                     }
@@ -103,119 +88,143 @@ class MainActivity : ComponentActivity() {
 
         val bitmap = getBitmap()
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = paddingValues.calculateTopPadding())
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize(),
-                verticalArrangement = Arrangement.Bottom
-            ) {
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    reverseLayout = true
-                ) {
-                    items(chatState.chatList) { chat ->
-                        if (chat.isFromUser) {
-                            UserChatItem(
-                                prompt = chat.prompt, bitmap = chat.bitmap
-                            )
-                        } else {
-                            ModelChatItem(response = chat.prompt, isError = chat.isError)
+        Scaffold(
+            //modifier= Modifier.systemBarsPadding(),
+            //or
+            //android:windowSoftInputMode="adjustResize"
+
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(stringResource(id = R.string.app_name))
+                    },
+                    actions = {
+                        IconButton(onClick = { chatViewModel.clearChat() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                         }
                     }
-                }
-
-                if (chatState.isLoading) {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Row(
+                )
+            }
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = paddingValues.calculateTopPadding())
+            ) {
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp, start = 4.dp, end = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.Bottom
                 ) {
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp),
+                        reverseLayout = true
+                    ) {
+                        items(chatState.chatList) { chat ->
+                            if (chat.isFromUser) {
+                                UserChatItem(
+                                    prompt = chat.prompt, bitmap = chat.bitmap
+                                )
+                            } else {
+                                ModelChatItem(response = chat.prompt, isError = chat.isError)
+                            }
+                        }
+                    }
 
-                    Column {
-                        bitmap?.let {
-                            Image(
+                    if (chatState.isLoading) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp, start = 4.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+
+                        Column {
+                            bitmap?.let {
+                                Image(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .padding(bottom = 2.dp)
+                                        .clip(RoundedCornerShape(6.dp)),
+                                    contentDescription = "Chọn ảnh",
+                                    contentScale = ContentScale.Crop,
+                                    bitmap = it.asImageBitmap()
+                                )
+                            }
+
+                            Icon(
                                 modifier = Modifier
                                     .size(40.dp)
-                                    .padding(bottom = 2.dp)
-                                    .clip(RoundedCornerShape(6.dp)),
-                                contentDescription = "Chọn ảnh",
-                                contentScale = ContentScale.Crop,
-                                bitmap = it.asImageBitmap()
+                                    .clickable {
+                                        imagePicker.launch(
+                                            PickVisualMediaRequest
+                                                .Builder()
+                                                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                .build()
+                                        )
+                                    },
+                                imageVector = Icons.Rounded.AddPhotoAlternate,
+                                contentDescription = "Thêm ảnh",
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        TextField(
+                            modifier = Modifier
+                                .weight(1f),
+                            value = chatState.prompt,
+                            onValueChange = {
+                                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
+                                if (it.isNotEmpty()) {
+                                    showWelcomeMessage = false
+                                }
+                            },
+                            placeholder = {
+                                Text(text = "Nhập tin nhắn")
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
 
                         Icon(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clickable {
-                                    imagePicker.launch(
-                                        PickVisualMediaRequest
-                                            .Builder()
-                                            .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                            .build()
+                                    chatViewModel.onEvent(
+                                        ChatUiEvent.SendPrompt(
+                                            chatState.prompt,
+                                            bitmap
+                                        )
                                     )
+                                    uriState.update { "" }
+                                    showWelcomeMessage = false
                                 },
-                            imageVector = Icons.Rounded.AddPhotoAlternate,
-                            contentDescription = "Thêm ảnh",
+                            imageVector = Icons.Rounded.Send,
+                            contentDescription = "Gửi form",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
+                }
 
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    TextField(
-                        modifier = Modifier
-                            .weight(1f),
-                        value = chatState.prompt,
-                        onValueChange = {
-                            chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
-                            if (it.isNotEmpty()) {
-                                showWelcomeMessage = false
-                            }
-                        },
-                        placeholder = {
-                            Text(text = "Nhập tin nhắn")
-                        }
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Icon(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clickable {
-                                chatViewModel.onEvent(ChatUiEvent.SendPrompt(chatState.prompt, bitmap))
-                                uriState.update { "" }
-                                showWelcomeMessage = false
-                            },
-                        imageVector = Icons.Rounded.Send,
-                        contentDescription = "Gửi form",
-                        tint = MaterialTheme.colorScheme.primary
+                if (showWelcomeMessage && chatState.chatList.isEmpty()) {
+                    Text(
+                        modifier = Modifier.align(Alignment.Center),
+                        text = "Xin chào, tôi có thể giúp gì cho bạn?",
+                        fontSize = 20.sp,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
-            }
-
-            if (showWelcomeMessage && chatState.chatList.isEmpty()) {
-                Text(
-                    modifier = Modifier.align(Alignment.Center),
-                    text = "Xin chào, tôi có thể giúp gì cho bạn?",
-                    fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
             }
         }
     }

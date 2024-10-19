@@ -87,4 +87,8 @@ class ChatRepository @Inject constructor(
     suspend fun insertChat(chat: Chat) {
         chatDao.insertChat(chat)
     }
+
+    suspend fun deleteAllChats() {
+        chatDao.deleteAllChats()
+    }
 }
