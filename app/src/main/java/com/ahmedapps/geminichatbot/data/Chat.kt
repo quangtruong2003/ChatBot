@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 import androidx.room.TypeConverters
 
 @Entity(tableName = "chat_table")
-@TypeConverters(Converters::class) // Áp dụng TypeConverters
+@TypeConverters(Converters::class)
 data class Chat(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val prompt: String,
