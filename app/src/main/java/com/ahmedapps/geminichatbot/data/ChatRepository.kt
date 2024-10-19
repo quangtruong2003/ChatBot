@@ -12,11 +12,24 @@ class ChatRepository @Inject constructor(
     private val generativeModel: GenerativeModel,
     private val chatDao: ChatDao
 ) {
+    private suspend fun getFullPrompt(currentPrompt: String): String {
+        val chatHistory = chatDao.getAllChats()
+        return buildString {
+            for (chat in chatHistory) {
+                append(if (chat.isFromUser) "User: " else "Bot: ")
+                append(chat.prompt)
+                append("\n") // Thêm newline để phân tách các tin nhắn
+            }
+            append("User: ")
+            append(currentPrompt)
+        }
+    }
 
     suspend fun getResponse(prompt: String): Chat {
         return try {
+            val fullPrompt = getFullPrompt(prompt)// Lấy câu hỏi và lịch sử trò chuyện
             val response = withContext(Dispatchers.IO) {
-                generativeModel.generateContent(prompt)
+                generativeModel.generateContent(fullPrompt)
             }
             Chat(
                 prompt = response.text ?: "Error: Empty response",
@@ -39,9 +52,11 @@ class ChatRepository @Inject constructor(
 
     suspend fun getResponseWithImage(prompt: String, bitmap: Bitmap): Chat {
         return try {
+            val fullPrompt = getFullPrompt(prompt)
+
             val inputContent = content {
                 image(bitmap)
-                text(prompt)
+                text(fullPrompt)
             }
             val response = withContext(Dispatchers.IO) {
                 generativeModel.generateContent(inputContent)
