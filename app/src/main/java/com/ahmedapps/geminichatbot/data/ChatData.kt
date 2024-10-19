@@ -1,52 +1,49 @@
 package com.ahmedapps.geminichatbot.data
 
 import android.graphics.Bitmap
+import com.ahmedapps.geminichatbot.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.ResponseStoppedException
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * @author Ahmed Guedmioui
- */
 object ChatData {
 
-    val api_key = "AIzaSyBtPQG2TNshIZGkNe3DjTfMRdXq8gF1ju0"
+    private val apiKey = BuildConfig.API_KEY
 
     suspend fun getResponse(prompt: String): Chat {
         val generativeModel = GenerativeModel(
-            modelName = "gemini-pro", apiKey = api_key
+            modelName = "gemini-1.5-flash",
+            apiKey = apiKey
         )
 
-        try {
+        return try {
             val response = withContext(Dispatchers.IO) {
                 generativeModel.generateContent(prompt)
             }
 
-            return Chat(
-                prompt = response.text ?: "error",
+            Chat(
+                prompt = response.text ?: "Error: Empty response",
                 bitmap = null,
                 isFromUser = false
             )
 
         } catch (e: Exception) {
-            return Chat(
-                prompt = e.message ?: "error",
+            Chat(
+                prompt = "Error: ${e.message}",
                 bitmap = null,
                 isFromUser = false
             )
         }
-
     }
 
     suspend fun getResponseWithImage(prompt: String, bitmap: Bitmap): Chat {
         val generativeModel = GenerativeModel(
-            modelName = "gemini-pro-vision", apiKey = api_key
+            modelName = "gemini-1.5-flash",
+            apiKey = apiKey
         )
 
-        try {
-
+        return try {
             val inputContent = content {
                 image(bitmap)
                 text(prompt)
@@ -56,40 +53,18 @@ object ChatData {
                 generativeModel.generateContent(inputContent)
             }
 
-            return Chat(
-                prompt = response.text ?: "error",
+            Chat(
+                prompt = response.text ?: "Error: Empty response",
                 bitmap = null,
                 isFromUser = false
             )
 
         } catch (e: Exception) {
-            return Chat(
-                prompt = e.message ?: "error",
+            Chat(
+                prompt = "Error: ${e.message}",
                 bitmap = null,
                 isFromUser = false
             )
         }
-
     }
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

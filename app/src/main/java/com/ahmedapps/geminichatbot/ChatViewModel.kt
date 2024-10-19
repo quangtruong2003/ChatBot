@@ -1,28 +1,46 @@
+// ChatViewModel.kt
 package com.ahmedapps.geminichatbot
 
 import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahmedapps.geminichatbot.data.Chat
-import com.ahmedapps.geminichatbot.data.ChatData
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import com.ahmedapps.geminichatbot.data.ChatRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
-/**
- * @author Ahmed Guedmioui
- */
-class ChatViewModel : ViewModel() {
+@HiltViewModel
+class ChatViewModel @Inject constructor(
+    private val repository: ChatRepository
+) : ViewModel() {
 
     private val _chatState = MutableStateFlow(ChatState())
     val chatState = _chatState.asStateFlow()
+
+    init {
+        loadChatHistory()
+    }
+
+    private fun loadChatHistory() {
+        viewModelScope.launch {
+            val chats = repository.getChatHistory()
+            _chatState.update {
+                it.copy(
+                    chatList = chats
+                )
+            }
+        }
+    }
 
     fun onEvent(event: ChatUiEvent) {
         when (event) {
             is ChatUiEvent.SendPrompt -> {
                 if (event.prompt.isNotEmpty()) {
                     addPrompt(event.prompt, event.bitmap)
+
+                    _chatState.update { it.copy(isLoading = true) }
 
                     if (event.bitmap != null) {
                         getResponseWithImage(event.prompt, event.bitmap)
@@ -41,11 +59,13 @@ class ChatViewModel : ViewModel() {
     }
 
     private fun addPrompt(prompt: String, bitmap: Bitmap?) {
+        val chat = Chat(prompt = prompt, bitmap = bitmap, isFromUser = true)
+        viewModelScope.launch {
+            repository.insertChat(chat)
+        }
         _chatState.update {
             it.copy(
-                chatList = it.chatList.toMutableList().apply {
-                    add(0, Chat(prompt, bitmap, true))
-                },
+                chatList = listOf(chat) + it.chatList,
                 prompt = "",
                 bitmap = null
             )
@@ -54,12 +74,11 @@ class ChatViewModel : ViewModel() {
 
     private fun getResponse(prompt: String) {
         viewModelScope.launch {
-            val chat = ChatData.getResponse(prompt)
+            val chat = repository.getResponse(prompt)
             _chatState.update {
                 it.copy(
-                    chatList = it.chatList.toMutableList().apply {
-                        add(0, chat)
-                    }
+                    chatList = listOf(chat) + it.chatList,
+                    isLoading = false
                 )
             }
         }
@@ -67,32 +86,13 @@ class ChatViewModel : ViewModel() {
 
     private fun getResponseWithImage(prompt: String, bitmap: Bitmap) {
         viewModelScope.launch {
-            val chat = ChatData.getResponseWithImage(prompt, bitmap)
+            val chat = repository.getResponseWithImage(prompt, bitmap)
             _chatState.update {
                 it.copy(
-                    chatList = it.chatList.toMutableList().apply {
-                        add(0, chat)
-                    }
+                    chatList = listOf(chat) + it.chatList,
+                    isLoading = false
                 )
             }
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
