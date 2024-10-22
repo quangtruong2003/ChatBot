@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.drawable.toBitmap
@@ -42,6 +44,7 @@ import com.ahmedapps.geminichatbot.ui.theme.Green
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -94,15 +97,22 @@ class MainActivity : ComponentActivity() {
             //android:windowSoftInputMode="adjustResize"
 
             topBar = {
-                TopAppBar(
+                CenterAlignedTopAppBar(
+
                     title = {
-                        Text(stringResource(id = R.string.app_name))
+                        Text(
+                            text = stringResource(id = R.string.app_name),
+                            style = MaterialTheme.typography.titleLarge
+                        )
                     },
                     actions = {
                         IconButton(onClick = { chatViewModel.clearChat() }) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+
+                    )
                 )
             }
         ) { paddingValues ->
