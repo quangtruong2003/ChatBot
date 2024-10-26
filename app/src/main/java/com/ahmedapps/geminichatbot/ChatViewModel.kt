@@ -1,7 +1,7 @@
 // ChatViewModel.kt
 package com.ahmedapps.geminichatbot
 
-import android.graphics.Bitmap
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahmedapps.geminichatbot.data.Chat
@@ -17,7 +17,7 @@ class ChatViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _chatState = MutableStateFlow(ChatState())
-    val chatState = _chatState.asStateFlow()
+    val chatState: StateFlow<ChatState> = _chatState.asStateFlow()
 
     init {
         loadChatHistory()
@@ -26,11 +26,7 @@ class ChatViewModel @Inject constructor(
     private fun loadChatHistory() {
         viewModelScope.launch {
             val chats = repository.getChatHistory()
-            _chatState.update {
-                it.copy(
-                    chatList = chats
-                )
-            }
+            _chatState.update { it.copy(chatList = chats) }
         }
     }
 
@@ -38,61 +34,64 @@ class ChatViewModel @Inject constructor(
         when (event) {
             is ChatUiEvent.SendPrompt -> {
                 if (event.prompt.isNotEmpty()) {
-                    addPrompt(event.prompt, event.bitmap)
-
                     _chatState.update { it.copy(isLoading = true) }
-
-                    if (event.bitmap != null) {
-                        getResponseWithImage(event.prompt, event.bitmap)
-                    } else {
-                        getResponse(event.prompt)
+                    viewModelScope.launch {
+                        addPrompt(event.prompt, event.imageUri)
+                        if (event.imageUri != null) {
+                            getResponseWithImage(event.prompt, event.imageUri)
+                        } else {
+                            getResponse(event.prompt)
+                        }
                     }
                 }
             }
-
             is ChatUiEvent.UpdatePrompt -> {
-                _chatState.update {
-                    it.copy(prompt = event.newPrompt)
-                }
+                _chatState.update { it.copy(prompt = event.newPrompt) }
+            }
+            is ChatUiEvent.OnImageSelected -> {
+                _chatState.update { it.copy(imageUri = event.uri) }
             }
         }
     }
 
-    private fun addPrompt(prompt: String, bitmap: Bitmap?) {
-        val chat = Chat(prompt = prompt, bitmap = bitmap, isFromUser = true)
-        viewModelScope.launch {
-            repository.insertChat(chat)
+    private suspend fun addPrompt(prompt: String, imageUri: Uri?) {
+        val imageUrl = imageUri?.let {
+            repository.uploadImage(it)
         }
+        val chat = Chat.fromPrompt(
+            prompt = prompt,
+            imageUrl = imageUrl,
+            isFromUser = true,
+            isError = false,
+            userId = ""
+        )
+        repository.insertChat(chat)
         _chatState.update {
             it.copy(
                 chatList = listOf(chat) + it.chatList,
                 prompt = "",
-                bitmap = null
+                imageUri = null
             )
         }
     }
 
-    private fun getResponse(prompt: String) {
-        viewModelScope.launch {
-            val chat = repository.getResponse(prompt)
-            _chatState.update {
-                it.copy(
-                    chatList = listOf(chat) + it.chatList,
-                    isLoading = false
-                )
-            }
+    private suspend fun getResponse(prompt: String) {
+        val chat = repository.getResponse(prompt)
+        _chatState.update {
+            it.copy(
+                chatList = listOf(chat) + it.chatList,
+                isLoading = false
+            )
         }
     }
 
-    private fun getResponseWithImage(prompt: String, bitmap: Bitmap) {
-        viewModelScope.launch {
-            val chat = repository.getResponseWithImage(prompt, bitmap)
-            _chatState.update {
-                it.copy(
-                    chatList = listOf(chat) + it.chatList,
-                    isLoading = false
-                )
-            }
+    private suspend fun getResponseWithImage(prompt: String, imageUri: Uri) {
+        val chat = repository.getResponseWithImage(prompt, imageUri)
+        _chatState.update {
+            it.copy(
+                chatList = listOf(chat) + it.chatList,
+                isLoading = false
+            )
         }
     }
 

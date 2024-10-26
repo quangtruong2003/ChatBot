@@ -2,12 +2,12 @@
 package com.ahmedapps.geminichatbot.di
 
 import android.content.Context
-import androidx.room.Room
 import com.ahmedapps.geminichatbot.BuildConfig
-import com.ahmedapps.geminichatbot.data.ChatDao
-import com.ahmedapps.geminichatbot.data.ChatDatabase
 import com.ahmedapps.geminichatbot.data.ChatRepository
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.storage.FirebaseStorage
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -30,25 +30,30 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideChatDatabase(@ApplicationContext context: Context): ChatDatabase {
-        return Room.databaseBuilder(
-            context,
-            ChatDatabase::class.java,
-            "chat_database"
-        ).build()
+    fun provideFirebaseAuth(): FirebaseAuth {
+        return FirebaseAuth.getInstance()
     }
 
     @Provides
-    fun provideChatDao(chatDatabase: ChatDatabase): ChatDao {
-        return chatDatabase.chatDao()
+    @Singleton
+    fun provideFirebaseFirestore(): FirebaseFirestore {
+        return FirebaseFirestore.getInstance()
+    }
+
+    @Provides
+    @Singleton
+    fun provideFirebaseStorage(): FirebaseStorage {
+        return FirebaseStorage.getInstance()
     }
 
     @Provides
     @Singleton
     fun provideChatRepository(
+        @ApplicationContext context: Context,
         generativeModel: GenerativeModel,
-        chatDao: ChatDao
+        db: FirebaseFirestore,
+        storage: FirebaseStorage
     ): ChatRepository {
-        return ChatRepository(generativeModel, chatDao)
+        return ChatRepository(context, generativeModel, db, storage)
     }
 }

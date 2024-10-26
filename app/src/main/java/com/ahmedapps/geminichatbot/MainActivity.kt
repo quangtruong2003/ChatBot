@@ -1,7 +1,6 @@
 // MainActivity.kt
 package com.ahmedapps.geminichatbot
 
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,66 +15,67 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.graphics.drawable.toBitmap
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImagePainter
+import androidx.navigation.NavController
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
-import coil.size.Size
-import com.ahmedapps.geminichatbot.data.Chat
+import com.ahmedapps.geminichatbot.auth.LoginScreen
 import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
 import com.ahmedapps.geminichatbot.ui.theme.Green
+import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
-
+import androidx.compose.ui.Alignment // Thêm import này
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private val uriState = MutableStateFlow("")
-
     private val imagePicker =
-        registerForActivityResult<PickVisualMediaRequest, Uri?>(
+        registerForActivityResult(
             ActivityResultContracts.PickVisualMedia()
         ) { uri ->
             uri?.let {
-                uriState.update { uri.toString() }
+                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(it))
             }
         }
+
+    private lateinit var chatViewModel: ChatViewModel
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             GeminiChatBotTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
+                val navController = rememberNavController()
+                val currentUser = FirebaseAuth.getInstance().currentUser
+                val startDestination = if (currentUser != null) "chat" else "login"
 
-                    Scaffold(
-
-                    ) {
-                        ChatScreen(paddingValues = it)
+                NavHost(navController, startDestination = startDestination) {
+                    composable("login") {
+                        LoginScreen(onLoginSuccess = {
+                            navController.navigate("chat") {
+                                popUpTo("login") { inclusive = true }
+                            }
+                        })
                     }
-
+                    composable("chat") {
+                        ChatScreen(navController)
+                    }
                 }
             }
         }
@@ -83,36 +83,32 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun ChatScreen(paddingValues: PaddingValues) {
+    fun ChatScreen(navController: NavController) {
         val chatViewModel: ChatViewModel = hiltViewModel()
+        this.chatViewModel = chatViewModel
         val chatState by chatViewModel.chatState.collectAsState()
 
         var showWelcomeMessage by remember { mutableStateOf(true) }
 
-        val bitmap = getBitmap()
-
         Scaffold(
-            //modifier= Modifier.systemBarsPadding(),
-            //or
-            //android:windowSoftInputMode="adjustResize"
-
             topBar = {
-                CenterAlignedTopAppBar(
-
+                TopAppBar(
                     title = {
-                        Text(
-                            text = stringResource(id = R.string.app_name),
-                            style = MaterialTheme.typography.titleLarge
-                        )
+                        Text(stringResource(id = R.string.app_name))
                     },
                     actions = {
                         IconButton(onClick = { chatViewModel.clearChat() }) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
+                            Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
                         }
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-
-                    )
+                        IconButton(onClick = {
+                            FirebaseAuth.getInstance().signOut()
+                            navController.navigate("login") {
+                                popUpTo("chat") { inclusive = true }
+                            }
+                        }) {
+                            Icon(Icons.Filled.ExitToApp, contentDescription = "Đăng xuất")
+                        }
+                    }
                 )
             }
         ) { paddingValues ->
@@ -136,7 +132,8 @@ class MainActivity : ComponentActivity() {
                         items(chatState.chatList) { chat ->
                             if (chat.isFromUser) {
                                 UserChatItem(
-                                    prompt = chat.prompt, bitmap = chat.bitmap
+                                    prompt = chat.prompt,
+                                    imageUrl = chat.imageUrl
                                 )
                             } else {
                                 ModelChatItem(response = chat.prompt, isError = chat.isError)
@@ -155,19 +152,24 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 16.dp, start = 4.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically // Sử dụng Alignment từ Compose
                     ) {
 
                         Column {
-                            bitmap?.let {
+                            chatState.imageUri?.let { uri ->
                                 Image(
+                                    painter = rememberAsyncImagePainter(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(uri)
+                                            .size(coil.size.Size.ORIGINAL) // Sử dụng ImageRequest để đặt size
+                                            .build()
+                                    ),
+                                    contentDescription = "Hình ảnh đã chọn",
+                                    contentScale = ContentScale.Crop,
                                     modifier = Modifier
                                         .size(40.dp)
                                         .padding(bottom = 2.dp)
-                                        .clip(RoundedCornerShape(6.dp)),
-                                    contentDescription = "Chọn ảnh",
-                                    contentScale = ContentScale.Crop,
-                                    bitmap = it.asImageBitmap()
+                                        .clip(RoundedCornerShape(6.dp))
                                 )
                             }
 
@@ -214,14 +216,13 @@ class MainActivity : ComponentActivity() {
                                     chatViewModel.onEvent(
                                         ChatUiEvent.SendPrompt(
                                             chatState.prompt,
-                                            bitmap
+                                            chatState.imageUri
                                         )
                                     )
-                                    uriState.update { "" }
                                     showWelcomeMessage = false
                                 },
                             imageVector = Icons.Rounded.Send,
-                            contentDescription = "Gửi form",
+                            contentDescription = "Gửi tin nhắn",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -240,21 +241,22 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun UserChatItem(prompt: String, bitmap: Bitmap?) {
+    fun UserChatItem(prompt: String, imageUrl: String?) {
         Column(
             modifier = Modifier.padding(start = 100.dp, bottom = 16.dp)
         ) {
-
-            bitmap?.let {
+            imageUrl?.let { url ->
                 Image(
+                    painter = rememberAsyncImagePainter(
+                        model = url
+                    ),
+                    contentDescription = "Hình ảnh của bạn",
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(260.dp)
                         .padding(bottom = 2.dp)
-                        .clip(RoundedCornerShape(12.dp)),
-                    contentDescription = "image",
-                    contentScale = ContentScale.Crop,
-                    bitmap = it.asImageBitmap()
+                        .clip(RoundedCornerShape(12.dp))
                 )
             }
 
@@ -288,23 +290,5 @@ class MainActivity : ComponentActivity() {
                 color = MaterialTheme.colorScheme.onPrimary
             )
         }
-    }
-
-    @Composable
-    private fun getBitmap(): Bitmap? {
-        val uri = uriState.collectAsState().value
-
-        val imageState = rememberAsyncImagePainter(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(uri)
-                .size(Size.ORIGINAL)
-                .build()
-        ).state
-
-        if (imageState is AsyncImagePainter.State.Success) {
-            return imageState.result.drawable.toBitmap()
-        }
-
-        return null
     }
 }

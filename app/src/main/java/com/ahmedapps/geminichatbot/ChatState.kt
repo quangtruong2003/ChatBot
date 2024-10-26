@@ -1,12 +1,12 @@
 // ChatState.kt
 package com.ahmedapps.geminichatbot
 
-import android.graphics.Bitmap
+import android.net.Uri
 import com.ahmedapps.geminichatbot.data.Chat
 
 data class ChatState(
     val chatList: List<Chat> = emptyList(),
     val prompt: String = "",
-    val bitmap: Bitmap? = null,
+    val imageUri: Uri? = null,
     val isLoading: Boolean = false
 )
