@@ -264,7 +264,7 @@ class MainActivity : ComponentActivity() {
                         .fillMaxWidth()
                         .aspectRatio(1f)
                         .padding(bottom = 2.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
                 ) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
@@ -272,7 +272,7 @@ class MainActivity : ComponentActivity() {
                             .crossfade(true)
                             .build(),
                         contentDescription = "Hình ảnh của bạn",
-                        contentScale = ContentScale.Fit,
+                        contentScale = ContentScale.Crop, // Fit, Crop, Cover, Inside, Outside
                         modifier = Modifier.fillMaxSize()
                     )
                 }
