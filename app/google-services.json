@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "333340296800",
+    "project_id": "chatai-3a010",
+    "storage_bucket": "chatai-3a010.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:333340296800:android:ef76a407128dc6e68e6505",
+        "android_client_info": {
+          "package_name": "com.ahmedapps.geminichatbot"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgPGNJdmBJiaVF2qjwrwyOt2Bn65kqYYE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
