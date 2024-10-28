@@ -2,6 +2,7 @@
 package com.ahmedapps.geminichatbot
 
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahmedapps.geminichatbot.data.Chat
@@ -55,6 +56,13 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun addPrompt(prompt: String, imageUri: Uri?) {
+        val currentUserId = repository.userId
+        if (currentUserId.isEmpty()) {
+            Log.e("ChatViewModel", "User is not authenticated")
+            _chatState.update { it.copy(isLoading = false) }
+            return
+        }
+
         val imageUrl = imageUri?.let {
             repository.uploadImage(it)
         }
@@ -63,7 +71,7 @@ class ChatViewModel @Inject constructor(
             imageUrl = imageUrl,
             isFromUser = true,
             isError = false,
-            userId = "userId"
+            userId = currentUserId
         )
         repository.insertChat(chat)
         _chatState.update {

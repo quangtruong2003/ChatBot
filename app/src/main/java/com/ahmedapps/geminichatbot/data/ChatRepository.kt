@@ -1,4 +1,4 @@
-// data/ChatRepository.kt
+// ChatRepository.kt
 package com.ahmedapps.geminichatbot.data
 
 import android.content.Context
@@ -14,8 +14,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 
@@ -26,7 +26,7 @@ class ChatRepository @Inject constructor(
     private val storage: FirebaseStorage,
 ) {
     private val auth = FirebaseAuth.getInstance()
-    private val userId: String
+    val userId: String
         get() = auth.currentUser?.uid ?: ""
 
     private val chatsCollection
@@ -44,23 +44,26 @@ class ChatRepository @Inject constructor(
 
         val imageRef = storageReference.child("${System.currentTimeMillis()}.png")
 
-        val stream = context.contentResolver.openInputStream(imageUri)
-        val data = stream?.readBytes() ?: return@withContext null
-
-        return@withContext try {
-            imageRef.putBytes(data).await()
-            val url = imageRef.downloadUrl.await().toString()
-            Log.d("ChatRepository", "Image uploaded, URL: $url")
-            url
-        } catch (e: Exception) {
-            Log.e("ChatRepository", "Error uploading image", e)
+        context.contentResolver.openInputStream(imageUri)?.use { stream ->
+            val data = stream.readBytes()
+            try {
+                imageRef.putBytes(data).await()
+                val url = imageRef.downloadUrl.await().toString()
+                Log.d("ChatRepository", "Image uploaded, URL: $url")
+                url
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "Error uploading image", e)
+                null
+            }
+        } ?: run {
+            Log.e("ChatRepository", "Failed to open InputStream for imageUri: $imageUri")
             null
         }
     }
 
-    private suspend fun getFullPrompt(currentPrompt: String): String {
+    private suspend fun getFullPrompt(currentPrompt: String): String = withContext(Dispatchers.Default) {
         val chatHistory = getChatHistory()
-        return buildString {
+        buildString {
             for (chat in chatHistory.reversed()) {
                 append(if (chat.isFromUser) "User: " else "Bot: ")
                 append(chat.prompt)
@@ -71,8 +74,8 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    suspend fun getResponse(prompt: String): Chat {
-        return try {
+    suspend fun getResponse(prompt: String): Chat = withContext(Dispatchers.IO) {
+        return@withContext try {
             val fullPrompt = getFullPrompt(prompt)
             val response = generativeModel.generateContent(fullPrompt)
             val chat = Chat.fromPrompt(
@@ -98,11 +101,11 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    suspend fun getResponseWithImage(prompt: String, imageUri: Uri): Chat {
-        return try {
+    suspend fun getResponseWithImage(prompt: String, imageUri: Uri): Chat = withContext(Dispatchers.IO) {
+        return@withContext try {
             val fullPrompt = getFullPrompt(prompt)
 
-            // Chuyển đổi Uri thành Bitmap
+            // Convert Uri to Bitmap
             val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(context.contentResolver, imageUri)
                 ImageDecoder.decodeBitmap(source)
@@ -111,7 +114,7 @@ class ChatRepository @Inject constructor(
                 MediaStore.Images.Media.getBitmap(context.contentResolver, imageUri)
             }
 
-            // Tạo Content instances cho hình ảnh và văn bản
+            // Create Content instances for image and text
             val imageContent = content {
                 image(bitmap)
             }
@@ -119,10 +122,10 @@ class ChatRepository @Inject constructor(
                 text(fullPrompt)
             }
 
-            // Gọi API với các Content instances
+            // Call API with Content instances
             val response = generativeModel.generateContent(imageContent, textContent)
 
-            // Tải lên hình ảnh và lấy URL
+            // Upload image and get URL
             val imageUrl = uploadImage(imageUri)
 
             val chat = Chat(
@@ -148,8 +151,8 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    suspend fun getChatHistory(): List<Chat> {
-        return try {
+    suspend fun getChatHistory(): List<Chat> = withContext(Dispatchers.IO) {
+        return@withContext try {
             val snapshot = chatsCollection.orderBy("id").get().await()
             snapshot.documents.mapNotNull { it.toObject(Chat::class.java) }
         } catch (e: Exception) {
@@ -158,7 +161,7 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    suspend fun insertChat(chat: Chat) {
+    suspend fun insertChat(chat: Chat) = withContext(Dispatchers.IO) {
         try {
             chatsCollection.add(chat).await()
         } catch (e: Exception) {
@@ -166,7 +169,7 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    suspend fun deleteAllChats() {
+    suspend fun deleteAllChats() = withContext(Dispatchers.IO) {
         try {
             val batch = db.batch()
             val snapshot = chatsCollection.get().await()
