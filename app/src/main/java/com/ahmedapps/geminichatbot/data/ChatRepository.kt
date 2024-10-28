@@ -27,7 +27,12 @@ class ChatRepository @Inject constructor(
 ) {
     private val auth = FirebaseAuth.getInstance()
     val userId: String
-        get() = auth.currentUser?.uid ?: ""
+        get() {
+            val uid = auth.currentUser?.uid ?: ""
+            Log.d("ChatRepository", "Current User ID: $uid")
+            return uid
+        }
+
 
     private val chatsCollection
         get() = db.collection("chats").document(userId).collection("messages")
@@ -61,7 +66,8 @@ class ChatRepository @Inject constructor(
         }
     }
 
-    private suspend fun getFullPrompt(currentPrompt: String): String = withContext(Dispatchers.Default) {
+
+    private suspend fun getFullPrompt(currentPrompt: String): String = withContext(Dispatchers.IO) {
         val chatHistory = getChatHistory()
         buildString {
             for (chat in chatHistory.reversed()) {
@@ -150,6 +156,7 @@ class ChatRepository @Inject constructor(
             chat
         }
     }
+
 
     suspend fun getChatHistory(): List<Chat> = withContext(Dispatchers.IO) {
         return@withContext try {
