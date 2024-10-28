@@ -63,7 +63,7 @@ class ChatViewModel @Inject constructor(
             imageUrl = imageUrl,
             isFromUser = true,
             isError = false,
-            userId = ""
+            userId = "userId"
         )
         repository.insertChat(chat)
         _chatState.update {

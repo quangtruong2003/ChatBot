@@ -13,7 +13,9 @@ import com.google.ai.client.generativeai.type.content
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 
@@ -33,19 +35,19 @@ class ChatRepository @Inject constructor(
     private val storageReference
         get() = storage.reference.child("images/$userId/")
 
-    suspend fun uploadImage(imageUri: Uri): String? {
+    suspend fun uploadImage(imageUri: Uri): String? = withContext(Dispatchers.IO) {
         val currentUser = auth.currentUser
         if (currentUser == null) {
             Log.e("ChatRepository", "User not authenticated")
-            return null
+            return@withContext null
         }
 
         val imageRef = storageReference.child("${System.currentTimeMillis()}.png")
 
         val stream = context.contentResolver.openInputStream(imageUri)
-        val data = stream?.readBytes() ?: return null
+        val data = stream?.readBytes() ?: return@withContext null
 
-        return try {
+        return@withContext try {
             imageRef.putBytes(data).await()
             val url = imageRef.downloadUrl.await().toString()
             Log.d("ChatRepository", "Image uploaded, URL: $url")
