@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
@@ -49,6 +51,8 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 
 
@@ -91,6 +95,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun ChatScreen(navController: NavController) {
@@ -99,6 +104,9 @@ class MainActivity : ComponentActivity() {
         val chatState by chatViewModel.chatState.collectAsState()
 
         var showWelcomeMessage by remember { mutableStateOf(true) }
+
+        // State để quản lý Dialog hiển thị hình ảnh trong khu vực nhập liệu
+        var isImageDialogOpen by remember { mutableStateOf(false) }
 
         Scaffold(
             topBar = {
@@ -162,7 +170,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 16.dp, start = 4.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically // Sử dụng Alignment từ Compose
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
 
                         Column {
@@ -171,7 +179,7 @@ class MainActivity : ComponentActivity() {
                                     painter = rememberAsyncImagePainter(
                                         model = ImageRequest.Builder(LocalContext.current)
                                             .data(uri)
-                                            .size(coil.size.Size.ORIGINAL) // Sử dụng ImageRequest để đặt size
+                                            .size(coil.size.Size.ORIGINAL)
                                             .crossfade(true)
                                             .build()
                                     ),
@@ -180,8 +188,10 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(6.dp))
                                         .size(40.dp)
-                                        .padding(bottom = 2.dp)
-
+                                        .padding(bottom = 1.dp)
+                                        .clickable {
+                                            isImageDialogOpen = true
+                                        }
                                 )
                             }
 
@@ -248,23 +258,42 @@ class MainActivity : ComponentActivity() {
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+
+                // Hiển thị Dialog cho hình ảnh trong khu vực nhập liệu
+                if (isImageDialogOpen && chatState.imageUri != null) {
+                    chatState.imageUri?.let { uri ->
+                        ImageDialog(
+                            imageUri = uri,
+                            onDismiss = { isImageDialogOpen = false },
+                            onDelete = {
+                                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(null))
+                                isImageDialogOpen = false
+                            }
+                        )
+                    }
+                }
             }
         }
     }
 
+
+
     @Composable
     fun UserChatItem(prompt: String, imageUrl: String?) {
+
+        var isImageDialogOpen by remember { mutableStateOf(false) }
+
         Column(
             modifier = Modifier.padding(start = 100.dp, bottom = 16.dp)
         ) {
             imageUrl?.let { url ->
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
                         .fillMaxWidth()
-                        .aspectRatio(1f)
                         .padding(bottom = 2.dp)
-                        .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
+                        .clickable {
+                            isImageDialogOpen = true
+                        }
                 ) {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
@@ -272,8 +301,11 @@ class MainActivity : ComponentActivity() {
                             .crossfade(true)
                             .build(),
                         contentDescription = "Hình ảnh của bạn",
-                        contentScale = ContentScale.Crop, // Fit, Crop, Cover, Inside, Outside
-                        modifier = Modifier.fillMaxSize()
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
                     )
                 }
             }
@@ -288,8 +320,18 @@ class MainActivity : ComponentActivity() {
                 fontSize = 17.sp,
                 color = MaterialTheme.colorScheme.onPrimary
             )
+
+            // Hiển thị Dialog khi hình ảnh được nhấp
+            if (isImageDialogOpen && imageUrl != null) {
+                ImageUrlDialog(
+                    imageUrl = imageUrl,
+                    onDismiss = { isImageDialogOpen = false }
+                )
+            }
         }
     }
+
+
 
 
 
@@ -380,5 +422,108 @@ class MainActivity : ComponentActivity() {
 
         return builder.toAnnotatedString()
     }
+
+    @Composable
+    fun ImageDialog(
+        imageUri: Uri,
+        onDismiss: () -> Unit,
+        onDelete: () -> Unit
+    ) {
+        Dialog(onDismissRequest = onDismiss) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 8.dp,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    // Nút đóng Dialog
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Đóng",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    // Hiển thị hình ảnh phóng to
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUri)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Hình ảnh phóng to",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .align(Alignment.CenterHorizontally)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Nút xóa hình ảnh
+                    Button(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) {
+                        Text(text = "Xóa", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+
+
+    @Composable
+    fun ImageUrlDialog(
+        imageUrl: String,
+        onDismiss: () -> Unit
+    ) {
+        Dialog(onDismissRequest = onDismiss) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 8.dp,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    // Nút đóng Dialog
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Đóng",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    // Hiển thị hình ảnh phóng to
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Hình ảnh phóng to",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .align(Alignment.CenterHorizontally)
+                    )
+                }
+            }
+        }
+    }
+
+
 
 }
