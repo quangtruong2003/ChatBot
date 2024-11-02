@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -108,6 +109,16 @@ class MainActivity : ComponentActivity() {
         // State để quản lý Dialog hiển thị hình ảnh trong khu vực nhập liệu
         var isImageDialogOpen by remember { mutableStateOf(false) }
 
+        // Khởi tạo LazyListState để quản lý cuộn danh sách
+        val listState = rememberLazyListState()
+
+        // LaunchedEffect để tự động cuộn xuống cuối danh sách khi có tin nhắn mới
+        LaunchedEffect(chatState.chatList.size) {
+            if (chatState.chatList.isNotEmpty()) {
+                listState.animateScrollToItem(chatState.chatList.size - 1)
+            }
+        }
+
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -145,7 +156,8 @@ class MainActivity : ComponentActivity() {
                             .weight(1f)
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp),
-                        reverseLayout = true
+                        state = listState,
+                        //reverseLayout = true
                     ) {
                         items(chatState.chatList) { chat ->
                             if (chat.isFromUser) {
@@ -356,35 +368,8 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
-    fun parseBoldText(input: String): AnnotatedString {
-        val boldPattern = "\\*\\*(.*?)\\*\\*".toRegex()
-        val matches = boldPattern.findAll(input)
-
-        val builder = AnnotatedString.Builder()
-        var lastIndex = 0
-
-        for (match in matches) {
-            val range = match.range
-            val textBefore = input.substring(lastIndex, range.first)
-            if (textBefore.isNotEmpty()) {
-                builder.append(textBefore)
-            }
-
-            val boldText = match.groupValues[1]
-            builder.withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                append(boldText)
-            }
-            lastIndex = range.last + 1
-        }
-
-        val remainingText = input.substring(lastIndex)
-        if (remainingText.isNotEmpty()) {
-            builder.append(remainingText)
-        }
-
-        return builder.toAnnotatedString()
-    }
     fun parseFormattedText(input: String): AnnotatedString {
+        val listItemPattern = "^\\*\\s+".toRegex()
         val patterns = listOf(
             "**" to SpanStyle(fontWeight = FontWeight.Bold),
             "*" to SpanStyle(fontStyle = FontStyle.Italic),
@@ -392,36 +377,55 @@ class MainActivity : ComponentActivity() {
         )
 
         val builder = AnnotatedString.Builder()
-        var remainingText = input
+        val lines = input.lines()
+        var listItemNumber = 1
 
-        while (remainingText.isNotEmpty()) {
-            var matched = false
-            for ((delimiter, style) in patterns) {
-                val pattern = Regex.escape(delimiter) + "(.*?)" + Regex.escape(delimiter)
-                val regex = pattern.toRegex()
-                val match = regex.find(remainingText)
-                if (match != null) {
-                    val textBefore = remainingText.substring(0, match.range.first)
-                    if (textBefore.isNotEmpty()) {
-                        builder.append(textBefore)
+        for (line in lines) {
+            var processedLine = line
+            if (listItemPattern.containsMatchIn(line)) {
+                // Thay thế '* ' bằng 'n. '
+                processedLine = line.replaceFirst(listItemPattern, "$listItemNumber. ")
+                listItemNumber++
+            }
+
+            var remainingText = processedLine
+            while (remainingText.isNotEmpty()) {
+                var matched = false
+                for ((delimiter, style) in patterns) {
+                    // Tạo pattern để tìm các định dạng: **bold**, *italic*, __underline__
+                    val pattern = Regex.escape(delimiter) + "(.*?)" + Regex.escape(delimiter)
+                    val regex = pattern.toRegex()
+                    val match = regex.find(remainingText)
+                    if (match != null) {
+                        val start = match.range.first
+                        if (start > 0) {
+                            // Thêm phần text trước pattern nếu có
+                            builder.append(remainingText.substring(0, start))
+                        }
+                        val formattedText = match.groupValues[1]
+                        // Áp dụng style cho đoạn text
+                        builder.withStyle(style) {
+                            append(formattedText)
+                        }
+                        // Cập nhật remainingText để tiếp tục xử lý phần còn lại
+                        remainingText = remainingText.substring(match.range.last + 1)
+                        matched = true
+                        break
                     }
-                    val formattedText = match.groupValues[1]
-                    builder.withStyle(style) {
-                        append(formattedText)
-                    }
-                    remainingText = remainingText.substring(match.range.last + 1)
-                    matched = true
+                }
+                if (!matched) {
+                    // Nếu không tìm thấy pattern nào, thêm phần còn lại và kết thúc vòng lặp
+                    builder.append(remainingText)
                     break
                 }
             }
-            if (!matched) {
-                builder.append(remainingText)
-                break
-            }
+
+            builder.append("\n") // Thêm xuống dòng sau mỗi dòng
         }
 
         return builder.toAnnotatedString()
     }
+
 
     @Composable
     fun ImageDialog(

@@ -12,7 +12,9 @@ data class Chat(
     var isFromUser: Boolean = false,
     @get:PropertyName("error") @set:PropertyName("error")
     var isError: Boolean = false,
-    val userId: String = ""
+    val userId: String = "",
+    @get:PropertyName("timestamp")
+    val timestamp: Long = System.currentTimeMillis()
 ) {
     companion object {
         fun fromPrompt(
@@ -27,7 +29,8 @@ data class Chat(
                 imageUrl = imageUrl,
                 isFromUser = isFromUser,
                 isError = isError,
-                userId = userId
+                userId = userId,
+                timestamp = System.currentTimeMillis()
             )
         }
     }

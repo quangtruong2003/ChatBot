@@ -24,6 +24,8 @@ class ChatViewModel @Inject constructor(
         loadChatHistory()
     }
 
+
+
     private fun loadChatHistory() {
         viewModelScope.launch {
             val chats = repository.getChatHistory()
@@ -76,9 +78,11 @@ class ChatViewModel @Inject constructor(
         repository.insertChat(chat)
         _chatState.update {
             it.copy(
-                chatList = listOf(chat) + it.chatList,
+                //chatList = listOf(chat) + it.chatList,
+                chatList = it.chatList + chat,
                 prompt = "",
-                imageUri = null
+                imageUri = null,
+                isLoading = false,
             )
         }
     }
@@ -87,7 +91,8 @@ class ChatViewModel @Inject constructor(
         val chat = repository.getResponse(prompt)
         _chatState.update {
             it.copy(
-                chatList = listOf(chat) + it.chatList,
+                //chatList = listOf(chat) + it.chatList,
+                chatList = it.chatList + chat,
                 isLoading = false
             )
         }
@@ -97,7 +102,8 @@ class ChatViewModel @Inject constructor(
         val chat = repository.getResponseWithImage(prompt, imageUri)
         _chatState.update {
             it.copy(
-                chatList = listOf(chat) + it.chatList,
+                //chatList = listOf(chat) + it.chatList,
+                chatList = it.chatList + chat,
                 isLoading = false
             )
         }

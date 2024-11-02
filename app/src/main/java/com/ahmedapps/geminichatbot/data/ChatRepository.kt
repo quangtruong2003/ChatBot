@@ -12,6 +12,7 @@ import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -160,7 +161,7 @@ class ChatRepository @Inject constructor(
 
     suspend fun getChatHistory(): List<Chat> = withContext(Dispatchers.IO) {
         return@withContext try {
-            val snapshot = chatsCollection.orderBy("id").get().await()
+            val snapshot = chatsCollection.orderBy("timestamp", Query.Direction.ASCENDING).get().await()
             snapshot.documents.mapNotNull { it.toObject(Chat::class.java) }
         } catch (e: Exception) {
             e.printStackTrace()
