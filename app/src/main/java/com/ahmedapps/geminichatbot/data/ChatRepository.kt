@@ -17,7 +17,6 @@ import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
-import java.io.ByteArrayOutputStream
 import javax.inject.Inject
 
 class ChatRepository @Inject constructor(
@@ -27,6 +26,7 @@ class ChatRepository @Inject constructor(
     private val storage: FirebaseStorage,
 ) {
     private val auth = FirebaseAuth.getInstance()
+
     val userId: String
         get() {
             val uid = auth.currentUser?.uid ?: ""
@@ -34,13 +34,21 @@ class ChatRepository @Inject constructor(
             return uid
         }
 
+    init {
+        Log.d("ChatRepository", "Initialized with User ID: $userId")
+    }
 
-    private val chatsCollection
-        get() = db.collection("chats").document(userId).collection("messages")
+    // Reference to "chats/{userId}/segments"
+    private val segmentsCollection
+        get() = db.collection("chats").document(userId).collection("segments")
 
+    // Reference to "images/{userId}/"
     private val storageReference
         get() = storage.reference.child("images/$userId/")
 
+    /**
+     * Uploads an image to Firebase Storage and returns its download URL.
+     */
     suspend fun uploadImage(imageUri: Uri): String? = withContext(Dispatchers.IO) {
         val currentUser = auth.currentUser
         if (currentUser == null) {
@@ -67,7 +75,9 @@ class ChatRepository @Inject constructor(
         }
     }
 
-
+    /**
+     * Generates the full prompt by concatenating chat history.
+     */
     private suspend fun getFullPrompt(currentPrompt: String): String = withContext(Dispatchers.IO) {
         val chatHistory = getChatHistory()
         buildString {
@@ -81,6 +91,9 @@ class ChatRepository @Inject constructor(
         }
     }
 
+    /**
+     * Gets response from GenerativeModel without image.
+     */
     suspend fun getResponse(prompt: String): Chat = withContext(Dispatchers.IO) {
         return@withContext try {
             val fullPrompt = getFullPrompt(prompt)
@@ -93,6 +106,8 @@ class ChatRepository @Inject constructor(
                 userId = userId
             )
             insertChat(chat)
+            // Cập nhật tiêu đề đoạn chat
+            updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
             chat
         } catch (e: Exception) {
             e.printStackTrace()
@@ -108,6 +123,9 @@ class ChatRepository @Inject constructor(
         }
     }
 
+    /**
+     * Gets response from GenerativeModel with image.
+     */
     suspend fun getResponseWithImage(prompt: String, imageUri: Uri): Chat = withContext(Dispatchers.IO) {
         return@withContext try {
             val fullPrompt = getFullPrompt(prompt)
@@ -143,6 +161,8 @@ class ChatRepository @Inject constructor(
                 userId = userId
             )
             insertChat(chat)
+            // Cập nhật tiêu đề đoạn chat
+            updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
             chat
         } catch (e: Exception) {
             e.printStackTrace()
@@ -158,35 +178,230 @@ class ChatRepository @Inject constructor(
         }
     }
 
-
+    /**
+     * Retrieves all chat messages across all segments.
+     */
     suspend fun getChatHistory(): List<Chat> = withContext(Dispatchers.IO) {
+        val allChats = mutableListOf<Chat>()
+        try {
+            val segmentsSnapshot = segmentsCollection.get().await()
+            for (segmentDoc in segmentsSnapshot.documents) {
+                val messagesSnapshot = segmentDoc.reference.collection("messages")
+                    .orderBy("timestamp", Query.Direction.ASCENDING).get().await()
+                val messages = messagesSnapshot.documents.mapNotNull { it.toObject(Chat::class.java) }
+                allChats.addAll(messages)
+            }
+            // Sort chats by timestamp
+            allChats.sortBy { it.timestamp }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return@withContext allChats
+    }
+
+    /**
+     * Inserts a chat message vào một đoạn chat cụ thể.
+     * Đảm bảo rằng một đoạn chat đã được chọn; nếu không, tạo một đoạn chat mặc định.
+     */
+    private var _selectedSegmentId: String? = null // Biến lưu ID đoạn chat hiện tại
+
+    suspend fun insertChat(chat: Chat, segmentId: String? = null) = withContext(Dispatchers.IO) {
+        try {
+            val targetSegmentId = segmentId ?: getOrCreateDefaultSegmentId()
+            _selectedSegmentId = targetSegmentId // Cập nhật ID đoạn chat hiện tại
+            if (targetSegmentId != null) {
+                val messagesCollection = getMessagesCollection(targetSegmentId)
+                val docRef = messagesCollection.document()
+                val messageId = docRef.id
+                val chatWithId = chat.copy(id = messageId)
+                docRef.set(chatWithId).await()
+                Log.d("ChatRepository", "Inserted Chat message with ID: $messageId into segment: $targetSegmentId")
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Generates a title for a chat segment based on a question and first request.
+     */
+    suspend fun generateChatSegmentTitle(question: String, firstRequest: String): String {
+        // Tạo tiêu đề từ câu hỏi, lấy 4-5 từ đầu
+        val questionWords = question.split(" ").take(5).joinToString(" ")
+        // Lấy request đầu tiên, giới hạn 10 ký tự
+        val requestSnippet = firstRequest.take(10)
+        return "$questionWords: $requestSnippet..."
+    }
+
+    /**
+     * Generates a title for a chat segment based on the API response.
+     */
+    suspend fun generateChatSegmentTitleFromResponse(firstResponse: String): String {
+        return try {
+            val prompt = "Đặt tiêu đề chính xác có 4 đến 6 chữ + '$firstResponse'"
+            val response = generativeModel.generateContent(prompt)
+            response.text ?: "Untitled Segment"
+        } catch (e: Exception) {
+            e.printStackTrace()
+            "Untitled Segment"
+        }
+    }
+
+    /**
+     * Updates the title of a specific chat segment.
+     */
+    suspend fun updateSegmentTitle(segmentId: String?, newTitle: String) = withContext(Dispatchers.IO) {
+        if (segmentId == null) return@withContext
+        try {
+            val segmentRef = segmentsCollection.document(segmentId)
+            segmentRef.update("title", newTitle).await()
+            Log.d("ChatRepository", "Updated segment title to: $newTitle for segment ID: $segmentId")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Updates the title of a specific chat segment based on the API response.
+     */
+    suspend fun updateSegmentTitleFromResponse(segmentId: String?, firstResponse: String) {
+        if (segmentId == null) return
+        val newTitle = generateChatSegmentTitleFromResponse(firstResponse)
+        updateSegmentTitle(segmentId, newTitle)
+    }
+
+    /**
+     * Deletes all chat segments and their messages.
+     * (Chú ý: Hàm này sẽ xóa tất cả các đoạn chat của người dùng.)
+     */
+    suspend fun deleteAllChats() = withContext(Dispatchers.IO) {
+        try {
+            val batch = db.batch()
+            val segmentsSnapshot = segmentsCollection.get().await()
+            for (segmentDoc in segmentsSnapshot.documents) {
+                val messagesSnapshot = segmentDoc.reference.collection("messages").get().await()
+                for (messageDoc in messagesSnapshot.documents) {
+                    batch.delete(messageDoc.reference)
+                }
+                batch.delete(segmentDoc.reference)
+            }
+            batch.commit().await()
+            Log.d("ChatRepository", "All chats deleted successfully.")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Retrieves messages from a specific segment.
+     */
+    suspend fun getChatHistoryForSegment(segmentId: String): List<Chat> = withContext(Dispatchers.IO) {
         return@withContext try {
-            val snapshot = chatsCollection.orderBy("timestamp", Query.Direction.ASCENDING).get().await()
-            snapshot.documents.mapNotNull { it.toObject(Chat::class.java) }
+            getMessagesCollection(segmentId)
+                .orderBy("timestamp", Query.Direction.ASCENDING)
+                .get()
+                .await()
+                .documents
+                .mapNotNull { it.toObject(Chat::class.java) }
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
         }
     }
 
-    suspend fun insertChat(chat: Chat) = withContext(Dispatchers.IO) {
+    /**
+     * Retrieves all chat segments.
+     */
+    suspend fun getChatSegments(): List<ChatSegment> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val snapshot = segmentsCollection.orderBy("createdAt", Query.Direction.DESCENDING).get().await()
+            snapshot.documents.mapNotNull { it.toObject(ChatSegment::class.java)?.copy(id = it.id) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /**
+     * Searches chat segments based on a query string.
+     */
+    suspend fun searchChatSegments(query: String): List<ChatSegment> = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val snapshot = segmentsCollection
+                .whereGreaterThanOrEqualTo("title", query)
+                .whereLessThanOrEqualTo("title", query + "\uf8ff")
+                .orderBy("title")
+                .get()
+                .await()
+            snapshot.documents.mapNotNull { it.toObject(ChatSegment::class.java)?.copy(id = it.id) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /**
+     * Deletes a specific chat segment along with its messages.
+     */
+    suspend fun deleteChatSegment(segmentId: String) = withContext(Dispatchers.IO) {
         try {
-            chatsCollection.add(chat).await()
+            val segmentRef = segmentsCollection.document(segmentId)
+            val messagesSnapshot = segmentRef.collection("messages").get().await()
+            val batch = db.batch()
+            for (messageDoc in messagesSnapshot.documents) {
+                batch.delete(messageDoc.reference)
+            }
+            batch.delete(segmentRef)
+            batch.commit().await()
+            Log.d("ChatRepository", "Deleted segment and its messages with ID: $segmentId")
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
-    suspend fun deleteAllChats() = withContext(Dispatchers.IO) {
+    /**
+     * Adds a new chat segment with a given title.
+     */
+    suspend fun addChatSegment(title: String): String? = withContext(Dispatchers.IO) {
         try {
-            val batch = db.batch()
-            val snapshot = chatsCollection.get().await()
-            for (document in snapshot.documents) {
-                batch.delete(document.reference)
-            }
-            batch.commit().await()
+            val docRef = segmentsCollection.document()
+            val segmentId = docRef.id
+            val newSegment = ChatSegment(
+                id = segmentId,
+                title = title,
+                createdAt = System.currentTimeMillis()
+            )
+            docRef.set(newSegment).await()
+            Log.d("ChatRepository", "Added ChatSegment with ID: $segmentId")
+            return@withContext segmentId
         } catch (e: Exception) {
             e.printStackTrace()
+            return@withContext null
         }
     }
+
+    /**
+     * Retrieves or creates a default segment if none exists.
+     */
+    private suspend fun getOrCreateDefaultSegmentId(): String? = withContext(Dispatchers.IO) {
+        try {
+            val segmentsSnapshot = segmentsCollection.get().await()
+            if (segmentsSnapshot.isEmpty) {
+                val defaultSegmentId = addChatSegment("Default Chat")
+                return@withContext defaultSegmentId
+            } else {
+                // Trả về ID của segment cuối cùng (có thể tùy chỉnh logic)
+                return@withContext segmentsSnapshot.documents.last().id
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext null
+        }
+    }
+
+    /**
+     * Helper function to get messages collection reference.
+     */
+    private fun getMessagesCollection(segmentId: String) =
+        segmentsCollection.document(segmentId).collection("messages")
 }

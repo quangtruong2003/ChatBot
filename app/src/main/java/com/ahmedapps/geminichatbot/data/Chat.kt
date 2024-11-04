@@ -1,27 +1,30 @@
-// data/Chat.kt
+// Chat.kt
 package com.ahmedapps.geminichatbot.data
 
-import com.google.firebase.firestore.Exclude
 import com.google.firebase.firestore.PropertyName
 
 data class Chat(
-    val id: String = "",
-    val prompt: String = "",
-    val imageUrl: String? = null,
-    @get:PropertyName("fromUser") @set:PropertyName("fromUser")
-    var isFromUser: Boolean = false,
-    @get:PropertyName("error") @set:PropertyName("error")
+    @get:PropertyName("id")
+    var id: String = "",
+    @get:PropertyName("prompt")
+    var prompt: String = "",
+    @get:PropertyName("imageUrl")
+    var imageUrl: String? = null,
+    @get:PropertyName("isFromUser")
+    var isFromUser: Boolean = true,
+    @get:PropertyName("isError")
     var isError: Boolean = false,
-    val userId: String = "",
     @get:PropertyName("timestamp")
-    val timestamp: Long = System.currentTimeMillis()
+    var timestamp: Long = System.currentTimeMillis(),
+    @get:PropertyName("userId")
+    var userId: String = ""
 ) {
     companion object {
         fun fromPrompt(
             prompt: String,
-            imageUrl: String?,
-            isFromUser: Boolean,
-            isError: Boolean,
+            imageUrl: String? = null,
+            isFromUser: Boolean = true,
+            isError: Boolean = false,
             userId: String
         ): Chat {
             return Chat(
@@ -29,8 +32,7 @@ data class Chat(
                 imageUrl = imageUrl,
                 isFromUser = isFromUser,
                 isError = isError,
-                userId = userId,
-                timestamp = System.currentTimeMillis()
+                userId = userId
             )
         }
     }

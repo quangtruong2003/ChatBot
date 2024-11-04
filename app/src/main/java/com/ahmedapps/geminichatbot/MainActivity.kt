@@ -4,11 +4,11 @@ package com.ahmedapps.geminichatbot
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Send
@@ -27,9 +28,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -45,31 +53,12 @@ import com.ahmedapps.geminichatbot.ui.theme.Green
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
-
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-
-    private val imagePicker =
-        registerForActivityResult(
-            ActivityResultContracts.PickVisualMedia()
-        ) { uri ->
-            uri?.let {
-                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(it))
-            }
-        }
-
-    private lateinit var chatViewModel: ChatViewModel
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,18 +85,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun ChatScreen(navController: NavController) {
-        val chatViewModel: ChatViewModel = hiltViewModel()
-        this.chatViewModel = chatViewModel
+    fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {
         val chatState by chatViewModel.chatState.collectAsState()
 
         var showWelcomeMessage by remember { mutableStateOf(true) }
 
         // State để quản lý Dialog hiển thị hình ảnh trong khu vực nhập liệu
         var isImageDialogOpen by remember { mutableStateOf(false) }
+
+        // State để quản lý việc hiển thị SideDrawer
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+        val scope = rememberCoroutineScope()
 
         // Khởi tạo LazyListState để quản lý cuộn danh sách
         val listState = rememberLazyListState()
@@ -119,163 +109,194 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(stringResource(id = R.string.app_name))
-                    },
-                    actions = {
-                        IconButton(onClick = { chatViewModel.clearChat() }) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
-                        }
-                        IconButton(onClick = {
-                            FirebaseAuth.getInstance().signOut()
-                            navController.navigate("login") {
-                                popUpTo("chat") { inclusive = true }
-                            }
-                        }) {
-                            Icon(Icons.Filled.ExitToApp, contentDescription = "Đăng xuất")
-                        }
-                    }
+        // Image Picker đăng ký bên trong composable để tránh vấn đề ViewModel chưa được khởi tạo
+        val context = LocalContext.current
+        val imagePicker = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickVisualMedia(),
+            onResult = { uri: Uri? ->
+                uri?.let {
+                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(it))
+                }
+            }
+        )
+
+        // Sử dụng ModalNavigationDrawer thay vì ModalDrawer
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                SideDrawer(
+                    onClose = { scope.launch { drawerState.close() } },
+                    chatViewModel = chatViewModel
                 )
             }
-        ) { paddingValues ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize(),
-                    verticalArrangement = Arrangement.Bottom
-                ) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp),
-                        state = listState,
-                        //reverseLayout = true
-                    ) {
-                        items(chatState.chatList) { chat ->
-                            if (chat.isFromUser) {
-                                UserChatItem(
-                                    prompt = chat.prompt,
-                                    imageUrl = chat.imageUrl
-                                )
-                            } else {
-                                ModelChatItem(response = chat.prompt, isError = chat.isError)
+        ) {
+            Scaffold(
+                topBar = {
+                    CenterAlignedTopAppBar(
+                        title = {
+                            Text(
+                                text = "Gemini ChatBot",
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "Menu")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { chatViewModel.refreshChats() }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
+                            }
+                            IconButton(onClick = {
+                                FirebaseAuth.getInstance().signOut()
+                                navController.navigate("login") {
+                                    popUpTo("chat") { inclusive = true }
+                                }
+                            }) {
+                                Icon(Icons.Filled.ExitToApp, contentDescription = "Đăng xuất")
                             }
                         }
-                    }
-
-                    if (chatState.isLoading) {
-                        LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Row(
+                    )
+                }
+            ) { paddingValues ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = paddingValues.calculateTopPadding())
+                ) {
+                    // Nội dung chính của ChatScreen
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp, start = 4.dp, end = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .fillMaxSize(),
+                        verticalArrangement = Arrangement.Bottom
                     ) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp),
+                            state = listState,
+                        ) {
+                            items(chatState.chatList) { chat ->
+                                if (chat.isFromUser) {
+                                    UserChatItem(
+                                        prompt = chat.prompt,
+                                        imageUrl = chat.imageUrl
+                                    )
+                                } else {
+                                    ModelChatItem(response = parseFormattedText(chat.prompt), isError = chat.isError)
+                                }
+                            }
+                        }
 
-                        Column {
-                            chatState.imageUri?.let { uri ->
-                                Image(
-                                    painter = rememberAsyncImagePainter(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(uri)
-                                            .size(coil.size.Size.ORIGINAL)
-                                            .crossfade(true)
-                                            .build()
-                                    ),
-                                    contentDescription = "Hình ảnh đã chọn",
-                                    contentScale = ContentScale.Fit,
+                        if (chatState.isLoading) {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp, start = 4.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+
+                            Column {
+                                chatState.imageUri?.let { uri ->
+                                    Image(
+                                        painter = rememberAsyncImagePainter(
+                                            model = ImageRequest.Builder(context)
+                                                .data(uri)
+                                                .size(coil.size.Size.ORIGINAL)
+                                                .crossfade(true)
+                                                .build()
+                                        ),
+                                        contentDescription = "Hình ảnh đã chọn",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .size(40.dp)
+                                            .padding(bottom = 1.dp)
+                                            .clickable {
+                                                isImageDialogOpen = true
+                                            }
+                                    )
+                                }
+
+                                Icon(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
                                         .size(40.dp)
-                                        .padding(bottom = 1.dp)
                                         .clickable {
-                                            isImageDialogOpen = true
-                                        }
+                                            imagePicker.launch(
+                                                PickVisualMediaRequest
+                                                    .Builder()
+                                                    .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                                    .build()
+                                            )
+                                        },
+                                    imageVector = Icons.Rounded.AddPhotoAlternate,
+                                    contentDescription = "Thêm ảnh",
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            TextField(
+                                modifier = Modifier
+                                    .weight(1f),
+                                value = chatState.prompt,
+                                onValueChange = {
+                                    chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
+                                    if (it.isNotEmpty()) {
+                                        showWelcomeMessage = false
+                                    }
+                                },
+                                placeholder = {
+                                    Text(text = "Nhập tin nhắn")
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.width(8.dp))
 
                             Icon(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clickable {
-                                        imagePicker.launch(
-                                            PickVisualMediaRequest
-                                                .Builder()
-                                                .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                .build()
-                                        )
+                                        if (chatState.prompt.isNotEmpty()) {
+                                            chatViewModel.onEvent(
+                                                ChatUiEvent.SendPrompt(
+                                                    chatState.prompt,
+                                                    chatState.imageUri
+                                                )
+                                            )
+                                            showWelcomeMessage = false
+                                        }
                                     },
-                                imageVector = Icons.Rounded.AddPhotoAlternate,
-                                contentDescription = "Thêm ảnh",
+                                imageVector = Icons.Rounded.Send,
+                                contentDescription = "Gửi tin nhắn",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
+                    }
 
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        TextField(
-                            modifier = Modifier
-                                .weight(1f),
-                            value = chatState.prompt,
-                            onValueChange = {
-                                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
-                                if (it.isNotEmpty()) {
-                                    showWelcomeMessage = false
-                                }
-                            },
-                            placeholder = {
-                                Text(text = "Nhập tin nhắn")
-                            }
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        Icon(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clickable {
-                                    chatViewModel.onEvent(
-                                        ChatUiEvent.SendPrompt(
-                                            chatState.prompt,
-                                            chatState.imageUri
-                                        )
-                                    )
-                                    showWelcomeMessage = false
-                                },
-                            imageVector = Icons.Rounded.Send,
-                            contentDescription = "Gửi tin nhắn",
-                            tint = MaterialTheme.colorScheme.primary
+                    if (showWelcomeMessage && chatState.chatList.isEmpty()) {
+                        Text(
+                            modifier = Modifier.align(Alignment.Center),
+                            text = "Xin chào, tôi có thể giúp gì cho bạn?",
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
-                }
 
-                if (showWelcomeMessage && chatState.chatList.isEmpty()) {
-                    Text(
-                        modifier = Modifier.align(Alignment.Center),
-                        text = "Xin chào, tôi có thể giúp gì cho bạn?",
-                        fontSize = 20.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                // Hiển thị Dialog cho hình ảnh trong khu vực nhập liệu
-                if (isImageDialogOpen && chatState.imageUri != null) {
-                    chatState.imageUri?.let { uri ->
+                    // Hiển thị Dialog cho hình ảnh trong khu vực nhập liệu
+                    if (isImageDialogOpen && chatState.imageUri != null) {
                         ImageDialog(
-                            imageUri = uri,
+                            imageUri = chatState.imageUri!!,
                             onDismiss = { isImageDialogOpen = false },
                             onDelete = {
                                 chatViewModel.onEvent(ChatUiEvent.OnImageSelected(null))
@@ -286,10 +307,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
     }
 
-
-
+    /**
+     * Composable hiển thị tin nhắn từ người dùng
+     */
     @Composable
     fun UserChatItem(prompt: String, imageUrl: String?) {
 
@@ -343,14 +366,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
-
-
-
+    /**
+     * Composable hiển thị phản hồi từ bot
+     */
     @Composable
-    fun ModelChatItem(response: String, isError: Boolean) {
+    fun ModelChatItem(response: AnnotatedString, isError: Boolean) {
         val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Green
-        val annotatedResponse = parseFormattedText(response)
 
         Column(
             modifier = Modifier.padding(end = 100.dp, bottom = 16.dp)
@@ -359,15 +380,124 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
                     .fillMaxWidth()
-
                     .background(backgroundColor)
                     .padding(16.dp),
-                text = annotatedResponse,
+                text = response,
                 fontSize = 17.sp,
                 color = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
+
+    /**
+     * Composable hiển thị Dialog khi hình ảnh được chọn từ thư viện
+     */
+    @Composable
+    fun ImageDialog(
+        imageUri: Uri,
+        onDismiss: () -> Unit,
+        onDelete: () -> Unit
+    ) {
+        Dialog(onDismissRequest = onDismiss) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 8.dp,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    // Nút đóng Dialog
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Đóng",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    // Hiển thị hình ảnh phóng to
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUri)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Hình ảnh phóng to",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .align(Alignment.CenterHorizontally)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Nút xóa hình ảnh
+                    Button(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    ) {
+                        Text(text = "Xóa", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Composable hiển thị Dialog khi hình ảnh được nhấp vào tin nhắn
+     */
+    @Composable
+    fun ImageUrlDialog(
+        imageUrl: String,
+        onDismiss: () -> Unit
+    ) {
+        Dialog(onDismissRequest = onDismiss) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 8.dp,
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    horizontalAlignment = Alignment.End
+                ) {
+                    // Nút đóng Dialog
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Đóng",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+
+                    // Hiển thị hình ảnh phóng to
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Hình ảnh phóng to",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .align(Alignment.CenterHorizontally)
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Hàm phân tích và định dạng văn bản dựa trên các định dạng Markdown đơn giản
+     */
     fun parseFormattedText(input: String): AnnotatedString {
         val listItemPattern = "^\\*\\s+".toRegex()
         val patterns = listOf(
@@ -425,109 +555,4 @@ class MainActivity : ComponentActivity() {
 
         return builder.toAnnotatedString()
     }
-
-
-    @Composable
-    fun ImageDialog(
-        imageUri: Uri,
-        onDismiss: () -> Unit,
-        onDelete: () -> Unit
-    ) {
-        Dialog(onDismissRequest = onDismiss) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.background,
-                tonalElevation = 8.dp,
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    // Nút đóng Dialog
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Đóng",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    // Hiển thị hình ảnh phóng to
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(imageUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Hình ảnh phóng to",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .align(Alignment.CenterHorizontally)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Nút xóa hình ảnh
-                    Button(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    ) {
-                        Text(text = "Xóa", color = Color.White)
-                    }
-                }
-            }
-        }
-    }
-
-
-    @Composable
-    fun ImageUrlDialog(
-        imageUrl: String,
-        onDismiss: () -> Unit
-    ) {
-        Dialog(onDismissRequest = onDismiss) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.background,
-                tonalElevation = 8.dp,
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    // Nút đóng Dialog
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Đóng",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-
-                    // Hiển thị hình ảnh phóng to
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(imageUrl)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Hình ảnh phóng to",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .align(Alignment.CenterHorizontally)
-                    )
-                }
-            }
-        }
-    }
-
-
-
 }
