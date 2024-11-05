@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -21,7 +22,7 @@ import java.util.*
 
 @Composable
 fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
-    val chatState = chatViewModel.chatState.collectAsState().value
+    val chatState by chatViewModel.chatState.collectAsState()
     val searchQuery = chatState.searchQuery
     val completedSegments = chatState.chatSegments.filter { it.title != "New Chat" }
 
@@ -33,29 +34,36 @@ fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
                 .fillMaxWidth(0.85f)
                 .padding(16.dp)
         ) {
-            // Nút đóng
-            IconButton(onClick = onClose) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Đóng"
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
+//            // Nút đóng
+//            IconButton(onClick = onClose) {
+//                Icon(
+//                    imageVector = Icons.Filled.Close,
+//                    contentDescription = "Đóng"
+//                )
+//            }
+//
+//            Spacer(modifier = Modifier.height(16.dp))
 
             // Ô tìm kiếm
-            SearchBar(searchQuery) {
-                chatViewModel.onEvent(ChatUiEvent.SearchSegments(it))
-            }
+            SearchBar(
+                searchQuery = searchQuery,
+                onSearchQueryChanged = { query ->
+                    chatViewModel.onEvent(ChatUiEvent.SearchSegments(query))
+                },
+                onClearSearch = {
+                    chatViewModel.onEvent(ChatUiEvent.ClearSearch)
+                }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Danh sách các đoạn chat đã hoàn thành
             CompletedChatList(
-                completedSegments,
-                chatState.selectedSegment,
+                segments = completedSegments,
+                selectedSegment = chatState.selectedSegment,
                 onSegmentSelected = { segment ->
                     chatViewModel.onEvent(ChatUiEvent.SelectSegment(segment))
+                    chatViewModel.onEvent(ChatUiEvent.ClearSearch)
                     onClose()
                 }
             )
@@ -64,13 +72,27 @@ fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
 }
 
 @Composable
-fun SearchBar(searchQuery: String, onSearchQueryChanged: (String) -> Unit) {
+fun SearchBar(
+    searchQuery: String,
+    onSearchQueryChanged: (String) -> Unit,
+    onClearSearch: () -> Unit
+) {
     OutlinedTextField(
         value = searchQuery,
         onValueChange = onSearchQueryChanged,
         label = { Text("Tìm kiếm") },
         modifier = Modifier.fillMaxWidth(),
-        singleLine = true
+        singleLine = true,
+        trailingIcon = {
+            if (searchQuery.isNotEmpty()) {
+                IconButton(onClick = onClearSearch) {
+                    Icon(
+                        imageVector = Icons.Filled.Clear,
+                        contentDescription = "Xóa"
+                    )
+                }
+            }
+        }
     )
 }
 
@@ -81,7 +103,7 @@ fun CompletedChatList(
     onSegmentSelected: (ChatSegment) -> Unit
 ) {
     Text(
-        text = "Đoạn Chat Đã Hoàn Thành",
+        text = "Lịch sử",
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier.padding(bottom = 8.dp)
     )
@@ -121,7 +143,7 @@ fun ChatSegmentItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(modifier = Modifier.height(4.dp)) // Thêm khoảng cách giữa tiêu đề và ngày
+            Spacer(modifier = Modifier.height(4.dp))
             val sdf = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault())
             val date = Date(segment.createdAt)
             Text(

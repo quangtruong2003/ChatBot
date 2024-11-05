@@ -10,4 +10,5 @@ sealed class ChatUiEvent {
     data class OnImageSelected(val uri: Uri?) : ChatUiEvent()
     data class SearchSegments(val query: String) : ChatUiEvent()
     data class SelectSegment(val segment: ChatSegment) : ChatUiEvent()
+    object ClearSearch : ChatUiEvent()
 }

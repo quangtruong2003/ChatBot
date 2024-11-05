@@ -9,6 +9,7 @@ import com.ahmedapps.geminichatbot.data.Chat
 import com.ahmedapps.geminichatbot.data.ChatRepository
 import com.ahmedapps.geminichatbot.data.ChatSegment
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -24,9 +25,34 @@ class ChatViewModel @Inject constructor(
     // Thêm biến để theo dõi việc cập nhật tiêu đề
     private var hasUpdatedTitle = false
 
+    // Thêm MutableStateFlow cho search query với debounce
+    private val searchQueryFlow = MutableStateFlow("")
+
     init {
         loadChatSegments()
         loadDefaultSegmentChatHistory()
+
+        // Thu thập searchQueryFlow với debounce để xử lý tìm kiếm hiệu quả
+        viewModelScope.launch {
+            searchQueryFlow
+                .debounce(300) // Chờ 300ms sau khi người dùng dừng nhập
+                .distinctUntilChanged()
+                .collect { query ->
+                    handleSearchQuery(query)
+                }
+        }
+    }
+
+    /**
+     * Xử lý tìm kiếm dựa trên query
+     */
+    private suspend fun handleSearchQuery(query: String) {
+        if (query.isEmpty()) {
+            loadChatSegments()
+        } else {
+            val results = repository.searchChatSegments(query)
+            _chatState.update { it.copy(chatSegments = results) }
+        }
     }
 
     /**
@@ -83,7 +109,8 @@ class ChatViewModel @Inject constructor(
                         it.copy(
                             selectedSegment = newSegment,
                             chatList = emptyList(),
-                            chatSegments = it.chatSegments + newSegment
+                            chatSegments = it.chatSegments + newSegment,
+                            searchQuery = "" // Đặt lại search query khi tạo segment mới
                         )
                     }
                     hasUpdatedTitle = false // Reset flag khi tạo segment mới
@@ -122,14 +149,9 @@ class ChatViewModel @Inject constructor(
                 _chatState.update { it.copy(imageUri = event.uri) }
             }
             is ChatUiEvent.SearchSegments -> {
-                viewModelScope.launch {
-                    if (event.query.isEmpty()) {
-                        loadChatSegments()
-                    } else {
-                        val results = repository.searchChatSegments(event.query)
-                        _chatState.update { it.copy(chatSegments = results, searchQuery = event.query) }
-                    }
-                }
+                // Cập nhật searchQuery và searchQueryFlow
+                _chatState.update { it.copy(searchQuery = event.query) }
+                searchQueryFlow.value = event.query
             }
             is ChatUiEvent.SelectSegment -> {
                 _chatState.update { it.copy(selectedSegment = event.segment, isLoading = true) }
@@ -139,6 +161,15 @@ class ChatViewModel @Inject constructor(
                     val chats = repository.getChatHistoryForSegment(event.segment.id)
                     _chatState.update { it.copy(chatList = chats, isLoading = false) }
                 }
+                // Xóa nội dung tìm kiếm khi chọn đoạn chat
+                viewModelScope.launch {
+                    searchQueryFlow.value = ""
+                }
+            }
+            is ChatUiEvent.ClearSearch -> {
+                // Đặt lại searchQuery và searchQueryFlow về rỗng
+                _chatState.update { it.copy(searchQuery = "") }
+                searchQueryFlow.value = ""
             }
         }
     }
@@ -175,17 +206,17 @@ class ChatViewModel @Inject constructor(
             )
         }
 
-//        // Nếu đây là đoạn chat mới, tạo một ChatSegment mới
-//        if (_chatState.value.chatSegments.isEmpty() || _chatState.value.selectedSegment == null) {
-//            val title = repository.generateChatSegmentTitleFromResponse(prompt)
-//            val newSegmentId = repository.addChatSegment(title)
-//            if (newSegmentId != null) {
-//                val newSegment = ChatSegment(id = newSegmentId, title = title, createdAt = System.currentTimeMillis())
-//                _chatState.update { it.copy(selectedSegment = newSegment, chatSegments = it.chatSegments + newSegment) }
-//                hasUpdatedTitle = false
-//                loadChatHistoryForSegment(newSegmentId)
-//            }
-//        }
+        //        // Nếu đây là đoạn chat mới, tạo một ChatSegment mới
+        //        if (_chatState.value.chatSegments.isEmpty() || _chatState.value.selectedSegment == null) {
+        //            val title = repository.generateChatSegmentTitleFromResponse(prompt)
+        //            val newSegmentId = repository.addChatSegment(title)
+        //            if (newSegmentId != null) {
+        //                val newSegment = ChatSegment(id = newSegmentId, title = title, createdAt = System.currentTimeMillis())
+        //                _chatState.update { it.copy(selectedSegment = newSegment, chatSegments = it.chatSegments + newSegment) }
+        //                hasUpdatedTitle = false
+        //                loadChatHistoryForSegment(newSegmentId)
+        //            }
+        //        }
     }
 
     /**
@@ -237,7 +268,7 @@ class ChatViewModel @Inject constructor(
     fun clearChat() {
         viewModelScope.launch {
             repository.deleteAllChats()
-            _chatState.update { it.copy(chatList = emptyList(), chatSegments = emptyList(), selectedSegment = null) }
+            _chatState.update { it.copy(chatList = emptyList(), chatSegments = emptyList(), selectedSegment = null, searchQuery = "") }
         }
     }
 }

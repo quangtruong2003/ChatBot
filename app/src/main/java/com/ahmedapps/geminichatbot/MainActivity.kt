@@ -347,7 +347,7 @@ class MainActivity : ComponentActivity() {
             Text(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(15.dp))
                     .background(MaterialTheme.colorScheme.primary)
                     .padding(16.dp),
                 text = prompt,
@@ -377,8 +377,8 @@ class MainActivity : ComponentActivity() {
         ) {
             Text(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
                     .fillMaxWidth()
+                    .clip(RoundedCornerShape(15.dp))
                     .background(backgroundColor)
                     .padding(16.dp),
                 text = response,
