@@ -79,7 +79,7 @@ class ChatRepository @Inject constructor(
      * Generates the full prompt by concatenating chat history.
      */
     private suspend fun getFullPrompt(currentPrompt: String): String = withContext(Dispatchers.IO) {
-        val chatHistory = getChatHistory()
+        val chatHistory = getChatHistoryForSegment(_selectedSegmentId)
         buildString {
             for (chat in chatHistory.reversed()) {
                 append(if (chat.isFromUser) "User: " else "Bot: ")
@@ -106,8 +106,11 @@ class ChatRepository @Inject constructor(
                 userId = userId
             )
             insertChat(chat)
-            // Cập nhật tiêu đề đoạn chat
-            updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
+            // Cập nhật tiêu đề đoạn chat nếu chưa cập nhật
+            if (!_hasUpdatedTitle) {
+                updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
+                _hasUpdatedTitle = true
+            }
             chat
         } catch (e: Exception) {
             e.printStackTrace()
@@ -161,8 +164,11 @@ class ChatRepository @Inject constructor(
                 userId = userId
             )
             insertChat(chat)
-            // Cập nhật tiêu đề đoạn chat
-            updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
+            // Cập nhật tiêu đề đoạn chat nếu chưa cập nhật
+            if (!_hasUpdatedTitle) {
+                updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
+                _hasUpdatedTitle = true
+            }
             chat
         } catch (e: Exception) {
             e.printStackTrace()
@@ -179,24 +185,21 @@ class ChatRepository @Inject constructor(
     }
 
     /**
-     * Retrieves all chat messages across all segments.
+     * Retrieves all chat messages for a specific segment.
      */
-    suspend fun getChatHistory(): List<Chat> = withContext(Dispatchers.IO) {
-        val allChats = mutableListOf<Chat>()
-        try {
-            val segmentsSnapshot = segmentsCollection.get().await()
-            for (segmentDoc in segmentsSnapshot.documents) {
-                val messagesSnapshot = segmentDoc.reference.collection("messages")
-                    .orderBy("timestamp", Query.Direction.ASCENDING).get().await()
-                val messages = messagesSnapshot.documents.mapNotNull { it.toObject(Chat::class.java) }
-                allChats.addAll(messages)
-            }
-            // Sort chats by timestamp
-            allChats.sortBy { it.timestamp }
+    suspend fun getChatHistoryForSegment(segmentId: String?): List<Chat> = withContext(Dispatchers.IO) {
+        if (segmentId == null) return@withContext emptyList()
+        return@withContext try {
+            getMessagesCollection(segmentId)
+                .orderBy("timestamp", Query.Direction.ASCENDING)
+                .get()
+                .await()
+                .documents
+                .mapNotNull { it.toObject(Chat::class.java) }
         } catch (e: Exception) {
             e.printStackTrace()
+            emptyList()
         }
-        return@withContext allChats
     }
 
     /**
@@ -204,6 +207,7 @@ class ChatRepository @Inject constructor(
      * Đảm bảo rằng một đoạn chat đã được chọn; nếu không, tạo một đoạn chat mặc định.
      */
     private var _selectedSegmentId: String? = null // Biến lưu ID đoạn chat hiện tại
+    private var _hasUpdatedTitle: Boolean = false // Biến theo dõi việc cập nhật tiêu đề
 
     suspend fun insertChat(chat: Chat, segmentId: String? = null) = withContext(Dispatchers.IO) {
         try {
@@ -223,22 +227,11 @@ class ChatRepository @Inject constructor(
     }
 
     /**
-     * Generates a title for a chat segment based on a question and first request.
-     */
-    suspend fun generateChatSegmentTitle(question: String, firstRequest: String): String {
-        // Tạo tiêu đề từ câu hỏi, lấy 4-5 từ đầu
-        val questionWords = question.split(" ").take(5).joinToString(" ")
-        // Lấy request đầu tiên, giới hạn 10 ký tự
-        val requestSnippet = firstRequest.take(10)
-        return "$questionWords: $requestSnippet..."
-    }
-
-    /**
      * Generates a title for a chat segment based on the API response.
      */
-    suspend fun generateChatSegmentTitleFromResponse(firstResponse: String): String {
+    suspend fun generateChatSegmentTitleFromResponse(chat: String): String {
         return try {
-            val prompt = "Đặt tiêu đề chính xác có 4 đến 6 chữ + '$firstResponse'"
+            val prompt = "Đặt 1 tiêu đề duy nhất chính xác có 4 đến 6 chữ + '$chat'. Và bạn hãy chỉ trả lời tiêu đề duy nhất bạn đặt. Không có gì khác ngoài tiêu đề."
             val response = generativeModel.generateContent(prompt)
             response.text ?: "Untitled Segment"
         } catch (e: Exception) {
@@ -289,23 +282,6 @@ class ChatRepository @Inject constructor(
             Log.d("ChatRepository", "All chats deleted successfully.")
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    /**
-     * Retrieves messages from a specific segment.
-     */
-    suspend fun getChatHistoryForSegment(segmentId: String): List<Chat> = withContext(Dispatchers.IO) {
-        return@withContext try {
-            getMessagesCollection(segmentId)
-                .orderBy("timestamp", Query.Direction.ASCENDING)
-                .get()
-                .await()
-                .documents
-                .mapNotNull { it.toObject(Chat::class.java) }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
         }
     }
 
@@ -385,13 +361,19 @@ class ChatRepository @Inject constructor(
      */
     private suspend fun getOrCreateDefaultSegmentId(): String? = withContext(Dispatchers.IO) {
         try {
-            val segmentsSnapshot = segmentsCollection.get().await()
-            if (segmentsSnapshot.isEmpty) {
+            // Sắp xếp các segment theo thời gian tạo giảm dần
+            val segmentsSnapshot = segmentsCollection
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .get()
+                .await()
+
+            return@withContext if (segmentsSnapshot.isEmpty) {
+                // Tạo một segment mặc định nếu chưa có
                 val defaultSegmentId = addChatSegment("Default Chat")
-                return@withContext defaultSegmentId
+                defaultSegmentId
             } else {
-                // Trả về ID của segment cuối cùng (có thể tùy chỉnh logic)
-                return@withContext segmentsSnapshot.documents.last().id
+                // Trả về ID của segment mới nhất
+                segmentsSnapshot.documents.first().id
             }
         } catch (e: Exception) {
             e.printStackTrace()

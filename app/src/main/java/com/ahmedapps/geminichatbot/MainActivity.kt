@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
                     CenterAlignedTopAppBar(
                         title = {
                             Text(
-                                text = "Gemini ChatBot",
+                                text = "ChatAI",
                                 modifier = Modifier.fillMaxWidth(),
                                 textAlign = TextAlign.Center
                             )
@@ -307,7 +307,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
     }
 
     /**

@@ -59,14 +59,15 @@ class AuthViewModel @Inject constructor(
 
     fun register(email: String, password: String) {
         _authState.value = AuthState(isLoading = true)
-        auth.createUserWithEmailAndPassword(email, password)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    _authState.value = AuthState(isSuccess = true)
-                } else {
-                    _authState.value = AuthState(errorMessage = task.exception?.message)
-                }
+        viewModelScope.launch {
+            try {
+                auth.createUserWithEmailAndPassword(email, password).await()
+                _authState.value = AuthState(isSuccess = true, isAuthenticated = true, userId = auth.currentUser?.uid ?: "")
+            } catch (e: Exception) {
+                _authState.value = AuthState(errorMessage = e.message, isLoading = false)
+                Log.e("AuthViewModel", "Đăng ký thất bại", e)
             }
+        }
     }
 
     fun resetState() {

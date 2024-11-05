@@ -21,6 +21,9 @@ class ChatViewModel @Inject constructor(
     private val _chatState = MutableStateFlow(ChatState())
     val chatState: StateFlow<ChatState> = _chatState.asStateFlow()
 
+    // Thêm biến để theo dõi việc cập nhật tiêu đề
+    private var hasUpdatedTitle = false
+
     init {
         loadChatSegments()
         loadDefaultSegmentChatHistory()
@@ -44,7 +47,7 @@ class ChatViewModel @Inject constructor(
             val segments = repository.getChatSegments()
             if (segments.isNotEmpty()) {
                 val defaultSegment = segments.first()
-                _chatState.update { it.copy(selectedSegment = defaultSegment) }
+                _chatState.update { it.copy(selectedSegment = defaultSegment, isLoading = true) }
                 loadChatHistoryForSegment(defaultSegment.id)
             }
         }
@@ -56,41 +59,43 @@ class ChatViewModel @Inject constructor(
     private fun loadChatHistoryForSegment(segmentId: String) {
         viewModelScope.launch {
             val chats = repository.getChatHistoryForSegment(segmentId)
-            _chatState.update { it.copy(chatList = chats) }
+            _chatState.update { it.copy(chatList = chats, isLoading = false) }
         }
     }
 
     /**
-     * Refreshes chat history and saves the current segment to completed segments.
+     * Refreshes chats by creating a new chat segment.
      */
     fun refreshChats() {
         viewModelScope.launch {
             try {
                 _chatState.update { it.copy(isLoading = true) }
-                val selectedSegment = _chatState.value.selectedSegment
-                if (selectedSegment != null) {
-                    // Lưu đoạn chat hiện tại vào completedSegments
-                    _chatState.value.selectedSegment?.let { segment ->
-                        _chatState.update {
-                            it.copy(
-                                completedSegments = it.completedSegments + segment
-                            )
-                        }
+                // Tạo một đoạn chat mới
+                val newSegmentTitle = "Chat mới ${System.currentTimeMillis()}"
+                val newSegmentId = repository.addChatSegment(newSegmentTitle)
+                if (newSegmentId != null) {
+                    val newSegment = ChatSegment(
+                        id = newSegmentId,
+                        title = newSegmentTitle,
+                        createdAt = System.currentTimeMillis()
+                    )
+                    _chatState.update {
+                        it.copy(
+                            selectedSegment = newSegment,
+                            chatList = emptyList(),
+                            chatSegments = it.chatSegments + newSegment
+                        )
                     }
-                    // Tải lại lịch sử chat
-                    val chats = repository.getChatHistoryForSegment(selectedSegment.id)
-                    _chatState.update { it.copy(chatList = chats, isLoading = false) }
-                } else {
-                    // Nếu không có segment nào được chọn, tải tất cả lịch sử chat
-                    val chats = repository.getChatHistory()
-                    _chatState.update { it.copy(chatList = chats, isLoading = false) }
+                    hasUpdatedTitle = false // Reset flag khi tạo segment mới
                 }
+                _chatState.update { it.copy(isLoading = false) }
             } catch (e: Exception) {
                 e.printStackTrace()
                 _chatState.update { it.copy(isLoading = false) }
             }
         }
     }
+
 
     /**
      * Handles UI events.
@@ -127,11 +132,12 @@ class ChatViewModel @Inject constructor(
                 }
             }
             is ChatUiEvent.SelectSegment -> {
-                _chatState.update { it.copy(selectedSegment = event.segment) }
-                // Load chat messages for the selected segment
+                _chatState.update { it.copy(selectedSegment = event.segment, isLoading = true) }
+                hasUpdatedTitle = false // Reset flag khi chọn segment mới
+                // Load chat messages cho segment đã chọn
                 viewModelScope.launch {
                     val chats = repository.getChatHistoryForSegment(event.segment.id)
-                    _chatState.update { it.copy(chatList = chats) }
+                    _chatState.update { it.copy(chatList = chats, isLoading = false) }
                 }
             }
         }
@@ -169,17 +175,17 @@ class ChatViewModel @Inject constructor(
             )
         }
 
-        // Nếu đây là đoạn chat mới, tạo một ChatSegment mới
-        if (_chatState.value.chatSegments.isEmpty() || _chatState.value.selectedSegment == null) {
-            val title = repository.generateChatSegmentTitle(prompt, prompt)
-            val newSegmentId = repository.addChatSegment(title)
-            if (newSegmentId != null) {
-                val newSegment = ChatSegment(id = newSegmentId, title = title, createdAt = System.currentTimeMillis())
-                _chatState.update { it.copy(selectedSegment = newSegment) }
-                loadChatSegments()
-                loadChatHistoryForSegment(newSegmentId)
-            }
-        }
+//        // Nếu đây là đoạn chat mới, tạo một ChatSegment mới
+//        if (_chatState.value.chatSegments.isEmpty() || _chatState.value.selectedSegment == null) {
+//            val title = repository.generateChatSegmentTitleFromResponse(prompt)
+//            val newSegmentId = repository.addChatSegment(title)
+//            if (newSegmentId != null) {
+//                val newSegment = ChatSegment(id = newSegmentId, title = title, createdAt = System.currentTimeMillis())
+//                _chatState.update { it.copy(selectedSegment = newSegment, chatSegments = it.chatSegments + newSegment) }
+//                hasUpdatedTitle = false
+//                loadChatHistoryForSegment(newSegmentId)
+//            }
+//        }
     }
 
     /**
@@ -195,8 +201,9 @@ class ChatViewModel @Inject constructor(
         }
 
         // Sau khi nhận được phản hồi đầu tiên, tạo và đặt tiêu đề đoạn chat
-        if (_chatState.value.chatList.size == 1 && !chat.isFromUser) {
+        if (!hasUpdatedTitle && !chat.isFromUser) {
             repository.updateSegmentTitleFromResponse(_chatState.value.selectedSegment?.id, chat.prompt)
+            hasUpdatedTitle = true
             // Tải lại các đoạn chat để cập nhật tiêu đề
             loadChatSegments()
         }
@@ -215,8 +222,9 @@ class ChatViewModel @Inject constructor(
         }
 
         // Sau khi nhận được phản hồi đầu tiên, tạo và đặt tiêu đề đoạn chat
-        if (_chatState.value.chatList.size == 1 && !chat.isFromUser) {
+        if (!hasUpdatedTitle && !chat.isFromUser) {
             repository.updateSegmentTitleFromResponse(_chatState.value.selectedSegment?.id, chat.prompt)
+            hasUpdatedTitle = true
             // Tải lại các đoạn chat để cập nhật tiêu đề
             loadChatSegments()
         }
