@@ -171,6 +171,11 @@ class ChatViewModel @Inject constructor(
                 _chatState.update { it.copy(searchQuery = "") }
                 searchQueryFlow.value = ""
             }
+            is ChatUiEvent.DeleteSegment -> {
+                viewModelScope.launch {
+                    deleteSegment(event.segment)
+                }
+            }
         }
     }
 
@@ -269,6 +274,38 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             repository.deleteAllChats()
             _chatState.update { it.copy(chatList = emptyList(), chatSegments = emptyList(), selectedSegment = null, searchQuery = "") }
+        }
+    }
+    /**
+     * Xóa một đoạn chat và tất cả các cuộc trò chuyện liên quan.
+     */
+    private suspend fun deleteSegment(segment: ChatSegment) {
+        try {
+            _chatState.update { it.copy(isLoading = true) }
+
+            // Xóa đoạn chat từ repository
+            repository.deleteChatSegment(segment.id)
+
+            // Cập nhật trạng thái bằng cách loại bỏ đoạn chat đã xóa
+            val updatedSegments = _chatState.value.chatSegments.filter { it.id != segment.id }
+            _chatState.update { it.copy(chatSegments = updatedSegments) }
+
+            // Nếu đoạn chat đã xóa là đoạn được chọn, chọn một đoạn khác
+            if (_chatState.value.selectedSegment?.id == segment.id) {
+                val newSelectedSegment = updatedSegments.firstOrNull()
+                _chatState.update {
+                    it.copy(
+                        selectedSegment = newSelectedSegment,
+                        chatList = newSelectedSegment?.let { seg -> repository.getChatHistoryForSegment(seg.id) } ?: emptyList()
+                    )
+                }
+            }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Tùy chọn: xử lý lỗi bằng cách hiển thị Snackbar hoặc thông báo tương tự
+        } finally {
+            _chatState.update { it.copy(isLoading = false) }
         }
     }
 }
