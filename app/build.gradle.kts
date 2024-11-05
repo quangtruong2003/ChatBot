@@ -104,5 +104,7 @@ dependencies {
     //App check
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
     implementation("com.google.firebase:firebase-appcheck")
+
+    implementation("androidx.compose.material3:material3:1.3.1")
 }
 

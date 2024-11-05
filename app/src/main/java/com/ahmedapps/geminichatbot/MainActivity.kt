@@ -12,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -53,6 +54,8 @@ import com.ahmedapps.geminichatbot.ui.theme.Green
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
@@ -101,6 +104,9 @@ class MainActivity : ComponentActivity() {
 
         // Khởi tạo LazyListState để quản lý cuộn danh sách
         val listState = rememberLazyListState()
+
+        // Khởi tạo SnackbarHostState
+        val snackbarHostState = remember { SnackbarHostState() }
 
         // LaunchedEffect để tự động cuộn xuống cuối danh sách khi có tin nhắn mới
         LaunchedEffect(chatState.chatList.size) {
@@ -159,8 +165,25 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     )
+                },
+                // Tùy chỉnh SnackbarHost để điều chỉnh vị trí
+                snackbarHost = {
+                    SnackbarHost(
+                        hostState = snackbarHostState,
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        snackbar = { snackbarData ->
+                            Snackbar(
+                                snackbarData = snackbarData,
+                                modifier = Modifier
+                                    .padding(bottom = 65.dp)
+                                    .fillMaxWidth()
+                            )
+                        }
+                    )
                 }
             ) { paddingValues ->
+                val clipboardManager = LocalClipboardManager.current
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -183,10 +206,25 @@ class MainActivity : ComponentActivity() {
                                 if (chat.isFromUser) {
                                     UserChatItem(
                                         prompt = chat.prompt,
-                                        imageUrl = chat.imageUrl
+                                        imageUrl = chat.imageUrl,
+                                        onLongPress = { textToCopy ->
+                                            scope.launch {
+                                                clipboardManager.setText(AnnotatedString(textToCopy))
+                                                snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
+                                            }
+                                        }
                                     )
                                 } else {
-                                    ModelChatItem(response = parseFormattedText(chat.prompt), isError = chat.isError)
+                                    ModelChatItem(
+                                        response = parseFormattedText(chat.prompt),
+                                        isError = chat.isError,
+                                        onLongPress = { textToCopy ->
+                                            scope.launch {
+                                                clipboardManager.setText(AnnotatedString(textToCopy))
+                                                snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
+                                            }
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -309,16 +347,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Composable hiển thị tin nhắn từ người dùng
-     */
+
     @Composable
-    fun UserChatItem(prompt: String, imageUrl: String?) {
+    fun UserChatItem(prompt: String, imageUrl: String?, onLongPress: (String) -> Unit) {
 
         var isImageDialogOpen by remember { mutableStateOf(false) }
 
         Column(
-            modifier = Modifier.padding(start = 100.dp, bottom = 16.dp)
+            modifier = Modifier
+                .padding(start = 100.dp, bottom = 16.dp)
         ) {
             imageUrl?.let { url ->
                 Box(
@@ -340,6 +377,13 @@ class MainActivity : ComponentActivity() {
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        onLongPress(prompt)
+                                    }
+                                )
+                            }
                     )
                 }
             }
@@ -347,9 +391,16 @@ class MainActivity : ComponentActivity() {
             Text(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(15.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.primary)
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onLongPress = {
+                                onLongPress(prompt)
+                            }
+                        )
+                    },
                 text = prompt,
                 fontSize = 17.sp,
                 color = MaterialTheme.colorScheme.onPrimary
@@ -365,15 +416,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+
     /**
      * Composable hiển thị phản hồi từ bot
      */
     @Composable
-    fun ModelChatItem(response: AnnotatedString, isError: Boolean) {
+    fun ModelChatItem(response: AnnotatedString, isError: Boolean, onLongPress: (String) -> Unit) {
         val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Green
 
         Column(
-            modifier = Modifier.padding(end = 100.dp, bottom = 16.dp)
+            modifier = Modifier
+                .padding(end = 100.dp, bottom = 16.dp)
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = {
+                            onLongPress(response.text)
+                        }
+                    )
+                }
         ) {
             Text(
                 modifier = Modifier
@@ -387,6 +448,8 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
+
+
 
     /**
      * Composable hiển thị Dialog khi hình ảnh được chọn từ thư viện
@@ -509,7 +572,7 @@ class MainActivity : ComponentActivity() {
         val lines = input.lines()
         var listItemNumber = 1
 
-        for (line in lines) {
+        for ((index, line) in lines.withIndex()) {
             var processedLine = line
             if (listItemPattern.containsMatchIn(line)) {
                 // Thay thế '* ' bằng 'n. '
@@ -549,9 +612,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            builder.append("\n") // Thêm xuống dòng sau mỗi dòng
+            // Thêm xuống dòng nếu không phải là dòng cuối cùng
+            if (index != lines.lastIndex) {
+                builder.append("\n")
+            }
         }
 
         return builder.toAnnotatedString()
     }
+
 }
