@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,6 +69,41 @@ class AuthViewModel @Inject constructor(
                 Log.e("AuthViewModel", "Đăng ký thất bại", e)
             }
         }
+    }
+
+    /**
+     * Hàm xử lý xác thực với Firebase thông qua Google Sign-In
+     *
+     * @param idToken Token ID từ Google Sign-In
+     */
+    fun firebaseAuthWithGoogle(idToken: String) {
+        _authState.value = _authState.value.copy(isLoading = true)
+        viewModelScope.launch {
+            try {
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                val authResult = auth.signInWithCredential(credential).await()
+                val user = authResult.user
+                _authState.value = AuthState(
+                    isSuccess = true,
+                    isAuthenticated = true,
+                    userId = user?.uid ?: "",
+                    isLoading = false
+                )
+            } catch (e: Exception) {
+                _authState.value = AuthState(
+                    isLoading = false,
+                    errorMessage = e.message
+                )
+                Log.e("AuthViewModel", "Google sign in failed", e)
+            }
+        }
+    }
+
+    /**
+     * Hàm cập nhật thông báo lỗi
+     */
+    fun updateError(message: String) {
+        _authState.value = _authState.value.copy(errorMessage = message)
     }
 
     fun resetState() {

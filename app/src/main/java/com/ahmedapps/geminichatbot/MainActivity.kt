@@ -58,6 +58,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.ahmedapps.geminichatbot.auth.RegistrationScreen
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -74,11 +77,30 @@ class MainActivity : ComponentActivity() {
 
                 NavHost(navController, startDestination = startDestination) {
                     composable("login") {
-                        LoginScreen(onLoginSuccess = {
-                            navController.navigate("chat") {
-                                popUpTo("login") { inclusive = true }
+                        LoginScreen(
+                            onLoginSuccess = {
+                                navController.navigate("chat") {
+                                    popUpTo("login") { inclusive = true }
+                                }
+                            },
+                            onNavigateToRegister = {
+                                navController.navigate("register")
                             }
-                        })
+                        )
+                    }
+                    composable("register") {
+                        RegistrationScreen(
+                            onRegistrationSuccess = {
+                                navController.navigate("chat") {
+                                    popUpTo("register") { inclusive = true }
+                                }
+                            },
+                            onNavigateToLogin = {
+                                navController.navigate("login") {
+                                    popUpTo("register") { inclusive = true }
+                                }
+                            }
+                        )
                     }
                     composable("chat") {
                         ChatScreen(navController)
@@ -157,12 +179,18 @@ class MainActivity : ComponentActivity() {
                             }
                             IconButton(onClick = {
                                 FirebaseAuth.getInstance().signOut()
-                                navController.navigate("login") {
-                                    popUpTo("chat") { inclusive = true }
+                                GoogleSignIn.getClient(
+                                    context,
+                                    GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
+                                ).signOut().addOnCompleteListener {
+                                    navController.navigate("login") {
+                                        popUpTo("chat") { inclusive = true }
+                                    }
                                 }
                             }) {
                                 Icon(Icons.Filled.ExitToApp, contentDescription = "Đăng xuất")
                             }
+
                         }
                     )
                 },

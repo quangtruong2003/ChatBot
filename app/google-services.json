@@ -12,7 +12,20 @@
           "package_name": "com.ahmedapps.geminichatbot"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "333340296800-4t0hmiqbqkvvvafpnim9a6r709uohr41.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ahmedapps.geminichatbot",
+            "certificate_hash": "9e4d0b02cf627feaf5e845bf9f2612ba741d4c90"
+          }
+        },
+        {
+          "client_id": "333340296800-l724bi05pvp1g576ganajjr2jhn604vc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAgPGNJdmBJiaVF2qjwrwyOt2Bn65kqYYE"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "333340296800-l724bi05pvp1g576ganajjr2jhn604vc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
