@@ -82,11 +82,11 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
 
     implementation("io.coil-kt:coil-compose:2.5.0")
 
-    implementation("androidx.compose.material:material-icons-extended:1.7.4")
+    implementation("androidx.compose.material:material-icons-extended:1.7.5")
 
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 

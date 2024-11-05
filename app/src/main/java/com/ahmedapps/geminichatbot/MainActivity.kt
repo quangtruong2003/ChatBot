@@ -216,7 +216,8 @@ class MainActivity : ComponentActivity() {
                                     )
                                 } else {
                                     ModelChatItem(
-                                        response = parseFormattedText(chat.prompt),
+                                        //response = parseFormattedText(chat.prompt),
+                                        response = chat.prompt,
                                         isError = chat.isError,
                                         onLongPress = { textToCopy ->
                                             scope.launch {
@@ -350,7 +351,6 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun UserChatItem(prompt: String, imageUrl: String?, onLongPress: (String) -> Unit) {
-
         var isImageDialogOpen by remember { mutableStateOf(false) }
 
         Column(
@@ -418,12 +418,14 @@ class MainActivity : ComponentActivity() {
 
 
 
+
     /**
      * Composable hiển thị phản hồi từ bot
      */
     @Composable
-    fun ModelChatItem(response: AnnotatedString, isError: Boolean, onLongPress: (String) -> Unit) {
-        val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Green
+    fun ModelChatItem(response: String, isError: Boolean, onLongPress: (String) -> Unit) {
+        val formattedResponse = parseFormattedText(response)
+        val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Color(0xFF4CAF50) // Green
 
         Column(
             modifier = Modifier
@@ -431,7 +433,7 @@ class MainActivity : ComponentActivity() {
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onLongPress = {
-                            onLongPress(response.text)
+                            onLongPress(formattedResponse.text)
                         }
                     )
                 }
@@ -442,12 +444,14 @@ class MainActivity : ComponentActivity() {
                     .clip(RoundedCornerShape(15.dp))
                     .background(backgroundColor)
                     .padding(16.dp),
-                text = response,
+                text = formattedResponse,
                 fontSize = 17.sp,
                 color = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
+
+
 
 
 
@@ -557,11 +561,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+
     /**
-     * Hàm phân tích và định dạng văn bản dựa trên các định dạng Markdown đơn giản
+     * Hàm phân tích và định dạng văn bản dựa trên các định dạng Markdown phức tạp, bao gồm danh sách lồng nhau với các ký hiệu đặc biệt.
+     *
+     * @param input Chuỗi văn bản đầu vào chứa các định dạng Markdown như **bold**, *italic*, __underline__, và danh sách bắt đầu bằng *.
+     * @return AnnotatedString đã được định dạng theo các quy tắc Markdown được hỗ trợ.
      */
     fun parseFormattedText(input: String): AnnotatedString {
-        val listItemPattern = "^\\*\\s+".toRegex()
+        // Các cặp ký tự định dạng và kiểu SpanStyle tương ứng
         val patterns = listOf(
             "**" to SpanStyle(fontWeight = FontWeight.Bold),
             "*" to SpanStyle(fontStyle = FontStyle.Italic),
@@ -570,24 +579,54 @@ class MainActivity : ComponentActivity() {
 
         val builder = AnnotatedString.Builder()
         val lines = input.lines()
+
+        // Biến để theo dõi số thứ tự của các mục danh sách cấp độ 1
         var listItemNumber = 1
 
         for ((index, line) in lines.withIndex()) {
             var processedLine = line
-            if (listItemPattern.containsMatchIn(line)) {
-                // Thay thế '* ' bằng 'n. '
-                processedLine = line.replaceFirst(listItemPattern, "$listItemNumber. ")
-                listItemNumber++
+
+            // Kiểm tra xem dòng hiện tại có phải là mục danh sách không
+            val listMatch = """^(\s*)\*\s+(.*)""".toRegex().find(line)
+            if (listMatch != null) {
+                val leadingSpaces = listMatch.groupValues[1].length
+                val content = listMatch.groupValues[2]
+                val level = (leadingSpaces / 4) + 1 // Giả định 4 khoảng trắng cho mỗi cấp độ lồng nhau
+
+                // Xác định ký hiệu danh sách dựa trên cấp độ
+                val marker = when (level) {
+                    1 -> "${listItemNumber++}. " // Danh sách cấp độ 1 sử dụng số thứ tự
+                    2 -> "• " // Danh sách cấp độ 2 sử dụng dấu chấm đầu dòng
+                    3 -> "◦ " // Danh sách cấp độ 3 sử dụng dấu tròn nhỏ hơn
+                    else -> "• " // Các cấp độ sâu hơn cũng sử dụng dấu chấm đầu dòng
+                }
+
+                // Tạo chuỗi khoảng trắng dựa trên cấp độ để giữ nguyên cấu trúc lồng nhau
+                val indentation = "    ".repeat(level - 1)
+
+                // Thay thế dấu * bằng ký hiệu danh sách tương ứng
+                processedLine = "$indentation$marker$content"
             }
 
+            // Kiểm tra xem dòng hiện tại có phải là tiêu đề không (dòng có toàn bộ văn bản được bôi đậm)
+            val isHeading = """^\*\*(.+)\*\*:$""".toRegex().matches(line.trim())
+
+            if (isHeading) {
+                val headingText = """^\*\*(.+)\*\*:$""".toRegex().find(line.trim())?.groupValues?.get(1) ?: line
+                builder.withStyle(patterns[0].second) { // Apply Bold style
+                    builder.append("$headingText:\n\n")
+                }
+                continue
+            }
+
+            // Xử lý định dạng trong dòng
             var remainingText = processedLine
             while (remainingText.isNotEmpty()) {
                 var matched = false
                 for ((delimiter, style) in patterns) {
                     // Tạo pattern để tìm các định dạng: **bold**, *italic*, __underline__
-                    val pattern = Regex.escape(delimiter) + "(.*?)" + Regex.escape(delimiter)
-                    val regex = pattern.toRegex()
-                    val match = regex.find(remainingText)
+                    val pattern = """\Q$delimiter\E(.*?)\Q$delimiter\E""".toRegex()
+                    val match = pattern.find(remainingText)
                     if (match != null) {
                         val start = match.range.first
                         if (start > 0) {
@@ -620,5 +659,4 @@ class MainActivity : ComponentActivity() {
 
         return builder.toAnnotatedString()
     }
-
 }
