@@ -12,6 +12,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.text.Normalizer
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -43,6 +45,10 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun removeVietnameseAccents(str: String): String {
+        val normalizedString = Normalizer.normalize(str, Normalizer.Form.NFD)
+        return normalizedString.replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+    }
     /**
      * Xử lý tìm kiếm dựa trên query
      */
@@ -50,7 +56,14 @@ class ChatViewModel @Inject constructor(
         if (query.isEmpty()) {
             loadChatSegments()
         } else {
-            val results = repository.searchChatSegments(query)
+            val allSegments = repository.getChatSegments()
+            val queryKeywords = removeVietnameseAccents(query).lowercase(Locale.getDefault()).split(" ")
+            val results = allSegments.filter { segment ->
+                val titleKeywords = removeVietnameseAccents(segment.title).lowercase(Locale.getDefault()).split(" ")
+                queryKeywords.all { keyword ->
+                    titleKeywords.any { it.contains(keyword) }
+                }
+            }
             _chatState.update { it.copy(chatSegments = results) }
         }
     }
@@ -96,8 +109,16 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _chatState.update { it.copy(isLoading = true) }
+
+                // Kiểm tra xem đoạn chat hiện tại có tin nhắn không
+                if (_chatState.value.chatList.isEmpty()) {
+                    // Không tạo đoạn chat mới
+                    _chatState.update { it.copy(isLoading = false) }
+                    return@launch
+                }
+
                 // Tạo một đoạn chat mới
-                val newSegmentTitle = "Chat mới ${System.currentTimeMillis()}"
+                val newSegmentTitle = "Đoạn chat mới" //${System.currentTimeMillis()}
                 val newSegmentId = repository.addChatSegment(newSegmentTitle)
                 if (newSegmentId != null) {
                     val newSegment = ChatSegment(
@@ -110,10 +131,10 @@ class ChatViewModel @Inject constructor(
                             selectedSegment = newSegment,
                             chatList = emptyList(),
                             chatSegments = it.chatSegments + newSegment,
-                            searchQuery = "" // Đặt lại search query khi tạo segment mới
+                            searchQuery = ""
                         )
                     }
-                    hasUpdatedTitle = false // Reset flag khi tạo segment mới
+                    hasUpdatedTitle = false
                 }
                 _chatState.update { it.copy(isLoading = false) }
             } catch (e: Exception) {
@@ -122,6 +143,7 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
+
 
 
     /**

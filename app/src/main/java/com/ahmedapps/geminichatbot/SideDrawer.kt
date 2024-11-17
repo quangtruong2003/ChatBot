@@ -9,8 +9,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -61,6 +63,10 @@ fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
                 },
                 onSegmentLongPress = { segment ->
                     segmentToDelete = segment // Set the segment to delete
+                },
+                onDeleteAllChats = {
+                    chatViewModel.clearChat()
+                    onClose()
                 }
             )
 
@@ -80,6 +86,7 @@ fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
         }
     }
 }
+
 
 @Composable
 fun SearchBar(
@@ -111,14 +118,33 @@ fun CompletedChatList(
     segments: List<ChatSegment>,
     selectedSegment: ChatSegment?,
     onSegmentSelected: (ChatSegment) -> Unit,
-    onSegmentLongPress: (ChatSegment) -> Unit // Long press callback for deletion
+    onSegmentLongPress: (ChatSegment) -> Unit, // Long press callback for deletion
+    onDeleteAllChats: () -> Unit // Callback for deleting all chats
 ) {
-    Text(
-        text = "Lịch sử",
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
+    // Biến trạng thái để quản lý hiển thị hộp thoại xác nhận
+    var showFirstConfirmationDialog by remember { mutableStateOf(false) }
+    var showSecondConfirmationDialog by remember { mutableStateOf(false) }
 
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "Lịch sử",
+            style = MaterialTheme.typography.titleMedium
+        )
+        IconButton(onClick = { showFirstConfirmationDialog = true }) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "Xóa tất cả lịch sử"
+            )
+        }
+    }
+
+    // Danh sách các đoạn chat hoàn thành
     LazyColumn(
         modifier = Modifier.fillMaxHeight()
     ) {
@@ -127,11 +153,56 @@ fun CompletedChatList(
                 segment = segment,
                 isSelected = selectedSegment?.id == segment.id,
                 onClick = { onSegmentSelected(segment) },
-                onLongPress = { onSegmentLongPress(segment) } // Handle long press
+                onLongPress = { onSegmentLongPress(segment) } // Xử lý long press
             )
         }
     }
+
+    // Hộp thoại xác nhận đầu tiên
+    if (showFirstConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { showFirstConfirmationDialog = false },
+            title = { Text(text = "Xác nhận xóa") },
+            text = { Text("Bạn có chắc chắn muốn xóa toàn bộ lịch sử đoạn chat?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFirstConfirmationDialog = false
+                    showSecondConfirmationDialog = true
+                }) {
+                    Text("Xóa")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFirstConfirmationDialog = false }) {
+                    Text("Hủy")
+                }
+            }
+        )
+    }
+
+    // Hộp thoại xác nhận thứ hai
+    if (showSecondConfirmationDialog) {
+        AlertDialog(
+            onDismissRequest = { showSecondConfirmationDialog = false },
+            title = { Text(text = "Xác nhận") },
+            text = { Text("Hành động này không thể hoàn tác. Bạn có thực sự muốn xóa tất cả lịch sử?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSecondConfirmationDialog = false
+                    onDeleteAllChats()
+                }) {
+                    Text("Xóa")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSecondConfirmationDialog = false }) {
+                    Text("Hủy")
+                }
+            }
+        )
+    }
 }
+
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

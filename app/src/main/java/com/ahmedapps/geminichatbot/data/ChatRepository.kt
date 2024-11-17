@@ -231,7 +231,7 @@ class ChatRepository @Inject constructor(
      */
     suspend fun generateChatSegmentTitleFromResponse(chat: String): String {
         return try {
-            val prompt = "Đặt 1 tiêu đề duy nhất chính xác có 4 đến 6 chữ + '$chat'. Và bạn hãy chỉ trả lời tiêu đề duy nhất bạn đặt. Không có gì khác ngoài tiêu đề."
+            val prompt = "Đặt 1 tiêu đề duy nhất chính xác, ngắn gọn và xúc tích cho tin nhắn sau: + '$chat'. Và bạn hãy chỉ trả lời tiêu đề duy nhất bạn đặt. Tiêu đề phải hoàn hảo và hợp lí. Không có gì khác ngoài tiêu đề."
             val response = generativeModel.generateContent(prompt)
             response.text ?: "Untitled Segment"
         } catch (e: Exception) {

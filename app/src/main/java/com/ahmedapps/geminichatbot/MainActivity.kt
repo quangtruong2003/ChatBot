@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {
         val chatState by chatViewModel.chatState.collectAsState()
-
+        var showLogoutDialog by remember { mutableStateOf(false) }
         var showWelcomeMessage by remember { mutableStateOf(true) }
 
         // State để quản lý Dialog hiển thị hình ảnh trong khu vực nhập liệu
@@ -178,15 +178,7 @@ class MainActivity : ComponentActivity() {
                                 Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
                             }
                             IconButton(onClick = {
-                                FirebaseAuth.getInstance().signOut()
-                                GoogleSignIn.getClient(
-                                    context,
-                                    GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
-                                ).signOut().addOnCompleteListener {
-                                    navController.navigate("login") {
-                                        popUpTo("chat") { inclusive = true }
-                                    }
-                                }
+                                showLogoutDialog = true
                             }) {
                                 Icon(Icons.Filled.ExitToApp, contentDescription = "Đăng xuất")
                             }
@@ -371,6 +363,37 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     }
+                }
+                if (showLogoutDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showLogoutDialog = false },
+                        title = { Text(text = "Đăng xuất") },
+                        text = { Text("Bạn có chắc chắn muốn đăng xuất?") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                // Thực hiện đăng xuất
+                                FirebaseAuth.getInstance().signOut()
+                                GoogleSignIn.getClient(
+                                    context,
+                                    GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
+                                ).signOut().addOnCompleteListener {
+                                    navController.navigate("login") {
+                                        popUpTo("chat") { inclusive = true }
+                                    }
+                                }
+                                showLogoutDialog = false
+                            }) {
+                                Text("Đồng ý")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                showLogoutDialog = false // Đóng Dialog nếu người dùng hủy
+                            }) {
+                                Text("Hủy")
+                            }
+                        }
+                    )
                 }
             }
         }

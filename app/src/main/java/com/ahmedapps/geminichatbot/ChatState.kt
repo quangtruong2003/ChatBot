@@ -12,5 +12,5 @@ data class ChatState(
     val imageUri: Uri? = null,
     val chatSegments: List<ChatSegment> = emptyList(),
     val selectedSegment: ChatSegment? = null,
-    val searchQuery: String = ""
+    val searchQuery: String = "",
 )
