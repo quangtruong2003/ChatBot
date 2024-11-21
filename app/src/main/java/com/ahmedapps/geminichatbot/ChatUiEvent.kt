@@ -12,4 +12,5 @@ sealed class ChatUiEvent {
     data class SelectSegment(val segment: ChatSegment) : ChatUiEvent()
     object ClearSearch : ChatUiEvent()
     data class DeleteSegment(val segment: ChatSegment) : ChatUiEvent()
+    object RemoveImage : ChatUiEvent()
 }

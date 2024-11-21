@@ -17,7 +17,7 @@ data class Chat(
     @get:PropertyName("timestamp")
     var timestamp: Long = System.currentTimeMillis(),
     @get:PropertyName("userId")
-    var userId: String = ""
+    var userId: String = "",
 ) {
     companion object {
         fun fromPrompt(

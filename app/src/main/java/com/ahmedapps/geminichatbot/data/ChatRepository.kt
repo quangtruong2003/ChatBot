@@ -78,25 +78,62 @@ class ChatRepository @Inject constructor(
     /**
      * Generates the full prompt by concatenating chat history.
      */
-    private suspend fun getFullPrompt(currentPrompt: String): String = withContext(Dispatchers.IO) {
+    private suspend fun getFullPrompt(currentPrompt: String, hasImage: Boolean): String = withContext(Dispatchers.IO) {
         val chatHistory = getChatHistoryForSegment(_selectedSegmentId)
-        buildString {
-            for (chat in chatHistory.reversed()) {
-                append(if (chat.isFromUser) "User: " else "Bot: ")
-                append(chat.prompt)
-                append("\n")
+        if (hasImage) {
+            // Khi có hình ảnh
+            buildString {
+                append("User: ")
+                if (currentPrompt.isEmpty()) {
+                    // Tìm tin nhắn đầu tiên của người dùng
+                    val reversedChatHistory = chatHistory.reversed()
+                    // Tìm tin nhắn đầu tiên của người dùng không có hình ảnh và có prompt không trống
+                    val firstTextChat = reversedChatHistory.firstOrNull { chat ->
+                        chat.isFromUser && chat.imageUrl == null && chat.prompt.isNotEmpty()
+                    }
+                    val promptToUse = if (firstTextChat != null) {
+                        // Sử dụng prompt của tin nhắn đầu tiên không có hình ảnh
+                        firstTextChat.prompt
+                    } else {
+                        // Nếu không tìm thấy, tìm prompt của hình ảnh đầu tiên
+                        val firstImageChat = chatHistory.firstOrNull { chat ->
+                            chat.isFromUser && chat.imageUrl != null && chat.prompt.isNotEmpty()
+                        }
+                        firstImageChat?.prompt ?: "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích."
+                    }
+                    append(promptToUse)
+                } else {
+                    // currentPrompt không trống
+                    append(currentPrompt)
+                }
             }
-            append("User: ")
-            append(currentPrompt)
+        } else {
+            // Khi không có hình ảnh, có thể gửi kèm lịch sử trò chuyện nếu cần
+            buildString {
+                for (chat in chatHistory) {
+                    if (chat.prompt.isNotEmpty()) {
+                        append(if (chat.isFromUser) "User: " else "Assistant: ")
+                        append(chat.prompt)
+                        append("\n")
+                    }
+                }
+                append("User: ")
+                append(currentPrompt)
+            }
         }
     }
+
+
+
+
+
 
     /**
      * Gets response from GenerativeModel without image.
      */
     suspend fun getResponse(prompt: String): Chat = withContext(Dispatchers.IO) {
         return@withContext try {
-            val fullPrompt = getFullPrompt(prompt)
+            val fullPrompt = getFullPrompt(prompt, hasImage = false)
             val response = generativeModel.generateContent(fullPrompt)
             val chat = Chat.fromPrompt(
                 prompt = response.text ?: "Error: Empty response",
@@ -131,9 +168,10 @@ class ChatRepository @Inject constructor(
      */
     suspend fun getResponseWithImage(prompt: String, imageUri: Uri): Chat = withContext(Dispatchers.IO) {
         return@withContext try {
-            val fullPrompt = getFullPrompt(prompt)
+            val fullPrompt = getFullPrompt(prompt, hasImage = true)
+            Log.d("ChatRepository", "Full Prompt: $fullPrompt")
 
-            // Convert Uri to Bitmap
+            // Chuyển đổi Uri thành Bitmap
             val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(context.contentResolver, imageUri)
                 ImageDecoder.decodeBitmap(source)
@@ -142,7 +180,7 @@ class ChatRepository @Inject constructor(
                 MediaStore.Images.Media.getBitmap(context.contentResolver, imageUri)
             }
 
-            // Create Content instances for image and text
+            // Tạo các Content instances cho hình ảnh và văn bản
             val imageContent = content {
                 image(bitmap)
             }
@@ -150,10 +188,10 @@ class ChatRepository @Inject constructor(
                 text(fullPrompt)
             }
 
-            // Call API with Content instances
+            // Gọi API với các Content instances
             val response = generativeModel.generateContent(imageContent, textContent)
-
-            // Upload image and get URL
+            Log.d("ChatRepository", "API Response: ${response.text}")
+            // Tải lên hình ảnh và lấy URL
             val imageUrl = uploadImage(imageUri)
 
             val chat = Chat(

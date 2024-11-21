@@ -13,10 +13,9 @@ class GeminiChatBotApplication : Application(){
         super.onCreate()
         FirebaseApp.initializeApp(this)
 
-//        // Khởi tạo App Check với Play Integrity
-//        val firebaseAppCheck = FirebaseAppCheck.getInstance()
-//        firebaseAppCheck.installAppCheckProviderFactory(
+//        FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
 //            PlayIntegrityAppCheckProviderFactory.getInstance()
 //        )
+
     }
 }

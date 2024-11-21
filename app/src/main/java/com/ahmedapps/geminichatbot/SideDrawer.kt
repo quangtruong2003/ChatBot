@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,7 +24,11 @@ import java.util.*
 import kotlinx.coroutines.launch
 
 @Composable
-fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
+fun SideDrawer(
+    onClose: () -> Unit,
+    chatViewModel: ChatViewModel,
+    onLogout: () -> Unit // Thêm tham số này
+) {
     val chatState by chatViewModel.chatState.collectAsState()
     val searchQuery = chatState.searchQuery
     val completedSegments = chatState.chatSegments.filter { it.title != "New Chat" }
@@ -67,7 +72,8 @@ fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
                 onDeleteAllChats = {
                     chatViewModel.clearChat()
                     onClose()
-                }
+                },
+                onLogout = onLogout // Truyền callback đăng xuất
             )
 
             // Show confirmation dialog if a segment is selected for deletion
@@ -86,7 +92,6 @@ fun SideDrawer(onClose: () -> Unit, chatViewModel: ChatViewModel) {
         }
     }
 }
-
 
 @Composable
 fun SearchBar(
@@ -119,7 +124,8 @@ fun CompletedChatList(
     selectedSegment: ChatSegment?,
     onSegmentSelected: (ChatSegment) -> Unit,
     onSegmentLongPress: (ChatSegment) -> Unit, // Long press callback for deletion
-    onDeleteAllChats: () -> Unit // Callback for deleting all chats
+    onDeleteAllChats: () -> Unit, // Callback for deleting all chats
+    onLogout: () -> Unit // Thêm tham số này
 ) {
     // Biến trạng thái để quản lý hiển thị hộp thoại xác nhận
     var showFirstConfirmationDialog by remember { mutableStateOf(false) }
@@ -136,11 +142,19 @@ fun CompletedChatList(
             text = "Lịch sử",
             style = MaterialTheme.typography.titleMedium
         )
-        IconButton(onClick = { showFirstConfirmationDialog = true }) {
-            Icon(
-                imageVector = Icons.Default.Delete,
-                contentDescription = "Xóa tất cả lịch sử"
-            )
+        Row { // Thêm Row chứa các IconButton
+            IconButton(onClick = { showFirstConfirmationDialog = true }) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Xóa tất cả lịch sử"
+                )
+            }
+            IconButton(onClick = onLogout) { // Nút Đăng xuất
+                Icon(
+                    imageVector = Icons.Default.ExitToApp,
+                    contentDescription = "Đăng xuất"
+                )
+            }
         }
     }
 
@@ -203,7 +217,6 @@ fun CompletedChatList(
     }
 }
 
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatSegmentItem(
@@ -251,7 +264,10 @@ fun DeleteConfirmationDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = "Xác nhận xóa") },
-        text = { Text(text = "Bạn có chắc chắn muốn xóa đoạn chat \"$segmentTitle\"?") },
+        text = {
+            val segmentTitleWithoutLineBreaks = segmentTitle.replace("\n", "") // Remove line breaks
+            Text(text = "Bạn có chắc chắn muốn xóa đoạn chat \'$segmentTitleWithoutLineBreaks\'?")
+        },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text("Xóa")

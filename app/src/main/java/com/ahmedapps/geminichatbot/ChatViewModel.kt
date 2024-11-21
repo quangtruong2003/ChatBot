@@ -152,7 +152,7 @@ class ChatViewModel @Inject constructor(
     fun onEvent(event: ChatUiEvent) {
         when (event) {
             is ChatUiEvent.SendPrompt -> {
-                if (event.prompt.isNotEmpty()) {
+                if (event.prompt.isNotEmpty() || event.imageUri != null) {
                     _chatState.update { it.copy(isLoading = true) }
                     viewModelScope.launch {
                         addPrompt(event.prompt, event.imageUri)
@@ -198,6 +198,9 @@ class ChatViewModel @Inject constructor(
                     deleteSegment(event.segment)
                 }
             }
+            is ChatUiEvent.RemoveImage -> {
+                _chatState.update { it.copy(imageUri = null) }
+            }
         }
     }
 
@@ -207,7 +210,6 @@ class ChatViewModel @Inject constructor(
     private suspend fun addPrompt(prompt: String, imageUri: Uri?) {
         val currentUserId = repository.userId
         if (currentUserId.isEmpty()) {
-            Log.e("ChatViewModel", "User is not authenticated")
             _chatState.update { it.copy(isLoading = false) }
             return
         }
@@ -215,6 +217,7 @@ class ChatViewModel @Inject constructor(
         val imageUrl = imageUri?.let {
             repository.uploadImage(it)
         }
+
         val chat = Chat.fromPrompt(
             prompt = prompt,
             imageUrl = imageUrl,
@@ -228,23 +231,12 @@ class ChatViewModel @Inject constructor(
             it.copy(
                 chatList = it.chatList + chat,
                 prompt = "",
-                imageUri = null,
-                isLoading = false,
+                imageUri = null
             )
         }
-
-        //        // Nếu đây là đoạn chat mới, tạo một ChatSegment mới
-        //        if (_chatState.value.chatSegments.isEmpty() || _chatState.value.selectedSegment == null) {
-        //            val title = repository.generateChatSegmentTitleFromResponse(prompt)
-        //            val newSegmentId = repository.addChatSegment(title)
-        //            if (newSegmentId != null) {
-        //                val newSegment = ChatSegment(id = newSegmentId, title = title, createdAt = System.currentTimeMillis())
-        //                _chatState.update { it.copy(selectedSegment = newSegment, chatSegments = it.chatSegments + newSegment) }
-        //                hasUpdatedTitle = false
-        //                loadChatHistoryForSegment(newSegmentId)
-        //            }
-        //        }
     }
+
+
 
     /**
      * Retrieves a response from the GenerativeModel.
@@ -271,7 +263,12 @@ class ChatViewModel @Inject constructor(
      * Retrieves a response with an image from the GenerativeModel.
      */
     private suspend fun getResponseWithImage(prompt: String, imageUri: Uri) {
-        val chat = repository.getResponseWithImage(prompt, imageUri)
+        val actualPrompt = if (prompt.isEmpty()) {
+            "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích."
+        } else {
+            prompt
+        }
+        val chat = repository.getResponseWithImage(actualPrompt, imageUri)
         _chatState.update {
             it.copy(
                 chatList = it.chatList + chat,
@@ -279,11 +276,14 @@ class ChatViewModel @Inject constructor(
             )
         }
 
-        // Sau khi nhận được phản hồi đầu tiên, tạo và đặt tiêu đề đoạn chat
+        // After receiving the first response, update the chat segment title if needed
         if (!hasUpdatedTitle && !chat.isFromUser) {
-            repository.updateSegmentTitleFromResponse(_chatState.value.selectedSegment?.id, chat.prompt)
+            repository.updateSegmentTitleFromResponse(
+                _chatState.value.selectedSegment?.id,
+                chat.prompt
+            )
             hasUpdatedTitle = true
-            // Tải lại các đoạn chat để cập nhật tiêu đề
+            // Reload chat segments to update titles
             loadChatSegments()
         }
     }

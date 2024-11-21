@@ -3,16 +3,23 @@ package com.ahmedapps.geminichatbot
 
 import android.net.Uri
 import android.os.Bundle
+import android.util.Base64
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -20,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
@@ -27,10 +35,15 @@ import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -38,30 +51,30 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import androidx.navigation.NavType
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
+import coil.compose.AsyncImage
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
 import com.ahmedapps.geminichatbot.auth.LoginScreen
-import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
-import com.ahmedapps.geminichatbot.ui.theme.Green
-import com.google.firebase.auth.FirebaseAuth
-import dagger.hilt.android.AndroidEntryPoint
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
 import com.ahmedapps.geminichatbot.auth.RegistrationScreen
+import com.ahmedapps.geminichatbot.data.ChatSegment
+import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.firebase.auth.FirebaseAuth
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -105,20 +118,28 @@ class MainActivity : ComponentActivity() {
                     composable("chat") {
                         ChatScreen(navController)
                     }
+                    composable(
+                        "fullscreen_image/{encodedImageUrl}",
+                        arguments = listOf(navArgument("encodedImageUrl") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val encodedImageUrl = backStackEntry.arguments?.getString("encodedImageUrl") ?: ""
+                        val imageUrl = String(Base64.decode(encodedImageUrl, Base64.URL_SAFE or Base64.NO_WRAP))
+                        FullScreenImageScreen(
+                            imageUrl = imageUrl,
+                            onClose = { navController.popBackStack() }
+                        )
+                    }
                 }
             }
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
+    @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
     @Composable
     fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {
         val chatState by chatViewModel.chatState.collectAsState()
         var showLogoutDialog by remember { mutableStateOf(false) }
         var showWelcomeMessage by remember { mutableStateOf(true) }
-
-        // State để quản lý Dialog hiển thị hình ảnh trong khu vực nhập liệu
-        var isImageDialogOpen by remember { mutableStateOf(false) }
 
         // State để quản lý việc hiển thị SideDrawer
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -148,13 +169,13 @@ class MainActivity : ComponentActivity() {
             }
         )
 
-        // Sử dụng ModalNavigationDrawer thay vì ModalDrawer
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
                 SideDrawer(
                     onClose = { scope.launch { drawerState.close() } },
-                    chatViewModel = chatViewModel
+                    chatViewModel = chatViewModel,
+                    onLogout = { showLogoutDialog = true }
                 )
             }
         ) {
@@ -174,15 +195,12 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         actions = {
-                            IconButton(onClick = { chatViewModel.refreshChats() }) {
+                            IconButton(
+                                onClick = { chatViewModel.refreshChats() },
+                                enabled = chatState.chatList.isNotEmpty() // Vô hiệu hóa nếu danh sách trống
+                            ) {
                                 Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
                             }
-                            IconButton(onClick = {
-                                showLogoutDialog = true
-                            }) {
-                                Icon(Icons.Filled.ExitToApp, contentDescription = "Đăng xuất")
-                            }
-
                         }
                     )
                 },
@@ -232,11 +250,17 @@ class MainActivity : ComponentActivity() {
                                                 clipboardManager.setText(AnnotatedString(textToCopy))
                                                 snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
                                             }
+                                        },
+                                        onImageClick = { imageUrl ->
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Image clicked: $imageUrl")
+                                            }
+                                            val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                                            navController.navigate("fullscreen_image/$encodedUrl")
                                         }
                                     )
                                 } else {
                                     ModelChatItem(
-                                        //response = parseFormattedText(chat.prompt),
                                         response = chat.prompt,
                                         isError = chat.isError,
                                         onLongPress = { textToCopy ->
@@ -244,46 +268,88 @@ class MainActivity : ComponentActivity() {
                                                 clipboardManager.setText(AnnotatedString(textToCopy))
                                                 snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
                                             }
+                                        },
+                                        onImageClick = { imageUrl ->
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Image clicked: $imageUrl")
+                                            }
+                                            val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                                            navController.navigate("fullscreen_image/$encodedUrl")
                                         }
                                     )
                                 }
                             }
                         }
 
-                        if (chatState.isLoading) {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 16.dp, start = 4.dp, end = 4.dp),
+                                .padding(top = 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
 
                             Column {
                                 chatState.imageUri?.let { uri ->
-                                    Image(
-                                        painter = rememberAsyncImagePainter(
+                                    Box(
+                                        modifier = Modifier
+                                            //.clip(RoundedCornerShape(6.dp))
+                                            .size(50.dp)
+                                            .padding(bottom = 1.dp)
+                                    ) {
+                                        // Hình ảnh đã chọn
+                                        AsyncImage(
                                             model = ImageRequest.Builder(context)
                                                 .data(uri)
                                                 .size(coil.size.Size.ORIGINAL)
                                                 .crossfade(true)
-                                                .build()
-                                        ),
-                                        contentDescription = "Hình ảnh đã chọn",
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .size(40.dp)
-                                            .padding(bottom = 1.dp)
-                                            .clickable {
-                                                isImageDialogOpen = true
-                                            }
-                                    )
+                                                .build(),
+                                            contentDescription = "Hình ảnh đã chọn",
+                                            contentScale = ContentScale.Fit,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        val encodedUrl = Base64.encodeToString(
+                                                            uri.toString().toByteArray(Charsets.UTF_8),
+                                                            Base64.URL_SAFE or Base64.NO_WRAP
+                                                        )
+                                                        navController.navigate("fullscreen_image/$encodedUrl")
+                                                    },
+                                                    onLongClick = {
+                                                        chatViewModel.onEvent(
+                                                            ChatUiEvent.OnImageSelected(
+                                                                uri
+                                                            )
+                                                        )
+                                                    }
+                                                )
+                                        )
+
+                                        // Nút 'X' để xóa ảnh
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Xóa ảnh",
+                                            tint = Color.Red,
+                                            modifier = Modifier
+                                                .size(17.dp)
+                                                .align(Alignment.TopEnd)
+                                                .offset(x = 4.dp, y = (-4).dp)
+                                                .background(
+                                                    color = Color.LightGray,
+                                                    shape = RoundedCornerShape(50)
+                                                )
+                                                .padding(5.dp)
+                                                .clickable {
+                                                    chatViewModel.onEvent(ChatUiEvent.RemoveImage)
+                                                }
+                                                // Apply the style for bolding
+                                                .graphicsLayer {
+                                                    scaleX = 2.2f
+                                                    scaleY = 2.2f
+                                                }
+                                        )
+                                    }
+
                                 }
 
                                 Icon(
@@ -322,24 +388,34 @@ class MainActivity : ComponentActivity() {
 
                             Spacer(modifier = Modifier.width(8.dp))
 
-                            Icon(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clickable {
-                                        if (chatState.prompt.isNotEmpty()) {
-                                            chatViewModel.onEvent(
-                                                ChatUiEvent.SendPrompt(
-                                                    chatState.prompt,
-                                                    chatState.imageUri
+                            // Điều kiện hiển thị giữa nút gửi và biểu tượng loading
+                            if (chatState.isLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier
+                                        .size(40.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 7.dp
+                                )
+                            } else {
+                                Icon(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clickable {
+                                            if (chatState.prompt.isNotEmpty() || chatState.imageUri != null) {
+                                                chatViewModel.onEvent(
+                                                    ChatUiEvent.SendPrompt(
+                                                        chatState.prompt,
+                                                        chatState.imageUri
+                                                    )
                                                 )
-                                            )
-                                            showWelcomeMessage = false
-                                        }
-                                    },
-                                imageVector = Icons.Rounded.Send,
-                                contentDescription = "Gửi tin nhắn",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                                                showWelcomeMessage = false
+                                            }
+                                        },
+                                    imageVector = Icons.Rounded.Send,
+                                    contentDescription = "Gửi tin nhắn",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
 
@@ -351,18 +427,12 @@ class MainActivity : ComponentActivity() {
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-
-                    // Hiển thị Dialog cho hình ảnh trong khu vực nhập liệu
-                    if (isImageDialogOpen && chatState.imageUri != null) {
-                        ImageDialog(
-                            imageUri = chatState.imageUri!!,
-                            onDismiss = { isImageDialogOpen = false },
-                            onDelete = {
-                                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(null))
-                                isImageDialogOpen = false
-                            }
-                        )
+                    LaunchedEffect(chatState.chatList.isEmpty()) {
+                        if (chatState.chatList.isEmpty()) {
+                            showWelcomeMessage = true
+                        }
                     }
+
                 }
                 if (showLogoutDialog) {
                     AlertDialog(
@@ -375,7 +445,8 @@ class MainActivity : ComponentActivity() {
                                 FirebaseAuth.getInstance().signOut()
                                 GoogleSignIn.getClient(
                                     context,
-                                    GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN).build()
+                                    GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                                        .build()
                                 ).signOut().addOnCompleteListener {
                                     navController.navigate("login") {
                                         popUpTo("chat") { inclusive = true }
@@ -399,69 +470,52 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
-    fun UserChatItem(prompt: String, imageUrl: String?, onLongPress: (String) -> Unit) {
-        var isImageDialogOpen by remember { mutableStateOf(false) }
-
+    fun UserChatItem(
+        prompt: String,
+        imageUrl: String?,
+        onLongPress: (String) -> Unit,
+        onImageClick: (String) -> Unit
+    ) {
         Column(
             modifier = Modifier
-                .padding(start = 100.dp, bottom = 16.dp)
+                .padding(start = 65.dp, bottom = 16.dp)
         ) {
             imageUrl?.let { url ->
-                Box(
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(url)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Hình ảnh của bạn",
+                    contentScale = ContentScale.FillWidth,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 2.dp)
-                        .clickable {
-                            isImageDialogOpen = true
-                        }
-                ) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(url)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Hình ảnh của bạn",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onLongPress = {
-                                        onLongPress(prompt)
-                                    }
-                                )
-                            }
-                    )
-                }
+                        .clip(RoundedCornerShape(12.dp))
+                        .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
+                        .combinedClickable(
+                            onClick = { onImageClick(url) },
+                            onLongClick = { onLongPress(prompt) }
+                        )
+                )
             }
 
-            Text(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primary)
-                    .padding(16.dp)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onLongPress = {
-                                onLongPress(prompt)
-                            }
-                        )
-                    },
-                text = prompt,
-                fontSize = 17.sp,
-                color = MaterialTheme.colorScheme.onPrimary
-            )
-
-            // Hiển thị Dialog khi hình ảnh được nhấp
-            if (isImageDialogOpen && imageUrl != null) {
-                ImageUrlDialog(
-                    imageUrl = imageUrl,
-                    onDismiss = { isImageDialogOpen = false }
+            // Chỉ hiển thị Text khi prompt không trống
+            if (prompt.isNotEmpty()) {
+                Text(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primary)
+                        .padding(16.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { onLongPress(prompt) }
+                        ),
+                    text = prompt,
+                    fontSize = 17.sp,
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
@@ -469,18 +523,19 @@ class MainActivity : ComponentActivity() {
 
 
 
-
-    /**
-     * Composable hiển thị phản hồi từ bot
-     */
     @Composable
-    fun ModelChatItem(response: String, isError: Boolean, onLongPress: (String) -> Unit) {
+    fun ModelChatItem(
+        response: String,
+        isError: Boolean,
+        onLongPress: (String) -> Unit,
+        onImageClick: (String) -> Unit
+    ) {
         val formattedResponse = parseFormattedText(response)
         val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Color(0xFF4CAF50) // Green
 
         Column(
             modifier = Modifier
-                .padding(end = 100.dp, bottom = 16.dp)
+                .padding(end = 65.dp, bottom = 16.dp)
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onLongPress = {
@@ -502,116 +557,71 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-
-
-
-
     /**
-     * Composable hiển thị Dialog khi hình ảnh được chọn từ thư viện
+     * Composable hiển thị toàn màn hình hình ảnh với khả năng zoom và kéo.
      */
     @Composable
-    fun ImageDialog(
-        imageUri: Uri,
-        onDismiss: () -> Unit,
-        onDelete: () -> Unit
-    ) {
-        Dialog(onDismissRequest = onDismiss) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.background,
-                tonalElevation = 8.dp,
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    // Nút đóng Dialog
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Đóng",
-                            tint = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                    // Hiển thị hình ảnh phóng to
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(imageUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Hình ảnh phóng to",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .align(Alignment.CenterHorizontally)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Nút xóa hình ảnh
-                    Button(
-                        onClick = onDelete,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    ) {
-                        Text(text = "Xóa", color = Color.White)
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Composable hiển thị Dialog khi hình ảnh được nhấp vào tin nhắn
-     */
-    @Composable
-    fun ImageUrlDialog(
+    fun FullScreenImageScreen(
         imageUrl: String,
-        onDismiss: () -> Unit
+        onClose: () -> Unit
     ) {
-        Dialog(onDismissRequest = onDismiss) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.background,
-                tonalElevation = 8.dp,
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth(),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    // Nút đóng Dialog
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Đóng",
-                            tint = MaterialTheme.colorScheme.onBackground
+        // Biến trạng thái để quản lý các phép biến đổi (scale, translation)
+        var scale by remember { mutableStateOf(1f) }
+        var offset by remember { mutableStateOf(Offset.Zero) }
+
+        // GestureDetector để xử lý các cử chỉ zoom và kéo
+        val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
+            scale = (scale * zoomChange).coerceIn(1f, 5f) // Giới hạn zoom từ 1x đến 5x
+            offset += panChange
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(imageUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = "Hình ảnh toàn màn hình",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y
+                    )
+                    .transformable(state = transformableState) // Xử lý các phép biến đổi
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                // Tăng hoặc giảm zoom khi double tap
+                                scale = if (scale < 3f) scale * 2 else 1f
+                            }
                         )
                     }
+            )
 
-                    // Hiển thị hình ảnh phóng to
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(imageUrl)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = "Hình ảnh phóng to",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .align(Alignment.CenterHorizontally)
-                    )
-                }
+            // Nút đóng góc trên bên trái
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), shape = RoundedCornerShape(50))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Đóng",
+                    tint = Color.White
+                )
             }
         }
     }
-
 
 
     /**
@@ -621,7 +631,7 @@ class MainActivity : ComponentActivity() {
      * @return AnnotatedString đã được định dạng theo các quy tắc Markdown được hỗ trợ.
      */
     fun parseFormattedText(input: String): AnnotatedString {
-        // Các cặp ký tự định dạng và kiểu SpanStyle tương ứng
+        // Patterns for formatting
         val patterns = listOf(
             "**" to SpanStyle(fontWeight = FontWeight.Bold),
             "*" to SpanStyle(fontStyle = FontStyle.Italic),
@@ -629,80 +639,73 @@ class MainActivity : ComponentActivity() {
         )
 
         val builder = AnnotatedString.Builder()
-        val lines = input.lines()
+        val lines = input.trimEnd().lines()
 
-        // Biến để theo dõi số thứ tự của các mục danh sách cấp độ 1
+        // Variable to track list item numbers
         var listItemNumber = 1
 
         for ((index, line) in lines.withIndex()) {
             var processedLine = line
 
-            // Kiểm tra xem dòng hiện tại có phải là mục danh sách không
+            // Check for list items
             val listMatch = """^(\s*)\*\s+(.*)""".toRegex().find(line)
             if (listMatch != null) {
                 val leadingSpaces = listMatch.groupValues[1].length
                 val content = listMatch.groupValues[2]
-                val level = (leadingSpaces / 4) + 1 // Giả định 4 khoảng trắng cho mỗi cấp độ lồng nhau
+                val level = (leadingSpaces / 4) + 1
 
-                // Xác định ký hiệu danh sách dựa trên cấp độ
                 val marker = when (level) {
-                    1 -> "${listItemNumber++}. " // Danh sách cấp độ 1 sử dụng số thứ tự
-                    2 -> "• " // Danh sách cấp độ 2 sử dụng dấu chấm đầu dòng
-                    3 -> "◦ " // Danh sách cấp độ 3 sử dụng dấu tròn nhỏ hơn
-                    else -> "• " // Các cấp độ sâu hơn cũng sử dụng dấu chấm đầu dòng
+                    1 -> "${listItemNumber++}. "
+                    2 -> "• "
+                    3 -> "◦ "
+                    else -> "• "
                 }
 
-                // Tạo chuỗi khoảng trắng dựa trên cấp độ để giữ nguyên cấu trúc lồng nhau
                 val indentation = "    ".repeat(level - 1)
-
-                // Thay thế dấu * bằng ký hiệu danh sách tương ứng
                 processedLine = "$indentation$marker$content"
             }
 
-            // Kiểm tra xem dòng hiện tại có phải là tiêu đề không (dòng có toàn bộ văn bản được bôi đậm)
+            // Check for headings
             val isHeading = """^\*\*(.+)\*\*:$""".toRegex().matches(line.trim())
-
             if (isHeading) {
                 val headingText = """^\*\*(.+)\*\*:$""".toRegex().find(line.trim())?.groupValues?.get(1) ?: line
-                builder.withStyle(patterns[0].second) { // Apply Bold style
-                    builder.append("$headingText:\n\n")
+                builder.withStyle(patterns[0].second) {
+                    append("$headingText:")
+                }
+                if (index != lines.lastIndex) {
+                    builder.append("\n\n")
                 }
                 continue
             }
 
-            // Xử lý định dạng trong dòng
+            // Process inline formatting
             var remainingText = processedLine
             while (remainingText.isNotEmpty()) {
                 var matched = false
                 for ((delimiter, style) in patterns) {
-                    // Tạo pattern để tìm các định dạng: **bold**, *italic*, __underline__
                     val pattern = """\Q$delimiter\E(.*?)\Q$delimiter\E""".toRegex()
                     val match = pattern.find(remainingText)
                     if (match != null) {
                         val start = match.range.first
                         if (start > 0) {
-                            // Thêm phần text trước pattern nếu có
                             builder.append(remainingText.substring(0, start))
                         }
                         val formattedText = match.groupValues[1]
-                        // Áp dụng style cho đoạn text
                         builder.withStyle(style) {
                             append(formattedText)
                         }
-                        // Cập nhật remainingText để tiếp tục xử lý phần còn lại
                         remainingText = remainingText.substring(match.range.last + 1)
                         matched = true
                         break
                     }
                 }
                 if (!matched) {
-                    // Nếu không tìm thấy pattern nào, thêm phần còn lại và kết thúc vòng lặp
                     builder.append(remainingText)
                     break
                 }
             }
 
-            // Thêm xuống dòng nếu không phải là dòng cuối cùng
+            // Add newline if it's not the last line
             if (index != lines.lastIndex) {
                 builder.append("\n")
             }
@@ -710,4 +713,6 @@ class MainActivity : ComponentActivity() {
 
         return builder.toAnnotatedString()
     }
+
+
 }
