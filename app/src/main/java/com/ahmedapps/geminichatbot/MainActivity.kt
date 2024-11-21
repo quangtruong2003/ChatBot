@@ -151,10 +151,32 @@ class MainActivity : ComponentActivity() {
         // Khởi tạo SnackbarHostState
         val snackbarHostState = remember { SnackbarHostState() }
 
-        // LaunchedEffect để tự động cuộn xuống cuối danh sách khi có tin nhắn mới
-        LaunchedEffect(chatState.chatList.size) {
-            if (chatState.chatList.isNotEmpty()) {
-                listState.animateScrollToItem(chatState.chatList.size - 1)
+        val isUserScrolling = remember { mutableStateOf(false) }
+        var userScrolled by remember { mutableStateOf(false) }
+        var previousChatListSize by remember { mutableStateOf(chatState.chatList.size) }
+
+        LaunchedEffect(listState) {
+            snapshotFlow { listState.isScrollInProgress }
+                .collect { isScrolling ->
+                    if (isScrolling) {
+                        userScrolled = true
+                    }
+                }
+        }
+
+        LaunchedEffect(chatState.chatList.size,isUserScrolling.value) {
+            val newMessageAdded = chatState.chatList.size > previousChatListSize
+            previousChatListSize = chatState.chatList.size
+
+            if (newMessageAdded) {
+                // Có tin nhắn mới, đặt lại userScrolled để tự động cuộn
+                userScrolled = false
+            }
+
+            if (!userScrolled && chatState.chatList.isNotEmpty()) {
+                scope.launch {
+                    listState.animateScrollToItem(chatState.chatList.size - 1)
+                }
             }
         }
 
