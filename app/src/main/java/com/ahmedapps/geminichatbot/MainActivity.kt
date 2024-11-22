@@ -170,6 +170,7 @@ class MainActivity : ComponentActivity() {
                 listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index != chatState.chatList.lastIndex
             }
         }
+        val canSend = chatState.prompt.isNotEmpty() || chatState.imageUri != null
 
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }
@@ -503,11 +504,11 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier
                                                 .size(40.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .alpha(if (chatState.prompt.isNotEmpty()) 1f else 0.4f)
+                                                .alpha(if (canSend) 1f else 0.4f) // Adjust opacity based on canSend
                                                 .clickable(
-                                                    enabled = chatState.prompt.isNotEmpty(),
+                                                    enabled = canSend, // Enable or disable based on canSend
                                                     onClick = {
-                                                        if (chatState.prompt.isNotEmpty()) {
+                                                        if (canSend) { // Additional safety check
                                                             chatViewModel.onEvent(
                                                                 ChatUiEvent.SendPrompt(
                                                                     chatState.prompt,
