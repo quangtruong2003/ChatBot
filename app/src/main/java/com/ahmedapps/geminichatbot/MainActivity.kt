@@ -246,11 +246,14 @@ class MainActivity : ComponentActivity() {
                         actions = {
                             IconButton(
                                 onClick = { chatViewModel.refreshChats() },
-                                enabled = chatState.chatList.isNotEmpty() // Vô hiệu hóa nếu danh sách trống
+                                enabled = chatState.chatList.isNotEmpty()
                             ) {
                                 Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
                             }
-                        }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors( // Use centerAlignedTopAppBarColors
+                            containerColor = Color.LightGray
+                        )
                     )
                 },
                 // Tùy chỉnh SnackbarHost để điều chỉnh vị trí
@@ -456,7 +459,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .background(Color.LightGray)
                                 .fillMaxWidth()
-                                .padding(top = 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
+                                .padding( bottom = 16.dp, start = 8.dp, end = 8.dp),
 
                         ) {
 
