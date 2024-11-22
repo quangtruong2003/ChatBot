@@ -275,7 +275,7 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         colors = TopAppBarDefaults.centerAlignedTopAppBarColors( // Use centerAlignedTopAppBarColors
-                            containerColor = Color.LightGray
+                            containerColor = Color(0xFFE9E9E9)
                         )
                     )
                 },
@@ -303,7 +303,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 AnimatedVisibility(
-                    visible = showScrollToBottomButton,
+                    visible = showScrollToBottomButton && chatState.chatList.isNotEmpty(),
                     enter = fadeIn(), // Hiệu ứng mờ dần khi xuất hiện
                     exit = fadeOut(), // Hiệu ứng mờ dần khi ẩn đi
                     modifier = Modifier
@@ -319,7 +319,7 @@ class MainActivity : ComponentActivity() {
                         },
                         modifier = Modifier.size(40.dp),
                         shape = CircleShape,
-                        containerColor = if (isSystemInDarkTheme()) Color.DarkGray else Color(
+                        containerColor = if (isSystemInDarkTheme()) Color.Gray else Color(
                             0xFFAAAAAA
                         ),
                         contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
@@ -399,7 +399,9 @@ class MainActivity : ComponentActivity() {
 
                         Box(
                             modifier = Modifier
-                                .background(Color.LightGray)
+                                .background(
+                                    color = Color(0xFFE9E9E9),
+                                )
                                 .fillMaxWidth()
                                 .padding(8.dp)
 
@@ -480,7 +482,9 @@ class MainActivity : ComponentActivity() {
                         }
                         Box(
                             modifier = Modifier
-                                .background(Color.LightGray)
+                                .background(
+                                    color = Color(0xFFE9E9E9),
+                                )
                                 .fillMaxWidth()
                                 .padding(bottom = 16.dp, start = 8.dp, end = 8.dp),
 
@@ -517,13 +521,11 @@ class MainActivity : ComponentActivity() {
 
                                     TextField(
                                         modifier = Modifier
-                                            .heightIn(
-                                                min = 50.dp,
-                                                max = 200.dp
-                                            ) // Adjust height for multiline input
+                                            .heightIn(min = 50.dp, max = 200.dp)
                                             .clip(RoundedCornerShape(10.dp))
                                             .weight(1f)
-                                            .verticalScroll(rememberScrollState()), // Enable scrolling for text
+                                            .verticalScroll(rememberScrollState())
+                                            .border(width = 1.dp, color = Color.Gray, shape = RoundedCornerShape(10.dp)),
                                         value = chatState.prompt,
                                         onValueChange = {
                                             chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
@@ -531,8 +533,23 @@ class MainActivity : ComponentActivity() {
                                                 showWelcomeMessage = false
                                             }
                                         },
+
                                         placeholder = {
-                                            Text(text = "Nhập tin nhắn")
+                                            Text(
+                                                text = "Nhập tin nhắn",
+                                                modifier = Modifier.fillMaxWidth(),
+                                                style = TextStyle(
+                                                    brush = Brush.linearGradient(
+                                                        colors = listOf(
+                                                            Color(0xFF1BA1E3),
+                                                            Color(0xFF5489D6),
+                                                            Color(0xFF9B72CB),
+                                                            Color(0xFFD96570),
+                                                            Color(0xFFF49C46)
+                                                        )
+                                                    ),
+                                                )
+                                            )
                                         },
                                     )
 
@@ -549,18 +566,21 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier
                                                 .size(40.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .alpha(if (canSend) 1f else 0.4f) // Adjust opacity based on canSend
+                                                .alpha(if (canSend) 1f else 0.4f) // Điều chỉnh độ trong suốt dựa vào `canSend`
                                                 .clickable(
-                                                    enabled = canSend, // Enable or disable based on canSend
+                                                    enabled = canSend, // Chỉ cho phép gửi khi có nội dung
                                                     onClick = {
-                                                        if (canSend) { // Additional safety check
-                                                            chatViewModel.onEvent(
-                                                                ChatUiEvent.SendPrompt(
-                                                                    chatState.prompt,
-                                                                    chatState.imageUri
+                                                        if (canSend) {
+                                                            val sanitizedPrompt = sanitizeMessage(chatState.prompt) // Xử lý chuỗi tin nhắn
+                                                            if (sanitizedPrompt.isNotEmpty()) { // Chỉ gửi khi tin nhắn không rỗng
+                                                                chatViewModel.onEvent(
+                                                                    ChatUiEvent.SendPrompt(
+                                                                        sanitizedPrompt,
+                                                                        chatState.imageUri
+                                                                    )
                                                                 )
-                                                            )
-                                                            showWelcomeMessage = false
+                                                                showWelcomeMessage = false
+                                                            }
                                                         }
                                                     }
                                                 ),
@@ -626,7 +646,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
+    fun sanitizeMessage(input: String): String {
+        return input
+            .lines() // Chia chuỗi thành danh sách các dòng
+            .filter { it.isNotBlank() } // Loại bỏ các dòng trống
+            .joinToString("\n") // Ghép lại thành một chuỗi với dấu xuống dòng
+            .trim() // Loại bỏ khoảng trắng ở đầu và cuối
+    }
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
     fun UserChatItem(
@@ -667,15 +693,19 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF3F6D7C))
+                        .background(Color(0xFF5C6BC0))
                         .padding(16.dp)
                         .combinedClickable(
                             onClick = {},
                             onLongClick = { onLongPress(prompt) }
                         ),
+
                     text = prompt,
-                    fontSize = 17.sp,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    style = TextStyle(
+                        fontSize = 17.sp,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+
                 )
             }
         }
@@ -693,7 +723,7 @@ class MainActivity : ComponentActivity() {
         onImageClick: (String) -> Unit
     ) {
         val formattedResponse = parseFormattedText(response)
-        val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Color(0xFF838483)
+        val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Color(0xFF3F6D7C)
 
         Column(
             modifier = Modifier
@@ -736,8 +766,10 @@ class MainActivity : ComponentActivity() {
                     .background(backgroundColor)
                     .padding(16.dp),
                 text = formattedResponse,
-                fontSize = 17.sp,
-                color = MaterialTheme.colorScheme.onPrimary
+                style = TextStyle(
+                    fontSize = 17.sp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
             )
         }
     }
