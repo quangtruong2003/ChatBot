@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -37,6 +38,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -44,6 +46,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -154,6 +157,7 @@ class MainActivity : ComponentActivity() {
         val isUserScrolling = remember { mutableStateOf(false) }
         var userScrolled by remember { mutableStateOf(false) }
         var previousChatListSize by remember { mutableStateOf(chatState.chatList.size) }
+        val canSend = chatState.prompt.isNotEmpty() || chatState.imageUri != null
 
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }
@@ -377,6 +381,7 @@ class MainActivity : ComponentActivity() {
                                 Icon(
                                     modifier = Modifier
                                         .size(40.dp)
+                                        .clip(RoundedCornerShape(8.dp))
                                         .clickable {
                                             imagePicker.launch(
                                                 PickVisualMediaRequest
@@ -422,21 +427,27 @@ class MainActivity : ComponentActivity() {
                                 Icon(
                                     modifier = Modifier
                                         .size(40.dp)
-                                        .clickable {
-                                            if (chatState.prompt.isNotEmpty() || chatState.imageUri != null) {
-                                                chatViewModel.onEvent(
-                                                    ChatUiEvent.SendPrompt(
-                                                        chatState.prompt,
-                                                        chatState.imageUri
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .alpha(if (canSend) 1f else 0.4f) // Adjust opacity based on canSend
+                                        .clickable(
+                                            enabled = canSend, // Enable or disable based on canSend
+                                            onClick = {
+                                                if (canSend) { // Additional safety check
+                                                    chatViewModel.onEvent(
+                                                        ChatUiEvent.SendPrompt(
+                                                            chatState.prompt,
+                                                            chatState.imageUri
+                                                        )
                                                     )
-                                                )
-                                                showWelcomeMessage = false
+                                                    showWelcomeMessage = false
+                                                }
                                             }
-                                        },
+                                        ),
                                     imageVector = Icons.Rounded.Send,
-                                    contentDescription = "Gửi tin nhắn",
+                                    contentDescription = "Send Message",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
+
                             }
                         }
                     }
@@ -500,6 +511,9 @@ class MainActivity : ComponentActivity() {
         onLongPress: (String) -> Unit,
         onImageClick: (String) -> Unit
     ) {
+        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+        val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(175.dp)
+
         Column(
             modifier = Modifier
                 .padding(start = 65.dp, bottom = 16.dp)
@@ -510,10 +524,11 @@ class MainActivity : ComponentActivity() {
                         .data(url)
                         .crossfade(true)
                         .build(),
-                    contentDescription = "Hình ảnh của bạn",
-                    contentScale = ContentScale.FillWidth,
+                    contentDescription = "Your Image",
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(max = maxImageHeight)
                         .clip(RoundedCornerShape(12.dp))
                         .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
                         .combinedClickable(
@@ -523,7 +538,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Chỉ hiển thị Text khi prompt không trống
             if (prompt.isNotEmpty()) {
                 Text(
                     modifier = Modifier
@@ -536,7 +550,7 @@ class MainActivity : ComponentActivity() {
                             onLongClick = { onLongPress(prompt) }
                         ),
                     text = prompt,
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
             }
@@ -545,6 +559,8 @@ class MainActivity : ComponentActivity() {
 
 
 
+
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     fun ModelChatItem(
         response: String,
@@ -566,6 +582,29 @@ class MainActivity : ComponentActivity() {
                     )
                 }
         ) {
+            // If your model can send images, include this block
+//            val imageUrl = extractImageUrlFromResponse(response) // Implement this function as needed
+//            imageUrl?.let { url ->
+//                AsyncImage(
+//                    model = ImageRequest.Builder(LocalContext.current)
+//                        .data(url)
+//                        .crossfade(true)
+//                        .build(),
+//                    contentDescription = "Model Image",
+//                    contentScale = ContentScale.Crop,
+//                    modifier = Modifier
+//                        .fillMaxWidth()
+//                        .heightIn(max = 200.dp) // Set maximum height
+//                        .clip(RoundedCornerShape(12.dp))
+//                        .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
+//                        .combinedClickable(
+//                            onClick = { onImageClick(url) },
+//                            onLongClick = { onLongPress(formattedResponse.text) }
+//                        )
+//                )
+//                Spacer(modifier = Modifier.height(8.dp))
+//            }
+
             Text(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -573,11 +612,12 @@ class MainActivity : ComponentActivity() {
                     .background(backgroundColor)
                     .padding(16.dp),
                 text = formattedResponse,
-                fontSize = 17.sp,
+                fontSize = 16.sp,
                 color = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
+
 
     /**
      * Composable hiển thị toàn màn hình hình ảnh với khả năng zoom và kéo.

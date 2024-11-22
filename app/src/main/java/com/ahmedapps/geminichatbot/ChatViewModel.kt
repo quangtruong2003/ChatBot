@@ -9,7 +9,6 @@ import com.ahmedapps.geminichatbot.data.Chat
 import com.ahmedapps.geminichatbot.data.ChatRepository
 import com.ahmedapps.geminichatbot.data.ChatSegment
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.text.Normalizer
@@ -24,10 +23,10 @@ class ChatViewModel @Inject constructor(
     private val _chatState = MutableStateFlow(ChatState())
     val chatState: StateFlow<ChatState> = _chatState.asStateFlow()
 
-    // Thêm biến để theo dõi việc cập nhật tiêu đề
+    // Biến để theo dõi việc cập nhật tiêu đề
     private var hasUpdatedTitle = false
 
-    // Thêm MutableStateFlow cho search query với debounce
+    // MutableStateFlow cho search query với debounce
     private val searchQueryFlow = MutableStateFlow("")
 
     init {
@@ -45,10 +44,14 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Loại bỏ dấu tiếng Việt khỏi chuỗi.
+     */
     fun removeVietnameseAccents(str: String): String {
         val normalizedString = Normalizer.normalize(str, Normalizer.Form.NFD)
         return normalizedString.replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
     }
+
     /**
      * Xử lý tìm kiếm dựa trên query
      */
@@ -57,12 +60,10 @@ class ChatViewModel @Inject constructor(
             loadChatSegments()
         } else {
             val allSegments = repository.getChatSegments()
-            val queryKeywords = removeVietnameseAccents(query).lowercase(Locale.getDefault()).split(" ")
+            val normalizedQuery = removeVietnameseAccents(query).lowercase(Locale.getDefault())
             val results = allSegments.filter { segment ->
-                val titleKeywords = removeVietnameseAccents(segment.title).lowercase(Locale.getDefault()).split(" ")
-                queryKeywords.all { keyword ->
-                    titleKeywords.any { it.contains(keyword) }
-                }
+                val normalizedTitle = removeVietnameseAccents(segment.title).lowercase(Locale.getDefault())
+                normalizedTitle.contains(normalizedQuery)
             }
             _chatState.update { it.copy(chatSegments = results) }
         }
@@ -118,7 +119,7 @@ class ChatViewModel @Inject constructor(
                 }
 
                 // Tạo một đoạn chat mới
-                val newSegmentTitle = "Đoạn chat mới" //${System.currentTimeMillis()}
+                val newSegmentTitle = "Đoạn chat mới" // Bạn có thể thêm timestamp nếu muốn: "Đoạn chat mới ${System.currentTimeMillis()}"
                 val newSegmentId = repository.addChatSegment(newSegmentTitle)
                 if (newSegmentId != null) {
                     val newSegment = ChatSegment(
@@ -144,8 +145,6 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-
-
     /**
      * Handles UI events.
      */
@@ -156,10 +155,11 @@ class ChatViewModel @Inject constructor(
                     _chatState.update { it.copy(isLoading = true) }
                     viewModelScope.launch {
                         addPrompt(event.prompt, event.imageUri)
+                        val selectedSegmentId = _chatState.value.selectedSegment?.id
                         if (event.imageUri != null) {
-                            getResponseWithImage(event.prompt, event.imageUri)
+                            getResponseWithImage(event.prompt, event.imageUri, selectedSegmentId)
                         } else {
-                            getResponse(event.prompt)
+                            getResponse(event.prompt, selectedSegmentId)
                         }
                     }
                 }
@@ -236,13 +236,11 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-
-
     /**
      * Retrieves a response from the GenerativeModel.
      */
-    private suspend fun getResponse(prompt: String) {
-        val chat = repository.getResponse(prompt)
+    private suspend fun getResponse(prompt: String, selectedSegmentId: String?) {
+        val chat = repository.getResponse(prompt, selectedSegmentId)
         _chatState.update {
             it.copy(
                 chatList = it.chatList + chat,
@@ -252,7 +250,7 @@ class ChatViewModel @Inject constructor(
 
         // Sau khi nhận được phản hồi đầu tiên, tạo và đặt tiêu đề đoạn chat
         if (!hasUpdatedTitle && !chat.isFromUser) {
-            repository.updateSegmentTitleFromResponse(_chatState.value.selectedSegment?.id, chat.prompt)
+            repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
             hasUpdatedTitle = true
             // Tải lại các đoạn chat để cập nhật tiêu đề
             loadChatSegments()
@@ -262,13 +260,13 @@ class ChatViewModel @Inject constructor(
     /**
      * Retrieves a response with an image from the GenerativeModel.
      */
-    private suspend fun getResponseWithImage(prompt: String, imageUri: Uri) {
+    private suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?) {
         val actualPrompt = if (prompt.isEmpty()) {
             "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích."
         } else {
             prompt
         }
-        val chat = repository.getResponseWithImage(actualPrompt, imageUri)
+        val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
         _chatState.update {
             it.copy(
                 chatList = it.chatList + chat,
@@ -279,7 +277,7 @@ class ChatViewModel @Inject constructor(
         // After receiving the first response, update the chat segment title if needed
         if (!hasUpdatedTitle && !chat.isFromUser) {
             repository.updateSegmentTitleFromResponse(
-                _chatState.value.selectedSegment?.id,
+                selectedSegmentId,
                 chat.prompt
             )
             hasUpdatedTitle = true
@@ -295,9 +293,39 @@ class ChatViewModel @Inject constructor(
     fun clearChat() {
         viewModelScope.launch {
             repository.deleteAllChats()
-            _chatState.update { it.copy(chatList = emptyList(), chatSegments = emptyList(), selectedSegment = null, searchQuery = "") }
+            // Tạo đoạn chat mới sau khi xóa tất cả
+            val newSegmentTitle = "Đoạn chat mới"
+            val newSegmentId = repository.addChatSegment(newSegmentTitle)
+            if (newSegmentId != null) {
+                val newSegment = ChatSegment(
+                    id = newSegmentId,
+                    title = newSegmentTitle,
+                    createdAt = System.currentTimeMillis()
+                )
+
+                _chatState.update {
+                    it.copy(
+                        chatList = emptyList(),
+                        chatSegments = listOf(newSegment), // Cập nhật danh sách chatSegments trực tiếp với đoạn chat mới
+                        selectedSegment = newSegment, // Chọn đoạn chat mới làm đoạn chat hiện tại
+                        searchQuery = ""
+                    )
+                }
+                hasUpdatedTitle = false
+            } else {
+                // Xử lý lỗi khi không thể tạo đoạn chat mới
+                _chatState.update {
+                    it.copy(
+                        chatList = emptyList(),
+                        chatSegments = emptyList(),
+                        selectedSegment = null,
+                        searchQuery = ""
+                    )
+                }
+            }
         }
     }
+
     /**
      * Xóa một đoạn chat và tất cả các cuộc trò chuyện liên quan.
      */
@@ -305,27 +333,48 @@ class ChatViewModel @Inject constructor(
         try {
             _chatState.update { it.copy(isLoading = true) }
 
-            // Xóa đoạn chat từ repository
+            // Delete the chat segment from the repository
             repository.deleteChatSegment(segment.id)
 
-            // Cập nhật trạng thái bằng cách loại bỏ đoạn chat đã xóa
+            // Update the state by removing the deleted segment
             val updatedSegments = _chatState.value.chatSegments.filter { it.id != segment.id }
             _chatState.update { it.copy(chatSegments = updatedSegments) }
 
-            // Nếu đoạn chat đã xóa là đoạn được chọn, chọn một đoạn khác
+            // If the deleted segment was the selected one, create a new segment
             if (_chatState.value.selectedSegment?.id == segment.id) {
-                val newSelectedSegment = updatedSegments.firstOrNull()
-                _chatState.update {
-                    it.copy(
-                        selectedSegment = newSelectedSegment,
-                        chatList = newSelectedSegment?.let { seg -> repository.getChatHistoryForSegment(seg.id) } ?: emptyList()
+                // Create a new chat segment
+                val newSegmentTitle = "Đoạn chat mới"
+                val newSegmentId = repository.addChatSegment(newSegmentTitle)
+                if (newSegmentId != null) {
+                    val newSegment = ChatSegment(
+                        id = newSegmentId,
+                        title = newSegmentTitle,
+                        createdAt = System.currentTimeMillis()
                     )
+                    _chatState.update {
+                        it.copy(
+                            selectedSegment = newSegment,
+                            chatList = emptyList(),
+                            chatSegments = updatedSegments + newSegment,
+                            searchQuery = ""
+                        )
+                    }
+                    hasUpdatedTitle = false
+                } else {
+                    // If unable to create a new segment, reset the selected segment and chat list
+                    _chatState.update {
+                        it.copy(
+                            selectedSegment = null,
+                            chatList = emptyList(),
+                            searchQuery = ""
+                        )
+                    }
                 }
             }
 
         } catch (e: Exception) {
             e.printStackTrace()
-            // Tùy chọn: xử lý lỗi bằng cách hiển thị Snackbar hoặc thông báo tương tự
+            // Optionally: handle the error by showing a Snackbar or similar notification
         } finally {
             _chatState.update { it.copy(isLoading = false) }
         }

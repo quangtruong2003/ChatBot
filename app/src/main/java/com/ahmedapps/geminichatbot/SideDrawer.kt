@@ -102,7 +102,7 @@ fun SearchBar(
     OutlinedTextField(
         value = searchQuery,
         onValueChange = onSearchQueryChanged,
-        label = { Text("Tìm kiếm") },
+        label = { Text("Tìm kiếm đoạn chat") },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         trailingIcon = {
