@@ -48,7 +48,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -63,8 +68,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.width
 import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
@@ -85,6 +94,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import kotlin.io.path.moveTo
 
 
 @AndroidEntryPoint
@@ -266,39 +276,41 @@ class MainActivity : ComponentActivity() {
                         listState.firstVisibleItemIndex
                     }
                 }
-
+                AnimatedVisibility(
+                    visible = showScrollToBottomButton,
+                    enter = fadeIn(), // Hiệu ứng mờ dần khi xuất hiện
+                    exit = fadeOut(), // Hiệu ứng mờ dần khi ẩn đi
+                    modifier = Modifier
+                        //.align(Alignment.BottomCenter)
+                        .padding(top = 670.dp, start = 310.dp)
+                        .zIndex(9f)
+                ) {
+                    FloatingActionButton(
+                        onClick = {
+                            scope.launch {
+                                listState.animateScrollToItem(chatState.chatList.size - 1)
+                            }
+                        },
+                        modifier = Modifier.size(40.dp),
+                        shape = CircleShape,
+                        containerColor = if (isSystemInDarkTheme()) Color.DarkGray else Color(
+                            0xFFAAAAAA
+                        ),
+                        contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp) // Loại bỏ đổ bóng
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDownward,
+                            contentDescription = "Scroll to Bottom"
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
                 ) {
-                    AnimatedVisibility(
-                        visible = showScrollToBottomButton,
-                        enter = fadeIn(), // Hiệu ứng mờ dần khi xuất hiện
-                        exit = fadeOut(), // Hiệu ứng mờ dần khi ẩn đi
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 85.dp)
-                            .zIndex(9f)
-                    ) {
-                        FloatingActionButton(
-                            onClick = {
-                                scope.launch {
-                                    listState.animateScrollToItem(chatState.chatList.size - 1)
-                                }
-                            },
-                            modifier = Modifier.size(40.dp),
-                            shape = CircleShape,
-                            containerColor = if (isSystemInDarkTheme()) Color.DarkGray else Color.LightGray,
-                            contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                            elevation = FloatingActionButtonDefaults.elevation(0.dp) // Loại bỏ đổ bóng
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.ArrowDownward,
-                                contentDescription = "Scroll to Bottom"
-                            )
-                        }
-                    }
+
 
                     // Nội dung chính của ChatScreen
                     Column(
@@ -357,14 +369,20 @@ class MainActivity : ComponentActivity() {
 
 
                         }
+
+
                         Box(
                             modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, bottom = 8.dp, start = 8.dp, end = 8.dp),
-                            ){
+                                .background(Color.LightGray)
+                                .fillMaxWidth()
+                                .padding(8.dp)
+
+
+                        ){
                             val screenHeight = LocalConfiguration.current.screenHeightDp.dp
                             val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(70.dp)
                             Column {
+
                                 chatState.imageUri?.let { uri ->
                                     Box(
                                         modifier = Modifier
@@ -410,14 +428,14 @@ class MainActivity : ComponentActivity() {
                                             contentDescription = "Xóa ảnh",
                                             tint = Color.White,
                                             modifier = Modifier
-                                                .size(17.dp)
+                                                .size(20.dp)
                                                 .align(Alignment.TopEnd)
                                                 .offset(x = 4.dp, y = (-4).dp)
                                                 .background(
-                                                    color = Color.LightGray,
+                                                    color = Color(0xFFAAAAAA),
                                                     shape = RoundedCornerShape(50)
                                                 )
-                                                .padding(5.dp)
+                                                .padding(7.dp)
                                                 .clickable {
                                                     chatViewModel.onEvent(ChatUiEvent.RemoveImage)
                                                 }
@@ -436,11 +454,11 @@ class MainActivity : ComponentActivity() {
                         }
                         Box(
                             modifier = Modifier
+                                .background(Color.LightGray)
                                 .fillMaxWidth()
                                 .padding(top = 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
+
                         ) {
-
-
 
                             Box(
                                 modifier = Modifier
@@ -473,11 +491,12 @@ class MainActivity : ComponentActivity() {
 
                                     TextField(
                                         modifier = Modifier
-                                            .weight(1f)
                                             .heightIn(
                                                 min = 50.dp,
                                                 max = 200.dp
                                             ) // Adjust height for multiline input
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .weight(1f)
                                             .verticalScroll(rememberScrollState()), // Enable scrolling for text
                                         value = chatState.prompt,
                                         onValueChange = {
@@ -497,7 +516,7 @@ class MainActivity : ComponentActivity() {
                                         CircularProgressIndicator(
                                             modifier = Modifier.size(40.dp),
                                             color = MaterialTheme.colorScheme.primary,
-                                            strokeWidth = 7.dp
+                                            strokeWidth = 5.dp
                                         )
                                     } else {
                                         Icon(
