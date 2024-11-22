@@ -2,7 +2,6 @@
 package com.ahmedapps.geminichatbot.data
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
@@ -64,23 +63,66 @@ class ChatRepository @Inject constructor(
             return@withContext null
         }
     }
+    private suspend fun buildPromptWithHistory(currentPrompt: String, segmentId: String?): String = withContext(Dispatchers.IO) {
+        val chatHistory = getChatHistoryForSegment(segmentId).filterNot { it.isError } // Lọc bỏ các tin nhắn lỗi
 
+        // Xây dựng prompt với lịch sử trò chuyện
+        val stringBuilder = StringBuilder()
+        for (chat in chatHistory) {
+            val sender = if (chat.isFromUser) "User" else ""
+            stringBuilder.append("$sender: ${chat.prompt}\n")
+        }
+        stringBuilder.append("User: $currentPrompt")
+
+        return@withContext stringBuilder.toString()
+    }
+
+    private var _selectedSegmentId: String? = null // Biến lưu ID đoạn chat hiện tại
     /**
      * Tạo prompt đầy đủ bằng cách nối lịch sử trò chuyện.
      */
-    private suspend fun getFullPrompt(currentPrompt: String, hasImage: Boolean, selectedSegmentId: String?): String = withContext(Dispatchers.IO) {
-        val chatHistory = getChatHistoryForSegment(selectedSegmentId)
-        return@withContext if (hasImage) {
-            if (currentPrompt.isEmpty()) {
-                // Tìm tin nhắn đầu tiên của người dùng không có hình ảnh
-                val firstTextChat = chatHistory.firstOrNull { it.isFromUser && it.imageUrl == null && it.prompt.isNotEmpty() }
-                firstTextChat?.prompt ?: "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích."
-            } else {
-                currentPrompt
+    private suspend fun getFullPrompt(currentPrompt: String, hasImage: Boolean): String = withContext(Dispatchers.IO) {
+        val chatHistory = getChatHistoryForSegment(_selectedSegmentId)
+        if (hasImage) {
+            // Khi có hình ảnh
+            buildString {
+                append("User: ")
+                if (currentPrompt.isEmpty()) {
+                    // Tìm tin nhắn đầu tiên của người dùng
+                    val reversedChatHistory = chatHistory.reversed()
+                    // Tìm tin nhắn đầu tiên của người dùng không có hình ảnh và có prompt không trống
+                    val firstTextChat = reversedChatHistory.firstOrNull { chat ->
+                        chat.isFromUser && chat.imageUrl == null && chat.prompt.isNotEmpty()
+                    }
+                    val promptToUse = if (firstTextChat != null) {
+                        // Sử dụng prompt của tin nhắn đầu tiên không có hình ảnh
+                        firstTextChat.prompt
+                    } else {
+                        // Nếu không tìm thấy, tìm prompt của hình ảnh đầu tiên
+                        val firstImageChat = chatHistory.firstOrNull { chat ->
+                            chat.isFromUser && chat.imageUrl != null && chat.prompt.isNotEmpty()
+                        }
+                        firstImageChat?.prompt ?: "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời chính xác nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích. Nếu không có văn bản thì không cần nói là không có văn bản hong hình ảnh. Bạn có thể tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới."
+                    }
+                    append(promptToUse)
+                } else {
+                    // currentPrompt không trống
+                    append(currentPrompt)
+                }
             }
         } else {
-            // Không có hình ảnh, chỉ cần prompt hiện tại
-            currentPrompt
+            // Khi không có hình ảnh, có thể gửi kèm lịch sử trò chuyện nếu cần
+            buildString {
+                for (chat in chatHistory) {
+                    if (chat.prompt.isNotEmpty()) {
+                        append(if (chat.isFromUser) "User: " else "Assistant: ")
+                        append(chat.prompt)
+                        append("\n")
+                    }
+                }
+                append("User: ")
+                append(currentPrompt)
+            }
         }
     }
 
@@ -88,36 +130,34 @@ class ChatRepository @Inject constructor(
      * Lấy phản hồi từ GenerativeModel không kèm hình ảnh.
      */
     suspend fun getResponse(prompt: String, selectedSegmentId: String?): Chat = withContext(Dispatchers.IO) {
-        try {
-            val fullPrompt = getFullPrompt(prompt, hasImage = false, selectedSegmentId = selectedSegmentId)
+        return@withContext try {
+            val fullPrompt = getFullPrompt(prompt, hasImage = false)
             val response = generativeModel.generateContent(fullPrompt)
-            val chat = Chat(
-                id = "",
+            val chat = Chat.fromPrompt(
                 prompt = response.text ?: "Error: Empty response",
                 imageUrl = null,
                 isFromUser = false,
                 isError = false,
                 userId = userId
             )
-            insertChat(chat, selectedSegmentId)
+            insertChat(chat)
             // Cập nhật tiêu đề đoạn chat nếu chưa cập nhật
-            if (!_hasUpdatedTitle && !chat.isFromUser && selectedSegmentId != null) {
-                updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+            if (!_hasUpdatedTitle) {
+                updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
                 _hasUpdatedTitle = true
             }
-            return@withContext chat
+            chat
         } catch (e: Exception) {
-            Log.e("ChatRepository", "Error getting response", e)
-            val chat = Chat(
-                id = "",
+            e.printStackTrace()
+            val chat = Chat.fromPrompt(
                 prompt = "Error: ${e.localizedMessage}",
                 imageUrl = null,
                 isFromUser = false,
                 isError = true,
                 userId = userId
             )
-            insertChat(chat, selectedSegmentId)
-            return@withContext chat
+            insertChat(chat)
+            chat
         }
     }
 
@@ -125,12 +165,12 @@ class ChatRepository @Inject constructor(
      * Lấy phản hồi từ GenerativeModel kèm hình ảnh.
      */
     suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?): Chat = withContext(Dispatchers.IO) {
-        try {
-            val fullPrompt = getFullPrompt(prompt, hasImage = true, selectedSegmentId = selectedSegmentId)
+        return@withContext try {
+            val fullPrompt = getFullPrompt(prompt, hasImage = true)
             Log.d("ChatRepository", "Full Prompt: $fullPrompt")
 
-            // Tạo Content cho hình ảnh
-            val bitmap: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // Chuyển đổi Uri thành Bitmap
+            val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(context.contentResolver, imageUri)
                 ImageDecoder.decodeBitmap(source)
             } else {
@@ -138,43 +178,45 @@ class ChatRepository @Inject constructor(
                 MediaStore.Images.Media.getBitmap(context.contentResolver, imageUri)
             }
 
-            val imageContent = content { image(bitmap) }
-            val textContent = content { text(fullPrompt) }
+            // Tạo các Content instances cho hình ảnh và văn bản
+            val imageContent = content {
+                image(bitmap)
+            }
+            val textContent = content {
+                text(fullPrompt)
+            }
 
-            // Gọi API với hình ảnh và văn bản
+            // Gọi API với các Content instances
             val response = generativeModel.generateContent(imageContent, textContent)
             Log.d("ChatRepository", "API Response: ${response.text}")
-
             // Tải lên hình ảnh và lấy URL
             val imageUrl = uploadImage(imageUri)
 
             val chat = Chat(
-                id = "",
                 prompt = response.text ?: "Error: Empty response",
                 imageUrl = imageUrl,
                 isFromUser = false,
                 isError = false,
                 userId = userId
             )
-            insertChat(chat, selectedSegmentId)
+            insertChat(chat)
             // Cập nhật tiêu đề đoạn chat nếu chưa cập nhật
-            if (!_hasUpdatedTitle && !chat.isFromUser && selectedSegmentId != null) {
-                updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+            if (!_hasUpdatedTitle) {
+                updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
                 _hasUpdatedTitle = true
             }
-            return@withContext chat
+            chat
         } catch (e: Exception) {
-            Log.e("ChatRepository", "Error getting response with image", e)
+            e.printStackTrace()
             val chat = Chat(
-                id = "",
                 prompt = "Error: ${e.localizedMessage}",
                 imageUrl = null,
                 isFromUser = false,
                 isError = true,
                 userId = userId
             )
-            insertChat(chat, selectedSegmentId)
-            return@withContext chat
+            insertChat(chat)
+            chat
         }
     }
 
@@ -200,15 +242,20 @@ class ChatRepository @Inject constructor(
     /**
      * Chèn một tin nhắn vào một đoạn chat cụ thể.
      */
-    suspend fun insertChat(chat: Chat, segmentId: String?) = withContext(Dispatchers.IO) {
-        if (segmentId.isNullOrEmpty()) return@withContext
+    suspend fun insertChat(chat: Chat, segmentId: String? = null) = withContext(Dispatchers.IO) {
         try {
-            val messageRef = segmentsCollection.document(segmentId).collection("messages").document()
-            val chatWithId = chat.copy(id = messageRef.id)
-            messageRef.set(chatWithId).await()
-            Log.d("ChatRepository", "Inserted Chat message with ID: ${messageRef.id} into segment: $segmentId")
+            val targetSegmentId = segmentId ?: getOrCreateDefaultSegmentId()
+            _selectedSegmentId = targetSegmentId // Cập nhật ID đoạn chat hiện tại
+            if (targetSegmentId != null) {
+                val messagesCollection = getMessagesCollection(targetSegmentId)
+                val docRef = messagesCollection.document()
+                val messageId = docRef.id
+                val chatWithId = chat.copy(id = messageId)
+                docRef.set(chatWithId).await()
+                Log.d("ChatRepository", "Inserted Chat message with ID: $messageId into segment: $targetSegmentId")
+            }
         } catch (e: Exception) {
-            Log.e("ChatRepository", "Error inserting chat message", e)
+            e.printStackTrace()
         }
     }
 

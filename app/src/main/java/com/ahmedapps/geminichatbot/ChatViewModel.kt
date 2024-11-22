@@ -2,7 +2,6 @@
 package com.ahmedapps.geminichatbot
 
 import android.net.Uri
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahmedapps.geminichatbot.data.Chat
@@ -262,7 +261,7 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?) {
         val actualPrompt = if (prompt.isEmpty()) {
-            "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích."
+            "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời chính xác nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích. Nếu không có văn bản thì không cần nói là không có văn bản hong hình ảnh. Bạn có thể tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới."
         } else {
             prompt
         }

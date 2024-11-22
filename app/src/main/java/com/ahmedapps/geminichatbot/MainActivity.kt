@@ -248,6 +248,11 @@ class MainActivity : ComponentActivity() {
                 }
             ) { paddingValues ->
                 val clipboardManager = LocalClipboardManager.current
+                val firstVisibleItemIndex by remember {
+                    derivedStateOf {
+                        listState.firstVisibleItemIndex
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -257,7 +262,6 @@ class MainActivity : ComponentActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxSize(),
-                        verticalArrangement = Arrangement.Bottom
                     ) {
                         LazyColumn(
                             modifier = Modifier
@@ -265,6 +269,7 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxWidth()
                                 .padding(horizontal = 8.dp),
                             state = listState,
+                            verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
                         ) {
                             items(chatState.chatList) { chat ->
                                 if (chat.isFromUser) {
@@ -516,7 +521,7 @@ class MainActivity : ComponentActivity() {
 
         Column(
             modifier = Modifier
-                .padding(start = 65.dp, bottom = 16.dp)
+                .padding(start = 55.dp, bottom = 16.dp)
         ) {
             imageUrl?.let { url ->
                 AsyncImage(
@@ -543,14 +548,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primary)
+                        .background(Color(0xFF3F6D7C))
                         .padding(16.dp)
                         .combinedClickable(
                             onClick = {},
                             onLongClick = { onLongPress(prompt) }
                         ),
                     text = prompt,
-                    fontSize = 16.sp,
+                    fontSize = 17.sp,
                     color = MaterialTheme.colorScheme.onPrimary
                 )
             }
@@ -569,11 +574,11 @@ class MainActivity : ComponentActivity() {
         onImageClick: (String) -> Unit
     ) {
         val formattedResponse = parseFormattedText(response)
-        val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Color(0xFF4CAF50) // Green
+        val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Color(0xFF838483)
 
         Column(
             modifier = Modifier
-                .padding(end = 65.dp, bottom = 16.dp)
+                .padding(end = 55.dp, bottom = 16.dp)
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onLongPress = {
@@ -612,7 +617,7 @@ class MainActivity : ComponentActivity() {
                     .background(backgroundColor)
                     .padding(16.dp),
                 text = formattedResponse,
-                fontSize = 16.sp,
+                fontSize = 17.sp,
                 color = MaterialTheme.colorScheme.onPrimary
             )
         }
