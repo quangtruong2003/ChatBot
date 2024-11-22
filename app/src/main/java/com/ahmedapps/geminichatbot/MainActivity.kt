@@ -566,13 +566,12 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier
                                                 .size(40.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .alpha(if (canSend) 1f else 0.4f) // Điều chỉnh độ trong suốt dựa vào `canSend`
+                                                .alpha(if (canSend) 1f else 0.4f) // Adjust opacity based on canSend
                                                 .clickable(
-                                                    enabled = canSend, // Chỉ cho phép gửi khi có nội dung
+                                                    enabled = canSend, // Enable or disable based on canSend
                                                     onClick = {
-                                                        if (canSend) {
+                                                        if (canSend) { // Additional safety check
                                                             val sanitizedPrompt = sanitizeMessage(chatState.prompt) // Xử lý chuỗi tin nhắn
-                                                            if (sanitizedPrompt.isNotEmpty()) { // Chỉ gửi khi tin nhắn không rỗng
                                                                 chatViewModel.onEvent(
                                                                     ChatUiEvent.SendPrompt(
                                                                         sanitizedPrompt,
@@ -580,7 +579,6 @@ class MainActivity : ComponentActivity() {
                                                                     )
                                                                 )
                                                                 showWelcomeMessage = false
-                                                            }
                                                         }
                                                     }
                                                 ),
