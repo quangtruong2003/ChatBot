@@ -356,7 +356,7 @@ class MainActivity : ComponentActivity() {
                                 .padding(horizontal = 8.dp),
                             state = listState,
                             verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
-                            contentPadding = PaddingValues(bottom = 80.dp)
+                            //contentPadding = PaddingValues(bottom = 80.dp)
                         ) {
                             items(chatState.chatList) { chat ->
                                 if (chat.isFromUser) {
@@ -562,9 +562,11 @@ class MainActivity : ComponentActivity() {
 
                                     if (chatState.isLoading) {
                                         CircularProgressIndicator(
-                                            modifier = Modifier.size(40.dp),
+                                            modifier = Modifier
+                                                .padding(bottom = 8.dp)
+                                                .size(40.dp),
                                             color = MaterialTheme.colorScheme.primary,
-                                            strokeWidth = 5.dp
+                                            strokeWidth = 7.dp
                                         )
                                     } else {
                                         Icon(
