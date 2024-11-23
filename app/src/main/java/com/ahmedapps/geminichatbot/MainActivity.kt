@@ -4,8 +4,6 @@ package com.ahmedapps.geminichatbot
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
-import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -15,7 +13,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,6 +24,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -36,8 +34,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
@@ -48,20 +44,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -73,16 +61,14 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
+
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.LayoutDirection
+
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.height
+
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.toSize
-import androidx.compose.ui.unit.width
 import androidx.compose.ui.zIndex
+
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -91,18 +77,18 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import coil.compose.AsyncImage
-import coil.compose.rememberAsyncImagePainter
+
 import coil.request.ImageRequest
 import com.ahmedapps.geminichatbot.auth.LoginScreen
 import com.ahmedapps.geminichatbot.auth.RegistrationScreen
-import com.ahmedapps.geminichatbot.data.ChatSegment
+
 import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
-import kotlin.io.path.moveTo
+
 
 
 @AndroidEntryPoint
@@ -176,19 +162,29 @@ class MainActivity : ComponentActivity() {
 
         // Khởi tạo LazyListState để quản lý cuộn danh sách
         val listState = rememberLazyListState()
-
+        val textFieldHeight = remember { mutableStateOf(0.dp) }
         // Khởi tạo SnackbarHostState
         val snackbarHostState = remember { SnackbarHostState() }
+
+
 
         val isUserScrolling = remember { mutableStateOf(false) }
         var userScrolled by remember { mutableStateOf(false) }
         var previousChatListSize by remember { mutableStateOf(chatState.chatList.size) }
         val showScrollToBottomButton by remember {
             derivedStateOf {
-                listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index != chatState.chatList.lastIndex
+                val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
+                if (lastVisibleItem != null) {
+                    // Kiểm tra nếu chỉ số của mục cuối cùng hiển thị nhỏ hơn chỉ số của mục cuối cùng trong danh sách
+                    lastVisibleItem.index < chatState.chatList.lastIndex
+                } else {
+                    false
+                }
             }
         }
         val canSend = chatState.prompt.isNotEmpty() || chatState.imageUri != null
+
+
 
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }
@@ -215,6 +211,9 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+
+
+
         // Image Picker đăng ký bên trong composable để tránh vấn đề ViewModel chưa được khởi tạo
         val context = LocalContext.current
         val imagePicker = rememberLauncherForActivityResult(
@@ -226,6 +225,7 @@ class MainActivity : ComponentActivity() {
             }
         )
         val robotoFontFamily = FontFamily.Default
+
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
@@ -236,6 +236,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
         ) {
+
             Scaffold(
                 topBar = {
                     CenterAlignedTopAppBar(
@@ -268,7 +269,9 @@ class MainActivity : ComponentActivity() {
                         },
                         actions = {
                             IconButton(
-                                onClick = { chatViewModel.refreshChats() },
+                                onClick = {
+                                    chatViewModel.refreshChats()
+                                },
                                 enabled = chatState.chatList.isNotEmpty()
                             ) {
                                 Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
@@ -302,47 +305,49 @@ class MainActivity : ComponentActivity() {
                         listState.firstVisibleItemIndex
                     }
                 }
-                AnimatedVisibility(
-                    visible = showScrollToBottomButton && chatState.chatList.isNotEmpty(),
-                    enter = fadeIn(), // Hiệu ứng mờ dần khi xuất hiện
-                    exit = fadeOut(), // Hiệu ứng mờ dần khi ẩn đi
-                    modifier = Modifier
-                        //.align(Alignment.BottomCenter)
-                        .padding(top = 670.dp, start = 310.dp)
-                        .zIndex(9f)
-                ) {
-                    FloatingActionButton(
-                        onClick = {
-                            scope.launch {
-                                listState.animateScrollToItem(chatState.chatList.size - 1)
-                            }
-                        },
-                        modifier = Modifier.size(40.dp),
-                        shape = CircleShape,
-                        containerColor = if (isSystemInDarkTheme()) Color.Gray else Color(
-                            0xFFAAAAAA
-                        ),
-                        contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                        elevation = FloatingActionButtonDefaults.elevation(0.dp) // Loại bỏ đổ bóng
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowDownward,
-                            contentDescription = "Scroll to Bottom"
-                        )
-                    }
-                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
                 ) {
+                    AnimatedVisibility(
+                        visible = showScrollToBottomButton,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter) // Align at the bottom center within the Box
+                            .padding(bottom = 180.dp)
+                            .zIndex(1f)// Add padding to adjust above the input bar
+                    ) {
+                        FloatingActionButton(
+                            onClick = {
+                                scope.launch {
+                                    listState.animateScrollToItem(chatState.chatList.size - 1)
 
+                                }
+                            },
+                            modifier = Modifier.size(40.dp),
+                            shape = CircleShape,
+                            containerColor = if (isSystemInDarkTheme()) Color.Gray else Color(
+                                0xFFC7C7C7
+                            ),
+                            contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                            elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.ArrowDownward,
+                                contentDescription = "Scroll to Bottom"
+                            )
+                        }
+                    }
 
-                    // Nội dung chính của ChatScreen
+                        // Nội dung chính của ChatScreen
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                    ) {
+                    ){
+
+
 
                         LazyColumn(
                             modifier = Modifier
@@ -351,6 +356,7 @@ class MainActivity : ComponentActivity() {
                                 .padding(horizontal = 8.dp),
                             state = listState,
                             verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
+                            contentPadding = PaddingValues(bottom = 80.dp)
                         ) {
                             items(chatState.chatList) { chat ->
                                 if (chat.isFromUser) {
@@ -390,11 +396,9 @@ class MainActivity : ComponentActivity() {
                                         }
                                     )
                                 }
-
                             }
-
-
                         }
+
 
 
                         Box(
@@ -502,6 +506,7 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     Icon(
                                         modifier = Modifier
+                                            .padding(bottom = 8.dp)
                                             .size(40.dp)
                                             .clip(RoundedCornerShape(8.dp))
                                             .clickable {
@@ -564,6 +569,7 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         Icon(
                                             modifier = Modifier
+                                                .padding(bottom = 8.dp)
                                                 .size(40.dp)
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .alpha(if (canSend) 1f else 0.4f) // Adjust opacity based on canSend
@@ -592,14 +598,18 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+
                     if (showWelcomeMessage && chatState.chatList.isEmpty()) {
+                        userScrolled = false
                         Text(
                             modifier = Modifier.align(Alignment.Center),
                             text = "Xin chào, tôi có thể giúp gì cho bạn?",
                             fontSize = 20.sp,
                             color = MaterialTheme.colorScheme.primary
                         )
+
                     }
+
                     LaunchedEffect(chatState.chatList.isEmpty()) {
                         if (chatState.chatList.isEmpty()) {
                             showWelcomeMessage = true
