@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -277,9 +278,6 @@ class MainActivity : ComponentActivity() {
                                 Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
                             }
                         },
-                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors( // Use centerAlignedTopAppBarColors
-                            containerColor = Color(0xFFE9E9E9)
-                        )
                     )
                 },
                 // Tùy chỉnh SnackbarHost để điều chỉnh vị trí
@@ -326,13 +324,22 @@ class MainActivity : ComponentActivity() {
 
                                 }
                             },
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .shadow(
+                                    elevation = 8.dp,
+                                    shape = CircleShape,
+                                    clip = false
+                                ),
                             shape = CircleShape,
-                            containerColor = if (isSystemInDarkTheme()) Color.Gray else Color(
-                                0xFFC7C7C7
-                            ),
+                            containerColor = if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFEAEAEA),
                             contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
-                            elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = 0.dp, // Tăng giá trị defaultElevation
+                                pressedElevation = 12.dp, // Tăng giá trị pressedElevation (tùy chọn)
+                                focusedElevation = 12.dp // Tăng giá trị focusedElevation (tùy chọn)
+                            )
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.ArrowDownward,
@@ -362,6 +369,7 @@ class MainActivity : ComponentActivity() {
                                 if (chat.isFromUser) {
                                     UserChatItem(
                                         prompt = chat.prompt,
+                                        isError = chat.isError,
                                         imageUrl = chat.imageUrl,
                                         onLongPress = { textToCopy ->
                                             scope.launch {
@@ -403,9 +411,6 @@ class MainActivity : ComponentActivity() {
 
                         Box(
                             modifier = Modifier
-                                .background(
-                                    color = Color(0xFFE9E9E9),
-                                )
                                 .fillMaxWidth()
                                 .padding(8.dp)
 
@@ -486,9 +491,6 @@ class MainActivity : ComponentActivity() {
                         }
                         Box(
                             modifier = Modifier
-                                .background(
-                                    color = Color(0xFFE9E9E9),
-                                )
                                 .fillMaxWidth()
                                 .padding(bottom = 16.dp, start = 8.dp, end = 8.dp),
 
@@ -527,10 +529,10 @@ class MainActivity : ComponentActivity() {
                                     TextField(
                                         modifier = Modifier
                                             .heightIn(min = 50.dp, max = 200.dp)
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .clip(RoundedCornerShape(20.dp))
                                             .weight(1f)
                                             .verticalScroll(rememberScrollState())
-                                            .border(width = 1.dp, color = Color.Gray, shape = RoundedCornerShape(10.dp)),
+                                            .border(width = 1.dp, color = Color.LightGray, shape = RoundedCornerShape(20.dp)),
                                         value = chatState.prompt,
                                         onValueChange = {
                                             chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
@@ -544,6 +546,7 @@ class MainActivity : ComponentActivity() {
                                                 text = "Nhập tin nhắn",
                                                 modifier = Modifier.fillMaxWidth(),
                                                 style = TextStyle(
+                                                    fontSize = 17.sp,
                                                     brush = Brush.linearGradient(
                                                         colors = listOf(
                                                             Color(0xFF1BA1E3),
@@ -668,59 +671,69 @@ class MainActivity : ComponentActivity() {
     fun UserChatItem(
         prompt: String,
         imageUrl: String?,
+        isError: Boolean,
         onLongPress: (String) -> Unit,
         onImageClick: (String) -> Unit
     ) {
+        val isDarkTheme = isSystemInDarkTheme()
+        val backgroundColor = when {
+            isError -> MaterialTheme.colorScheme.error
+            isDarkTheme -> Color(0x43FFFFFF)
+            else -> Color(0x97FFFFFF)
+        }
+        val textColor = if (isDarkTheme) Color.White else Color.Black
         val screenHeight = LocalConfiguration.current.screenHeightDp.dp
         val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(175.dp)
+        val maxWidth = LocalConfiguration.current.screenWidthDp.dp * 0.7f
 
-        Column(
+        Row(
             modifier = Modifier
-                .padding(start = 55.dp, bottom = 16.dp)
+                .fillMaxWidth()
+                .padding(end = 8.dp, bottom = 16.dp),
+            horizontalArrangement = Arrangement.End
         ) {
-            imageUrl?.let { url ->
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(url)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Your Image",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = maxImageHeight)
-                        .clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
-                        .combinedClickable(
-                            onClick = { onImageClick(url) },
-                            onLongClick = { onLongPress(prompt) }
-                        )
-                )
-            }
-
-            if (prompt.isNotEmpty()) {
-                Text(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF5C6BC0))
-                        .padding(16.dp)
-                        .combinedClickable(
-                            onClick = {},
-                            onLongClick = { onLongPress(prompt) }
-                        ),
-
-                    text = prompt,
-                    style = TextStyle(
-                        fontSize = 17.sp,
-                        color = MaterialTheme.colorScheme.onPrimary
+            Column(horizontalAlignment = Alignment.End) {
+                imageUrl?.let { url ->
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(url)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Your Image",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .widthIn(max = maxWidth)
+                            .heightIn(max = maxImageHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
+                            .combinedClickable(
+                                onClick = { onImageClick(url) },
+                                onLongClick = { onLongPress(prompt) }
+                            )
                     )
-
-                )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                if (prompt.isNotEmpty()) {
+                    Text(
+                        modifier = Modifier
+                            .widthIn(max = maxWidth)
+                            .clip(RoundedCornerShape(17.dp))
+                            .background(backgroundColor)
+                            .padding(12.dp)
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = { onLongPress(prompt) }
+                            ),
+                        text = prompt,
+                        style = TextStyle(
+                            fontSize = 17.sp,
+                            color = textColor
+                        )
+                    )
+                }
             }
         }
     }
-
 
 
 
@@ -728,59 +741,69 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun ModelChatItem(
         response: String,
+        //imageUrl: String?, // Add imageUrl parameter
         isError: Boolean,
         onLongPress: (String) -> Unit,
         onImageClick: (String) -> Unit
     ) {
+        val isDarkTheme = isSystemInDarkTheme()
+        val textColor = if (isDarkTheme) Color.White else Color.Black
+        val backgroundColor = when {
+            isError -> MaterialTheme.colorScheme.error
+            isSystemInDarkTheme() -> MaterialTheme.colorScheme.surface // Sử dụng surface cho màu nền dark
+            else -> MaterialTheme.colorScheme.surface // Sử dụng surface cho màu nền white
+        }
         val formattedResponse = parseFormattedText(response)
-        val backgroundColor = if (isError) MaterialTheme.colorScheme.error else Color(0xFF3F6D7C)
 
-        Column(
+        val maxWidth = LocalConfiguration.current.screenWidthDp.dp * 0.9f
+        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+        //val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(175.dp)
+
+
+        Row(
             modifier = Modifier
-                .padding(end = 55.dp, bottom = 16.dp)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onLongPress = {
-                            onLongPress(formattedResponse.text)
-                        }
-                    )
-                }
+                .fillMaxWidth()
+                .padding(start = 16.dp, bottom = 16.dp),
+            horizontalArrangement = Arrangement.Start
         ) {
-            // If your model can send images, include this block
-//            val imageUrl = extractImageUrlFromResponse(response) // Implement this function as needed
-//            imageUrl?.let { url ->
-//                AsyncImage(
-//                    model = ImageRequest.Builder(LocalContext.current)
-//                        .data(url)
-//                        .crossfade(true)
-//                        .build(),
-//                    contentDescription = "Model Image",
-//                    contentScale = ContentScale.Crop,
-//                    modifier = Modifier
-//                        .fillMaxWidth()
-//                        .heightIn(max = 200.dp) // Set maximum height
-//                        .clip(RoundedCornerShape(12.dp))
-//                        .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
-//                        .combinedClickable(
-//                            onClick = { onImageClick(url) },
-//                            onLongClick = { onLongPress(formattedResponse.text) }
-//                        )
-//                )
-//                Spacer(modifier = Modifier.height(8.dp))
-//            }
+            Column(horizontalAlignment = Alignment.Start) {
+//                imageUrl?.let { url ->  // Display image if URL is provided
+//                    AsyncImage(
+//                        model = ImageRequest.Builder(LocalContext.current)
+//                            .data(url)
+//                            .crossfade(true)
+//                            .build(),
+//                        contentDescription = "Model Image",
+//                        contentScale = ContentScale.Crop, // Or ContentScale.Fit as needed
+//                        modifier = Modifier
+//                            .fillMaxWidth()
+//                            .heightIn(max = maxImageHeight)
+//                            .clip(RoundedCornerShape(12.dp))
+//                            .combinedClickable(
+//                                onClick = { onImageClick(url) },
+//                                onLongClick = {formattedResponse.text} // Or handle image long-click differently
+//                            )
+//                    )
+//                    Spacer(Modifier.height(8.dp)) // Add space between image and text
+//                }
 
-            Text(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(backgroundColor)
-                    .padding(16.dp),
-                text = formattedResponse,
-                style = TextStyle(
-                    fontSize = 17.sp,
-                    color = MaterialTheme.colorScheme.onPrimary
+                Text(
+                    modifier = Modifier
+                        .widthIn(max = maxWidth)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(backgroundColor)
+                        .padding(12.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { onLongPress(response)}
+                        ),
+                    text = formattedResponse,
+                    style = TextStyle(
+                        fontSize = 17.sp,
+                        color = textColor
+                    )
                 )
-            )
+            }
         }
     }
 

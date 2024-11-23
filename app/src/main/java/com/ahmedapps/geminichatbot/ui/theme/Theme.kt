@@ -10,6 +10,7 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -36,6 +37,10 @@ private val LightColorScheme = lightColorScheme(
     onSurface = Color(0xFF1C1B1F),
     */
 )
+// Trong file Theme.kt hoặc nơi bạn định nghĩa theme
+val LightGrayBackground = Color(0xFFE0E0E0)
+val DarkGrayBackground = Color(0xFF606060)
+
 
 @Composable
 fun GeminiChatBotTheme(

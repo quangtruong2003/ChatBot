@@ -293,7 +293,7 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?) {
         val actualPrompt = if (prompt.isEmpty()) {
-            "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Nếu nó là 1 câu hỏi thì bạn hãy trả lời chính xác nó. Nếu nó là một văn bản thì bạn hãy viết toàn bộ văn bản đó ra câu trả lời của bạn và giải thích. Nếu không có văn bản thì không cần nói là không có văn bản hong hình ảnh. Bạn có thể tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới."
+            "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình."
         } else {
             prompt
         }
