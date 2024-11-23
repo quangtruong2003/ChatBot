@@ -3,6 +3,7 @@ package com.ahmedapps.geminichatbot
 
 import android.net.Uri
 import android.os.Bundle
+import androidx.compose.foundation.Image
 import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -54,6 +55,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -763,9 +765,21 @@ class MainActivity : ComponentActivity() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, bottom = 16.dp),
+                .padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.Start
         ) {
+            // Icon (Avatar)
+            Image( // or AsyncImage if using a URL
+                painter = painterResource(id = R.drawable.ic_bot), // Replace with your icon resource
+                contentDescription = "Chatbot Avatar",
+                modifier = Modifier
+                    .padding(top = 7.dp)
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    //.border(1.dp, Color.LightGray, CircleShape)
+                    .align(Alignment.Top) // Align to the top of the text
+            )
+
             Column(horizontalAlignment = Alignment.Start) {
 //                imageUrl?.let { url ->  // Display image if URL is provided
 //                    AsyncImage(
