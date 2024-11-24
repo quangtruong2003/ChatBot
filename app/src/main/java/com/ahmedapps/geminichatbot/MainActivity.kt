@@ -526,27 +526,33 @@ class MainActivity : ComponentActivity() {
                                         )
 
                                         // Nút 'X' để xóa ảnh
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Xóa ảnh",
-                                            tint = Color.White,
+                                        Box(
                                             modifier = Modifier
                                                 .size(20.dp)
                                                 .align(Alignment.TopEnd)
                                                 .offset(x = 4.dp, y = (-4).dp)
-                                                .background(
-                                                    color = Color(0xFFAAAAAA),
-                                                    shape = RoundedCornerShape(50)
-                                                )
-                                                .padding(7.dp)
+                                                .clip(RoundedCornerShape(50))
                                                 .clickable {
                                                     chatViewModel.onEvent(ChatUiEvent.RemoveImage)
                                                 }
-                                                .graphicsLayer {
-                                                    scaleX = 2.2f
-                                                    scaleY = 2.2f
-                                                }
-                                        )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Xóa ảnh",
+                                                tint = Color.White,
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(
+                                                        color = Color(0xFFAAAAAA),
+                                                        shape = RoundedCornerShape(50)
+                                                    )
+                                                    .padding(7.dp)
+                                                    .graphicsLayer {
+                                                        scaleX = 3f
+                                                        scaleY = 3f
+                                                    }
+                                            )
+                                        }
                                     }
                                 }
 
