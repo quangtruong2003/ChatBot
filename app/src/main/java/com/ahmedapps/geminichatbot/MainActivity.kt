@@ -1,8 +1,10 @@
 // MainActivity.kt
 package com.ahmedapps.geminichatbot
 
+import android.Manifest
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import androidx.compose.foundation.Image
 import android.util.Base64
 import androidx.activity.ComponentActivity
@@ -33,6 +35,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
@@ -64,14 +67,11 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
-
 import androidx.compose.ui.text.withStyle
-
 import androidx.compose.ui.unit.dp
-
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -80,20 +80,24 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import coil.compose.AsyncImage
-
 import coil.request.ImageRequest
 import com.ahmedapps.geminichatbot.auth.LoginScreen
 import com.ahmedapps.geminichatbot.auth.RegistrationScreen
-
 import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import com.google.accompanist.permissions.shouldShowRationale
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import java.io.File
 
 
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalPermissionsApi::class)
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
@@ -152,9 +156,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
-    fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {
+    fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {val isError: Boolean = false // Initialize isError
+
+
         val chatState by chatViewModel.chatState.collectAsState()
         var showLogoutDialog by remember { mutableStateOf(false) }
         var showWelcomeMessage by remember { mutableStateOf(true) }
@@ -169,6 +175,31 @@ class MainActivity : ComponentActivity() {
         // Khởi tạo SnackbarHostState
         val snackbarHostState = remember { SnackbarHostState() }
 
+        var showPopup by remember { mutableStateOf(false) }
+
+        val isDarkTheme = isSystemInDarkTheme()
+        val backgroundColor = when {
+            isError -> MaterialTheme.colorScheme.error
+            isDarkTheme -> Color(0x43FFFFFF)
+            else -> Color(0x97FFFFFF)
+        }
+        val textColor = if (isDarkTheme) Color.White else Color.Black
+
+        // Yêu cầu quyền CAMERA
+        val cameraPermissionState = rememberPermissionState(permission = Manifest.permission.CAMERA)
+
+        LaunchedEffect(Unit) {
+            if (!cameraPermissionState.status.isGranted) {
+                cameraPermissionState.launchPermissionRequest()
+            }
+        }
+
+        // Kiểm tra quyền và hiển thị thông báo nếu chưa cấp quyền
+        if (!cameraPermissionState.status.isGranted && cameraPermissionState.status.shouldShowRationale) {
+            LaunchedEffect(Unit) {
+                snackbarHostState.showSnackbar("Ứng dụng cần quyền truy cập máy ảnh để chụp ảnh.")
+            }
+        }
 
 
         val isUserScrolling = remember { mutableStateOf(false) }
@@ -227,6 +258,34 @@ class MainActivity : ComponentActivity() {
                 }
             }
         )
+
+        // Hàm tạo URI tạm thời cho ảnh
+        fun createImageUri(): Uri? {
+            val imageFile = File(
+                context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+                "IMG_${System.currentTimeMillis()}.jpg"
+            )
+            return FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                imageFile
+            )
+        }
+        // Tạo một biến để lưu Uri tạm thời cho ảnh chụp
+        var photoUri by remember { mutableStateOf<Uri?>(null) }
+
+        // Đăng ký launcher cho máy ảnh
+        val takePictureLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.TakePicture(),
+            onResult = { success ->
+                if (success && photoUri != null) {
+                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(photoUri!!))
+                }
+            }
+        )
+
+
+
         val robotoFontFamily = FontFamily.Default
 
         ModalNavigationDrawer(
@@ -267,7 +326,12 @@ class MainActivity : ComponentActivity() {
                         },
                         navigationIcon = {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Default.Menu, contentDescription = "Menu")
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_listhistory),
+                                    contentDescription = "Menu",
+                                    tint = textColor,
+                                    modifier = Modifier.size(35.dp)
+                                )
                             }
                         },
                         actions = {
@@ -277,7 +341,14 @@ class MainActivity : ComponentActivity() {
                                 },
                                 enabled = chatState.chatList.isNotEmpty()
                             ) {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Làm mới")
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_newms),
+                                    contentDescription = "Làm mới",
+                                    tint = textColor,
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .alpha(if (chatState.chatList.isNotEmpty()) 1f else 0.5f)
+                                )
                             }
                         },
                     )
@@ -415,19 +486,15 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(8.dp)
-
-
-                        ){
+                        ) {
                             val screenHeight = LocalConfiguration.current.screenHeightDp.dp
                             val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(70.dp)
                             Column {
-
                                 chatState.imageUri?.let { uri ->
                                     Box(
                                         modifier = Modifier
                                             .size(70.dp)
                                     ) {
-
                                         // Hình ảnh đã chọn
                                         AsyncImage(
                                             model = ImageRequest.Builder(context)
@@ -444,18 +511,14 @@ class MainActivity : ComponentActivity() {
                                                 .combinedClickable(
                                                     onClick = {
                                                         val encodedUrl = Base64.encodeToString(
-                                                            uri
-                                                                .toString()
-                                                                .toByteArray(Charsets.UTF_8),
+                                                            uri.toString().toByteArray(Charsets.UTF_8),
                                                             Base64.URL_SAFE or Base64.NO_WRAP
                                                         )
                                                         navController.navigate("fullscreen_image/$encodedUrl")
                                                     },
                                                     onLongClick = {
                                                         chatViewModel.onEvent(
-                                                            ChatUiEvent.OnImageSelected(
-                                                                uri
-                                                            )
+                                                            ChatUiEvent.OnImageSelected(uri)
                                                         )
                                                     }
                                                 )
@@ -478,17 +541,95 @@ class MainActivity : ComponentActivity() {
                                                 .clickable {
                                                     chatViewModel.onEvent(ChatUiEvent.RemoveImage)
                                                 }
-                                                // Apply the style for bolding
                                                 .graphicsLayer {
                                                     scaleX = 2.2f
                                                     scaleY = 2.2f
                                                 }
                                         )
-
                                     }
-
                                 }
 
+
+
+                                // Popup hiển thị các lựa chọn
+                                AnimatedVisibility(
+                                    visible = showPopup,
+                                    enter = fadeIn(),
+                                    exit = fadeOut(),
+                                    modifier = Modifier
+                                        .align(Alignment.End)
+                                        .fillMaxWidth(0.5f) // Chiếm 3/5 chiều rộng màn hình
+                                ) {
+
+                                    Column(
+
+                                        modifier = Modifier
+                                            .background(backgroundColor, RoundedCornerShape(15.dp))
+                                            .border(0.2.dp, Color.LightGray, RoundedCornerShape(15.dp))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    // Tạo URI tạm thời và mở máy ảnh
+                                                    photoUri = createImageUri()
+                                                    photoUri?.let {
+                                                        takePictureLauncher.launch(it)
+                                                    }
+                                                    showPopup = false
+                                                }
+                                                .padding(8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+
+                                        ) {
+                                            Text(
+                                                text = "Chụp ảnh",
+                                                style = TextStyle(
+                                                    color = textColor,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.camera_add),
+                                                contentDescription = "Chụp ảnh",
+                                                tint = textColor
+                                            )
+                                        }
+                                        Divider(color = Color.LightGray, thickness = 0.8.dp)
+                                        // Nút 'Thư viện ảnh'
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    imagePicker.launch(
+                                                        PickVisualMediaRequest(
+                                                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                        )
+                                                    )
+                                                    showPopup = false
+                                                }
+                                                .padding(8.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Thư viện ảnh",
+                                                style = TextStyle(
+                                                    color = textColor,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_addpicture),
+                                                contentDescription = "Thư viện ảnh",
+                                                tint = textColor
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                         Box(
@@ -508,23 +649,37 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxWidth(),
                                     verticalAlignment = Alignment.Bottom
                                 ) {
-                                    Icon(
+                                    // Nút '+' để hiển thị popup
+                                    IconButton(
+                                        onClick = { showPopup = !showPopup },
                                         modifier = Modifier
                                             .padding(bottom = 8.dp)
                                             .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                imagePicker.launch(
-                                                    PickVisualMediaRequest
-                                                        .Builder()
-                                                        .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                        .build()
-                                                )
-                                            },
-                                        imageVector = Icons.Rounded.AddPhotoAlternate,
-                                        contentDescription = "Thêm ảnh",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
+                                            .clip(RoundedCornerShape(8.dp)),
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_popup),
+                                            contentDescription = "Thêm ảnh",
+                                            tint = textColor
+                                        )
+                                    }
+//                                    Icon(
+//                                        modifier = Modifier
+//                                            .padding(bottom = 8.dp)
+//                                            .size(40.dp)
+//                                            .clip(RoundedCornerShape(8.dp))
+//                                            .clickable {
+//                                                imagePicker.launch(
+//                                                    PickVisualMediaRequest
+//                                                        .Builder()
+//                                                        .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
+//                                                        .build()
+//                                                )
+//                                            },
+//                                        imageVector = Icons.Rounded.AddPhotoAlternate,
+//                                        contentDescription = "Thêm ảnh",
+//                                        tint = MaterialTheme.colorScheme.primary
+//                                    )
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -570,8 +725,8 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier
                                                 .padding(bottom = 8.dp)
                                                 .size(40.dp),
-                                            color = MaterialTheme.colorScheme.primary,
-                                            strokeWidth = 7.dp
+                                            color = textColor,
+                                            strokeWidth = 5.dp
                                         )
                                     } else {
                                         Icon(
@@ -581,7 +736,7 @@ class MainActivity : ComponentActivity() {
                                                 .clip(RoundedCornerShape(8.dp))
                                                 .alpha(if (canSend) 1f else 0.4f) // Adjust opacity based on canSend
                                                 .clickable(
-                                                    enabled = canSend, // Enable or disable based on canSend
+                                                    enabled = canSend && !chatState.isLoading, // Enable or disable based on canSend
                                                     onClick = {
                                                         if (canSend) { // Additional safety check
                                                             val sanitizedPrompt = sanitizeMessage(chatState.prompt) // Xử lý chuỗi tin nhắn
@@ -595,9 +750,9 @@ class MainActivity : ComponentActivity() {
                                                         }
                                                     }
                                                 ),
-                                            imageVector = Icons.Rounded.Send,
+                                            painter = painterResource(id = R.drawable.ic_send),
                                             contentDescription = "Send Message",
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = textColor
                                         )
                                     }
                                 }
@@ -605,14 +760,23 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-
                     if (showWelcomeMessage && chatState.chatList.isEmpty()) {
                         userScrolled = false
                         Text(
                             modifier = Modifier.align(Alignment.Center),
                             text = "Xin chào, tôi có thể giúp gì cho bạn?",
-                            fontSize = 20.sp,
-                            color = MaterialTheme.colorScheme.primary
+                            style = TextStyle(
+                                fontSize = 20.sp,
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color(0xFF1BA1E3),
+                                        Color(0xFF5489D6),
+                                        Color(0xFF9B72CB),
+                                        Color(0xFFD96570),
+                                        Color(0xFFF49C46)
+                                    )
+                                ),
+                            )
                         )
 
                     }
@@ -795,7 +959,7 @@ class MainActivity : ComponentActivity() {
 //                            .clip(RoundedCornerShape(12.dp))
 //                            .combinedClickable(
 //                                onClick = { onImageClick(url) },
-//                                onLongClick = {formattedResponse.text} // Or handle image long-click differently
+//                                onLongClick = {onLongPress(response)} // Or handle image long-click differently
 //                            )
 //                    )
 //                    Spacer(Modifier.height(8.dp)) // Add space between image and text
