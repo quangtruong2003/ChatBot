@@ -52,6 +52,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -558,7 +559,7 @@ class MainActivity : ComponentActivity() {
                                     exit = fadeOut(),
                                     modifier = Modifier
                                         .align(Alignment.End)
-                                        .fillMaxWidth(0.5f) // Chiếm 3/5 chiều rộng màn hình
+                                        .fillMaxWidth(0.5f)
                                 ) {
 
                                     Column(
@@ -740,13 +741,13 @@ class MainActivity : ComponentActivity() {
                                                     onClick = {
                                                         if (canSend) { // Additional safety check
                                                             val sanitizedPrompt = sanitizeMessage(chatState.prompt) // Xử lý chuỗi tin nhắn
-                                                                chatViewModel.onEvent(
-                                                                    ChatUiEvent.SendPrompt(
-                                                                        sanitizedPrompt,
-                                                                        chatState.imageUri
-                                                                    )
+                                                            chatViewModel.onEvent(
+                                                                ChatUiEvent.SendPrompt(
+                                                                    sanitizedPrompt,
+                                                                    chatState.imageUri
                                                                 )
-                                                                showWelcomeMessage = false
+                                                            )
+                                                            showWelcomeMessage = false
                                                         }
                                                     }
                                                 ),
@@ -762,22 +763,34 @@ class MainActivity : ComponentActivity() {
 
                     if (showWelcomeMessage && chatState.chatList.isEmpty()) {
                         userScrolled = false
-                        Text(
-                            modifier = Modifier.align(Alignment.Center),
-                            text = "Xin chào, tôi có thể giúp gì cho bạn?",
-                            style = TextStyle(
-                                fontSize = 20.sp,
-                                brush = Brush.linearGradient(
-                                    colors = listOf(
-                                        Color(0xFF1BA1E3),
-                                        Color(0xFF5489D6),
-                                        Color(0xFF9B72CB),
-                                        Color(0xFFD96570),
-                                        Color(0xFFF49C46)
-                                    )
-                                ),
-                            )
+
+                        Column (
+                            modifier = Modifier
+                                .align(Alignment. Center)
+                                .offset(y = (-70).dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ){
+                            Image(
+                            painter = painterResource(id = R.drawable.ic_app),
+                            contentDescription = "Icon Bot",
+                            modifier = Modifier.size(80.dp),
                         )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Xin chào, tôi có thể giúp gì cho bạn?",
+                                style = TextStyle(
+                                    fontSize = 22.sp,
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            Color(0xFF1BA1E3),
+                                            Color(0xFF5489D6),
+                                            Color(0xFF9B72CB),
+                                            Color(0xFFD96570),
+                                            Color(0xFFF49C46)
+                                        )
+                                    ),
+                                )
+                            ) }
 
                     }
 
@@ -973,7 +986,7 @@ class MainActivity : ComponentActivity() {
                         .padding(12.dp)
                         .combinedClickable(
                             onClick = {},
-                            onLongClick = { onLongPress(response)}
+                            onLongClick = { onLongPress(response) }
                         ),
                     text = formattedResponse,
                     style = TextStyle(
