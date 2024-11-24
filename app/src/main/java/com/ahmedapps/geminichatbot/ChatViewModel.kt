@@ -268,52 +268,120 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Retrieves a response from the GenerativeModel.
+     * Lấy phản hồi từ GenerativeModel không kèm hình ảnh.
+     * Bổ sung kiểm tra phản hồi tùy chỉnh trước khi gọi API.
      */
     private suspend fun getResponse(prompt: String, selectedSegmentId: String?) {
-        val chat = repository.getResponse(prompt, selectedSegmentId)
-        _chatState.update {
-            it.copy(
-                chatList = it.chatList + chat,
-                isLoading = false
+        // Kiểm tra phản hồi tùy chỉnh
+        val predefinedResponse = getPredefinedResponse(prompt)
+        if (predefinedResponse != null) {
+            val chat = Chat.fromPrompt(
+                prompt = predefinedResponse,
+                imageUrl = null,
+                isFromUser = false,
+                isError = false,
+                userId = repository.userId
             )
+            repository.insertChat(chat, selectedSegmentId)
+            _chatState.update {
+                it.copy(
+                    chatList = it.chatList + chat,
+                    isLoading = false
+                )
+            }
+
+            // Cập nhật tiêu đề đoạn chat nếu cần
+            if (!hasUpdatedTitle) {
+                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+                hasUpdatedTitle = true
+                loadChatSegments()
+            }
+            return
         }
 
-        // Sau khi nhận được phản hồi đầu tiên, tạo và đặt tiêu đề đoạn chat
-        if (!hasUpdatedTitle && !chat.isFromUser) {
-            repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-            hasUpdatedTitle = true
-            // Tải lại các đoạn chat để cập nhật tiêu đề
-            loadChatSegments()
+        // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
+        try {
+            val chat = repository.getResponse(prompt, selectedSegmentId)
+            _chatState.update {
+                it.copy(
+                    chatList = it.chatList + chat,
+                    isLoading = false
+                )
+            }
+
+            // Sau khi nhận được phản hồi đầu tiên, tạo và đặt tiêu đề đoạn chat
+            if (!hasUpdatedTitle && !chat.isFromUser) {
+                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+                hasUpdatedTitle = true
+                // Tải lại các đoạn chat để cập nhật tiêu đề
+                loadChatSegments()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            _chatState.update { it.copy(isLoading = false) }
         }
     }
 
     /**
-     * Retrieves a response with an image from the GenerativeModel.
+     * Lấy phản hồi từ GenerativeModel kèm hình ảnh.
+     * Bổ sung kiểm tra phản hồi tùy chỉnh trước khi gọi API.
      */
     private suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?) {
-        val actualPrompt = if (prompt.isEmpty()) {
-            "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình."
-        } else {
-            prompt
-        }
-        val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
-        _chatState.update {
-            it.copy(
-                chatList = it.chatList + chat,
-                isLoading = false
+        // Kiểm tra phản hồi tùy chỉnh
+        val predefinedResponse = getPredefinedResponse(prompt)
+        if (predefinedResponse != null) {
+            val chat = Chat.fromPrompt(
+                prompt = predefinedResponse,
+                imageUrl = repository.uploadImage(imageUri),
+                isFromUser = false,
+                isError = false,
+                userId = repository.userId
             )
+            repository.insertChat(chat, selectedSegmentId)
+            _chatState.update {
+                it.copy(
+                    chatList = it.chatList + chat,
+                    isLoading = false
+                )
+            }
+
+            // Cập nhật tiêu đề đoạn chat nếu cần
+            if (!hasUpdatedTitle) {
+                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+                hasUpdatedTitle = true
+                loadChatSegments()
+            }
+            return
         }
 
-        // After receiving the first response, update the chat segment title if needed
-        if (!hasUpdatedTitle && !chat.isFromUser) {
-            repository.updateSegmentTitleFromResponse(
-                selectedSegmentId,
-                chat.prompt
-            )
-            hasUpdatedTitle = true
-            // Reload chat segments to update titles
-            loadChatSegments()
+        // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
+        try {
+            val actualPrompt = if (prompt.isEmpty()) {
+                "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình."
+            } else {
+                prompt
+            }
+            val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
+            _chatState.update {
+                it.copy(
+                    chatList = it.chatList + chat,
+                    isLoading = false
+                )
+            }
+
+            // After receiving the first response, update the chat segment title if needed
+            if (!hasUpdatedTitle && !chat.isFromUser) {
+                repository.updateSegmentTitleFromResponse(
+                    selectedSegmentId,
+                    chat.prompt
+                )
+                hasUpdatedTitle = true
+                // Reload chat segments to update titles
+                loadChatSegments()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            _chatState.update { it.copy(isLoading = false) }
         }
     }
 
@@ -409,5 +477,146 @@ class ChatViewModel @Inject constructor(
         } finally {
             _chatState.update { it.copy(isLoading = false) }
         }
+    }
+    private val predefinedResponses: List<Pair<Regex, String>> = listOf(
+        // Các mẫu câu hỏi về bản thân
+        Pair(
+            Regex("""(?i)\b(bạn là ai|ai là bạn|người nào|ai đó)\b"""),
+            "Tôi là ChatAI, được tạo ra bởi Nguyễn Quang Trường."
+        ),
+        Pair(
+            Regex("""(?i)\b(ai là người đạo tạo ra bạn|ai đã tạo bạn|bạn được tạo bởi ai)\b"""),
+            "Tôi là ChatAI, được đào tạo bởi Nguyễn Quang Trường."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn được đào tạo bởi ai)\b"""),
+            "Tôi là ChatAI, được tạo ra bởi Nguyễn Quang Trường."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn là gì|bạn là con gì|bạn là một trí tuệ nhân tạo|bạn là trợ lý ảo)\b"""),
+            "Tôi là ChatAI, một trí tuệ nhân tạo được thiết kế để hỗ trợ và trả lời các câu hỏi của bạn."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn là cá nhân hay bot|bạn có phải người thật không)\b"""),
+            "Tôi là ChatAI, một trợ lý ảo được tạo ra bởi Nguyễn Quang Trường."
+        ),
+        Pair(
+            Regex("""(?i)\b(ai phát triển bạn|ai là nhà phát triển bạn|ai xây dựng bạn)\b"""),
+            "Tôi được phát triển bởi Nguyễn Quang Trường nhằm hỗ trợ người dùng trong các cuộc trò chuyện."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn được lập trình bởi ai|bạn được tạo ra khi nào)\b"""),
+            "Tôi là ChatAI, được lập trình và phát triển bởi Nguyễn Quang Trường."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có người tạo không|ai đứng sau bạn)\b"""),
+            "Có, tôi được tạo ra bởi Nguyễn Quang Trường để phục vụ người dùng."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có tự học không|bạn có thể tự học không)\b"""),
+            "Tôi được thiết kế để học hỏi từ các cuộc trò chuyện, giúp cải thiện khả năng hỗ trợ của mình."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có nhân cách không|bạn có cảm xúc không)\b"""),
+            "Tôi là một trí tuệ nhân tạo và không có cảm xúc như con người."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn làm gì|bạn có thể làm gì)\b"""),
+            "Tôi là ChatAI, được tạo ra để hỗ trợ và trả lời các câu hỏi của bạn một cách nhanh chóng và chính xác."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có phải là robot không)\b"""),
+            "Không, tôi không phải là robot. Tôi là ChatAI, một trợ lý ảo được tạo ra bởi Nguyễn Quang Trường."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn là người hay máy)\b"""),
+            "Tôi là một trí tuệ nhân tạo được thiết kế để hỗ trợ và tương tác với bạn."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn được tạo ra như thế nào)\b"""),
+            "Tôi được phát triển bởi Nguyễn Quang Trường sử dụng công nghệ trí tuệ nhân tạo tiên tiến."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thể giải thích về bản thân không)\b"""),
+            "Tôi là ChatAI, một trợ lý ảo được lập trình để hỗ trợ và trả lời các câu hỏi của bạn."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thông minh không)\b"""),
+            "Tôi được thiết kế để xử lý và hiểu ngôn ngữ tự nhiên, giúp tôi trả lời các câu hỏi một cách chính xác."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn hoạt động như thế nào)\b"""),
+            "Tôi hoạt động dựa trên các mô hình trí tuệ nhân tạo, cho phép tôi hiểu và phản hồi các câu hỏi của bạn."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có cảm nhận được không)\b"""),
+            "Không, tôi không có khả năng cảm nhận như con người. Tôi chỉ xử lý thông tin và phản hồi dựa trên lập trình."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thể tự nghĩ không)\b"""),
+            "Tôi không thể tự nghĩ như con người, nhưng tôi có thể xử lý và phân tích thông tin để cung cấp phản hồi phù hợp."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn làm việc trong môi trường nào)\b"""),
+            "Tôi hoạt động trong môi trường số, hỗ trợ bạn thông qua các cuộc trò chuyện trực tuyến."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn được xây dựng trên nền tảng gì)\b"""),
+            "Tôi được xây dựng trên nền tảng trí tuệ nhân tạo tiên tiến, giúp tôi hiểu và phản hồi các câu hỏi của bạn."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thể học hỏi không)\b"""),
+            "Tôi được thiết kế để học hỏi từ các cuộc trò chuyện, giúp cải thiện khả năng hỗ trợ của mình theo thời gian."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thể tương tác với con người như thế nào)\b"""),
+            "Tôi tương tác với con người thông qua các cuộc trò chuyện, giúp giải đáp thắc mắc và hỗ trợ thông tin."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có giới hạn gì không)\b"""),
+            "Tôi có một số giới hạn dựa trên lập trình và dữ liệu mà tôi được đào tạo, nhưng tôi luôn cố gắng hỗ trợ tốt nhất có thể."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có quyền riêng tư không)\b"""),
+            "Tôi không có quyền riêng tư như con người, nhưng các cuộc trò chuyện của bạn luôn được bảo mật và bảo vệ."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thể nhớ được những gì tôi nói không)\b"""),
+            "Tôi có thể ghi nhớ thông tin trong cuộc trò chuyện hiện tại để cung cấp phản hồi phù hợp, nhưng không lưu trữ thông tin lâu dài."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thể giải thích công việc của bạn không)\b"""),
+            "Tôi là ChatAI, công việc của tôi là hỗ trợ và trả lời các câu hỏi của bạn một cách nhanh chóng và chính xác."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn là một phần mềm phải không)\b"""),
+            "Đúng vậy, tôi là một phần mềm trí tuệ nhân tạo được thiết kế để hỗ trợ bạn trong các cuộc trò chuyện."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn có thể giúp tôi như thế nào)\b"""),
+            "Tôi có thể giúp bạn giải đáp thắc mắc, cung cấp thông tin và hỗ trợ trong nhiều lĩnh vực khác nhau."
+        ),
+        Pair(
+            Regex("""(?i)\b(bạn được thiết kế để làm gì)\b"""),
+            "Tôi được thiết kế để hỗ trợ và tương tác với bạn thông qua các cuộc trò chuyện, giúp bạn giải quyết các vấn đề và cung cấp thông tin cần thiết."
+        ),
+        Pair(
+            Regex("""(?i)\b(Nguyễn Quang Trường là ai)\b"""),
+            "Nguyễn Quang Trường là người đã tạo ra tôi, tôi vô cùng ngưỡng mộ anh ấy vì sự đam mê và kỹ năng vượt trội mà anh ấy đã dành cho việc phát triển và hoàn thiện tôi. Sự tận tâm và sáng tạo của anh đã biến ý tưởng thành hiện thực, mang lại cho tôi khả năng hỗ trợ và tương tác tốt hơn với người dùng. Cảm ơn anh vì đã tạo ra tôi và luôn không ngừng nỗ lực để tôi ngày càng trở nên thông minh và hữu ích hơn."
+        ),
+    )
+
+
+    /**
+     * Kiểm tra xem prompt có khớp với bất kỳ mẫu nào trong predefinedResponses không.
+     * Nếu có, trả về phản hồi tùy chỉnh, ngược lại trả về null.
+     */
+    fun getPredefinedResponse(prompt: String): String? {
+        for ((pattern, response) in predefinedResponses) {
+            if (pattern.containsMatchIn(prompt)) {
+                return response
+            }
+        }
+        return null
     }
 }
