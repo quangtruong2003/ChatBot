@@ -27,7 +27,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -35,13 +34,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.rounded.AddPhotoAlternate
-import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,7 +46,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -61,14 +54,10 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -84,7 +73,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ahmedapps.geminichatbot.auth.LoginScreen
 import com.ahmedapps.geminichatbot.auth.RegistrationScreen
+import fomatText.FormattedTextDisplay
 import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
+import fomatText.parseFormattedText
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -437,7 +428,6 @@ class MainActivity : ComponentActivity() {
                                 .padding(horizontal = 8.dp),
                             state = listState,
                             verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
-                            //contentPadding = PaddingValues(bottom = 80.dp)
                         ) {
                             items(chatState.chatList) { chat ->
                                 if (chat.isFromUser) {
@@ -452,9 +442,6 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         onImageClick = { imageUrl ->
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Image clicked: $imageUrl")
-                                            }
                                             val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
                                             navController.navigate("fullscreen_image/$encodedUrl")
                                         }
@@ -470,9 +457,6 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         onImageClick = { imageUrl ->
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Image clicked: $imageUrl")
-                                            }
                                             val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
                                             navController.navigate("fullscreen_image/$encodedUrl")
                                         }
@@ -871,6 +855,8 @@ class MainActivity : ComponentActivity() {
         val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(175.dp)
         val maxWidth = LocalConfiguration.current.screenWidthDp.dp * 0.7f
 
+        val formattedPrompt = parseFormattedText(prompt)
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -898,8 +884,27 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+//                if (prompt.isNotEmpty()) {
+//                    Text(
+//                        modifier = Modifier
+//                            .widthIn(max = maxWidth)
+//                            .clip(RoundedCornerShape(17.dp))
+//                            .background(backgroundColor)
+//                            .padding(12.dp)
+//                            .combinedClickable(
+//                                onClick = {},
+//                                onLongClick = { onLongPress(prompt) }
+//                            ),
+//                        text = prompt,
+//                        style = TextStyle(
+//                            fontSize = 17.sp,
+//                            color = textColor
+//                        )
+//                    )
+//                }
                 if (prompt.isNotEmpty()) {
-                    Text(
+                    FormattedTextDisplay(
+                        annotatedString = formattedPrompt,
                         modifier = Modifier
                             .widthIn(max = maxWidth)
                             .clip(RoundedCornerShape(17.dp))
@@ -908,12 +913,7 @@ class MainActivity : ComponentActivity() {
                             .combinedClickable(
                                 onClick = {},
                                 onLongClick = { onLongPress(prompt) }
-                            ),
-                        text = prompt,
-                        style = TextStyle(
-                            fontSize = 17.sp,
-                            color = textColor
-                        )
+                            )
                     )
                 }
             }
@@ -984,7 +984,8 @@ class MainActivity : ComponentActivity() {
 //                    Spacer(Modifier.height(8.dp)) // Add space between image and text
 //                }
 
-                Text(
+                FormattedTextDisplay(
+                    annotatedString = formattedResponse,
                     modifier = Modifier
                         .widthIn(max = maxWidth)
                         .clip(RoundedCornerShape(15.dp))
@@ -993,12 +994,7 @@ class MainActivity : ComponentActivity() {
                         .combinedClickable(
                             onClick = {},
                             onLongClick = { onLongPress(response) }
-                        ),
-                    text = formattedResponse,
-                    style = TextStyle(
-                        fontSize = 17.sp,
-                        color = textColor
-                    )
+                        )
                 )
             }
         }
@@ -1070,97 +1066,5 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-
-    /**
-     * Hàm phân tích và định dạng văn bản dựa trên các định dạng Markdown phức tạp, bao gồm danh sách lồng nhau với các ký hiệu đặc biệt.
-     *
-     * @param input Chuỗi văn bản đầu vào chứa các định dạng Markdown như **bold**, *italic*, __underline__, và danh sách bắt đầu bằng *.
-     * @return AnnotatedString đã được định dạng theo các quy tắc Markdown được hỗ trợ.
-     */
-    fun parseFormattedText(input: String): AnnotatedString {
-        // Patterns for formatting
-        val patterns = listOf(
-            "**" to SpanStyle(fontWeight = FontWeight.Bold),
-            "*" to SpanStyle(fontStyle = FontStyle.Italic),
-            "__" to SpanStyle(textDecoration = TextDecoration.Underline)
-        )
-
-        val builder = AnnotatedString.Builder()
-        val lines = input.trimEnd().lines()
-
-        // Variable to track list item numbers
-        var listItemNumber = 1
-
-        for ((index, line) in lines.withIndex()) {
-            var processedLine = line
-
-            // Check for list items
-            val listMatch = """^(\s*)\*\s+(.*)""".toRegex().find(line)
-            if (listMatch != null) {
-                val leadingSpaces = listMatch.groupValues[1].length
-                val content = listMatch.groupValues[2]
-                val level = (leadingSpaces / 4) + 1
-
-                val marker = when (level) {
-                    1 -> "${listItemNumber++}. "
-                    2 -> "• "
-                    3 -> "◦ "
-                    else -> "• "
-                }
-
-                val indentation = "    ".repeat(level - 1)
-                processedLine = "$indentation$marker$content"
-            }
-
-            // Check for headings
-            val isHeading = """^\*\*(.+)\*\*:$""".toRegex().matches(line.trim())
-            if (isHeading) {
-                val headingText = """^\*\*(.+)\*\*:$""".toRegex().find(line.trim())?.groupValues?.get(1) ?: line
-                builder.withStyle(patterns[0].second) {
-                    append("$headingText:")
-                }
-                if (index != lines.lastIndex) {
-                    builder.append("\n\n")
-                }
-                continue
-            }
-
-            // Process inline formatting
-            var remainingText = processedLine
-            while (remainingText.isNotEmpty()) {
-                var matched = false
-                for ((delimiter, style) in patterns) {
-                    val pattern = """\Q$delimiter\E(.*?)\Q$delimiter\E""".toRegex()
-                    val match = pattern.find(remainingText)
-                    if (match != null) {
-                        val start = match.range.first
-                        if (start > 0) {
-                            builder.append(remainingText.substring(0, start))
-                        }
-                        val formattedText = match.groupValues[1]
-                        builder.withStyle(style) {
-                            append(formattedText)
-                        }
-                        remainingText = remainingText.substring(match.range.last + 1)
-                        matched = true
-                        break
-                    }
-                }
-                if (!matched) {
-                    builder.append(remainingText)
-                    break
-                }
-            }
-
-            // Add newline if it's not the last line
-            if (index != lines.lastIndex) {
-                builder.append("\n")
-            }
-        }
-
-        return builder.toAnnotatedString()
-    }
-
 
 }
