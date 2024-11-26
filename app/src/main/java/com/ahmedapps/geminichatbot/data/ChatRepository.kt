@@ -115,7 +115,7 @@ class ChatRepository @Inject constructor(
             buildString {
                 for (chat in chatHistory) {
                     if (chat.prompt.isNotEmpty()) {
-                        append(if (chat.isFromUser) "User: " else "Assistant: ")
+                        append(if (chat.isFromUser) "User: " else "")
                         append(chat.prompt)
                         append("\n")
                     }
