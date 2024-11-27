@@ -161,6 +161,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+
     /**
      * Chuyển về đoạn chat mới nhất.
      */
@@ -290,12 +291,12 @@ class ChatViewModel @Inject constructor(
                 )
             }
 
-            // Cập nhật tiêu đề đoạn chat nếu cần
-            if (!hasUpdatedTitle) {
-                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-                hasUpdatedTitle = true
-                loadChatSegments()
-            }
+//            // Cập nhật tiêu đề đoạn chat nếu cần
+//            if (!hasUpdatedTitle) {
+//                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+//                hasUpdatedTitle = true
+//                loadChatSegments()
+//            }
             return
         }
 
@@ -345,12 +346,12 @@ class ChatViewModel @Inject constructor(
                 )
             }
 
-            // Cập nhật tiêu đề đoạn chat nếu cần
-            if (!hasUpdatedTitle) {
-                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-                hasUpdatedTitle = true
-                loadChatSegments()
-            }
+//            // Cập nhật tiêu đề đoạn chat nếu cần
+//            if (!hasUpdatedTitle) {
+//                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+//                hasUpdatedTitle = true
+//                loadChatSegments()
+//            }
             return
         }
 

@@ -2,6 +2,7 @@
 package com.ahmedapps.geminichatbot.data
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
@@ -140,7 +141,7 @@ class ChatRepository @Inject constructor(
                 isError = false,
                 userId = userId
             )
-            insertChat(chat)
+            insertChat(chat, selectedSegmentId)
             // Cập nhật tiêu đề đoạn chat nếu chưa cập nhật
             if (!_hasUpdatedTitle) {
                 updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
@@ -156,7 +157,7 @@ class ChatRepository @Inject constructor(
                 isError = true,
                 userId = userId
             )
-            insertChat(chat)
+            insertChat(chat, selectedSegmentId)
             chat
         }
     }
@@ -165,12 +166,13 @@ class ChatRepository @Inject constructor(
      * Lấy phản hồi từ GenerativeModel kèm hình ảnh.
      */
     suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?): Chat = withContext(Dispatchers.IO) {
-        return@withContext try {
+        var bitmap: Bitmap? = null
+        try {
             val fullPrompt = getFullPrompt(prompt, hasImage = true)
             Log.d("ChatRepository", "Full Prompt: $fullPrompt")
 
-            // Chuyển đổi Uri thành Bitmap
-            val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // Convert Uri to Bitmap
+            bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(context.contentResolver, imageUri)
                 ImageDecoder.decodeBitmap(source)
             } else {
@@ -178,18 +180,20 @@ class ChatRepository @Inject constructor(
                 MediaStore.Images.Media.getBitmap(context.contentResolver, imageUri)
             }
 
-            // Tạo các Content instances cho hình ảnh và văn bản
+            // Create content
             val imageContent = content {
-                image(bitmap)
+                if (bitmap != null) {
+                    image(bitmap)
+                }
             }
             val textContent = content {
                 text(fullPrompt)
             }
 
-            // Gọi API với các Content instances
+            // Call API
             val response = generativeModel.generateContent(imageContent, textContent)
             Log.d("ChatRepository", "API Response: ${response.text}")
-            // Tải lên hình ảnh và lấy URL
+            // Upload image and get URL
             val imageUrl = uploadImage(imageUri)
 
             val chat = Chat(
@@ -199,10 +203,10 @@ class ChatRepository @Inject constructor(
                 isError = false,
                 userId = userId
             )
-            insertChat(chat)
-            // Cập nhật tiêu đề đoạn chat nếu chưa cập nhật
+            insertChat(chat, selectedSegmentId)
+            // Update title
             if (!_hasUpdatedTitle) {
-                updateSegmentTitle(_selectedSegmentId, response.text ?: "Untitled Segment")
+                updateSegmentTitle(selectedSegmentId, response.text ?: "Untitled Segment")
                 _hasUpdatedTitle = true
             }
             chat
@@ -215,10 +219,14 @@ class ChatRepository @Inject constructor(
                 isError = true,
                 userId = userId
             )
-            insertChat(chat)
+            insertChat(chat, selectedSegmentId)
             chat
+        } finally {
+            // Giải phóng Bitmap
+            bitmap?.recycle()
         }
     }
+
 
     /**
      * Lấy lịch sử trò chuyện cho một đoạn chat cụ thể.
