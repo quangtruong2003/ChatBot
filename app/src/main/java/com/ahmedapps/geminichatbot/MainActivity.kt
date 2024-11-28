@@ -72,7 +72,8 @@ import androidx.navigation.navArgument
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.ahmedapps.geminichatbot.auth.LoginScreen
-import com.ahmedapps.geminichatbot.auth.RegistrationScreen
+import com.ahmedapps.geminichatbot.loginlogout.ForgotPasswordScreen
+import com.ahmedapps.geminichatbot.loginlogout.RegistrationScreen
 import fomatText.FormattedTextDisplay
 import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
 import fomatText.parseFormattedText
@@ -93,9 +94,9 @@ import java.io.File
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         setContent {
             GeminiChatBotTheme {
                 val navController = rememberNavController()
@@ -107,11 +108,22 @@ class MainActivity : ComponentActivity() {
                         LoginScreen(
                             onLoginSuccess = {
                                 navController.navigate("chat") {
+                                    // Xóa tất cả các màn hình trước đó trong ngăn xếp và giữ lại màn hình chat
                                     popUpTo("login") { inclusive = true }
                                 }
                             },
                             onNavigateToRegister = {
                                 navController.navigate("register")
+                            },
+                            onNavigateToForgotPassword = {
+                                navController.navigate("forgot_password")
+                            }
+                        )
+                    }
+                    composable("forgot_password") {
+                        ForgotPasswordScreen(
+                            onBackToLogin = {
+                                navController.popBackStack()
                             }
                         )
                     }
@@ -119,11 +131,13 @@ class MainActivity : ComponentActivity() {
                         RegistrationScreen(
                             onRegistrationSuccess = {
                                 navController.navigate("chat") {
+                                    // Xóa màn hình đăng ký trước đó
                                     popUpTo("register") { inclusive = true }
                                 }
                             },
                             onNavigateToLogin = {
                                 navController.navigate("login") {
+                                    // Xóa màn hình đăng ký trước đó khi chuyển đến đăng nhập
                                     popUpTo("register") { inclusive = true }
                                 }
                             }
@@ -144,6 +158,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+
             }
         }
     }

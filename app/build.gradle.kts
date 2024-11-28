@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "1.1.1"
+        versionName = "2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -54,11 +54,12 @@ android {
 }
 
 dependencies {
+    // Core và Lifecycle
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
 
-    // Sử dụng Compose BOM để quản lý phiên bản
+    // Compose BOM để quản lý phiên bản Compose
     implementation(platform("androidx.compose:compose-bom:2024.11.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
@@ -68,16 +69,18 @@ dependencies {
     implementation("androidx.compose.material:material")
     implementation("androidx.compose.ui:ui-text-google-fonts")
 
+    // Firebase BOM để quản lý phiên bản Firebase
+    implementation(platform("com.google.firebase:firebase-bom:33.6.0"))
+
+//    // Firebase App Check với Play Integrity
+//    implementation ("com.google.firebase:firebase-appcheck-playintegrity:18.0.0")
+//    // Firebase App Check Debug Provider
+//    implementation ("com.google.firebase:firebase-appcheck-debug:18.0.0")
+
+    // Firebase Auth và Firestore
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-storage-ktx:21.0.1")
-    implementation("com.google.firebase:firebase-appcheck-playintegrity:18.0.0")
-    implementation("androidx.ink:ink-brush-android:1.0.0-alpha01")
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.11.00"))
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     // Room dependencies
     implementation("androidx.room:room-ktx:2.6.1")
@@ -89,11 +92,19 @@ dependencies {
     kapt("com.google.dagger:hilt-android-compiler:2.49")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
+    // Lifecycle ViewModel Compose
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+
+    // Coil Image Loader
     implementation("io.coil-kt:coil-compose:2.5.0")
+
+    // Accompanist Permissions
+    implementation("com.google.accompanist:accompanist-permissions:0.36.0")
+
+    // Generative AI (nếu cần)
     implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
-    implementation("com.google.firebase:firebase-auth-ktx")
-    implementation("com.google.firebase:firebase-firestore-ktx")
+
+    // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
@@ -103,20 +114,16 @@ dependencies {
     // Play Services Auth
     implementation("com.google.android.gms:play-services-auth:21.2.0")
 
-    // App Check
-    implementation(platform("com.google.firebase:firebase-bom:33.6.0"))
-    implementation("com.google.firebase:firebase-appcheck")
+    // Các dependencies khác
+    implementation("androidx.ink:ink-brush-android:1.0.0-alpha01")
 
-    // Compose Material3 (được quản lý bởi BOM, loại bỏ phiên bản cụ thể)
-    implementation("androidx.compose.material3:material3")
-
-    // Compose Material Icons Extended (được quản lý bởi BOM)
-    implementation("androidx.compose.material:material-icons-extended")
-
-    // Accompanist Permissions
-    implementation("com.google.accompanist:accompanist-permissions:0.36.0")
-
-    //
-    implementation("io.coil-kt:coil-compose:2.5.0")
-
+    // Testing dependencies
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.11.00"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+

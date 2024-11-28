@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,6 +23,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.ahmedapps.geminichatbot.R
@@ -33,11 +36,13 @@ import kotlinx.coroutines.launch
 fun LoginScreen(
     onLoginSuccess: () -> Unit,
     onNavigateToRegister: () -> Unit,
+    onNavigateToForgotPassword: () -> Unit,
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val authState by viewModel.authState.collectAsState()
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var isPasswordVisible by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val defaultWebClientId = stringResource(id = R.string.default_web_client_id)
 
@@ -66,15 +71,15 @@ fun LoginScreen(
                         viewModel.firebaseAuthWithGoogle(idToken)
                     }
                 } catch (e: ApiException) {
-                    Log.e("LoginScreen", "Google sign-in failed", e)
+                    Log.e("LoginScreen", "Đăng nhập Google thất bại", e)
                     coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Google sign-in failed: ${e.message}")
+                        snackbarHostState.showSnackbar("Đăng nhập Google thất bại: ${e.message}")
                     }
                 }
             } else {
-                Log.e("LoginScreen", "Google sign-in canceled or failed")
+                Log.e("LoginScreen", "Đăng nhập Google bị hủy hoặc thất bại")
                 coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Google sign-in canceled")
+                    snackbarHostState.showSnackbar("Đăng nhập Google bị hủy")
                 }
             }
         }
@@ -130,12 +135,12 @@ fun LoginScreen(
 
                     // Welcome Text
                     Text(
-                        text = "Welcome Back!",
+                        text = "Chào mừng trở lại!",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Sign in to continue",
+                        text = "Đăng nhập để tiếp tục",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -158,26 +163,35 @@ fun LoginScreen(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Password") },
-                        visualTransformation = PasswordVisualTransformation(),
+                        label = { Text("Mật khẩu") },
+                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         leadingIcon = {
                             Icon(
                                 painter = painterResource(id = R.drawable.lock),
                                 contentDescription = null
                             )
                         },
+                        trailingIcon = {
+                            if (password.isNotEmpty()) {
+                                IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                    Icon(
+                                        imageVector = if (isPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = if (isPasswordVisible) "Ẩn mật khẩu" else "Hiện mật khẩu"
+                                    )
+                                }
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Forgot Password
+                    // Nút Quên Mật Khẩu
                     TextButton(
-                        onClick = { /* Handle forgot password */ },
+                        onClick = onNavigateToForgotPassword,
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Text("Forgot Password?")
+                        Text("Quên Mật Khẩu?")
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -191,16 +205,16 @@ fun LoginScreen(
                         shape = RoundedCornerShape(12.dp),
                         enabled = !authState.isLoading
                     ) {
-                        Text("Login")
+                        Text("Đăng nhập")
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Register Navigation
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Don't have an account?")
+                        Text("Chưa có tài khoản?")
                         TextButton(onClick = onNavigateToRegister) {
-                            Text("Register")
+                            Text("Đăng ký")
                         }
                     }
 
@@ -212,7 +226,7 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Divider(modifier = Modifier.weight(1f))
-                        Text("  OR  ", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("  HOẶC  ", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Divider(modifier = Modifier.weight(1f))
                     }
 
@@ -237,7 +251,7 @@ fun LoginScreen(
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign in with Google")
+                        Text("Đăng nhập bằng Google")
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))

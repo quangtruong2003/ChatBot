@@ -1,5 +1,5 @@
 // RegistrationScreen.kt
-package com.ahmedapps.geminichatbot.auth
+package com.ahmedapps.geminichatbot.loginlogout
 
 import android.app.Activity
 import android.util.Log
@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -21,28 +23,39 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.ahmedapps.geminichatbot.R
-import com.ahmedapps.geminichatbot.loginlogout.AuthViewModel
 import com.google.android.gms.auth.api.signin.*
 import com.google.android.gms.common.api.ApiException
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.delay
 
 @Composable
 fun RegistrationScreen(
     onRegistrationSuccess: () -> Unit,
     onNavigateToLogin: () -> Unit,
-    viewModel: AuthViewModel = hiltViewModel()
+    viewModel: AuthViewModel = hiltViewModel(),
+    auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
     val authState by viewModel.authState.collectAsState()
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
+    var isPasswordVisible1 by rememberSaveable { mutableStateOf(false) }
+    var isPasswordVisible2 by rememberSaveable { mutableStateOf(false) }
     var confirmPassword by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val defaultWebClientId = stringResource(id = R.string.default_web_client_id)
 
-    // Configure Google Sign-In
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showLoadingDialog by remember { mutableStateOf(false) } // Trạng thái hiển thị hộp thoại
+    var countdownTime by remember { mutableStateOf(5) } // Biến đếm ngược
+    val coroutineScope = rememberCoroutineScope()
+
+    // Cấu hình Đăng nhập Google
     val gso = remember(defaultWebClientId) {
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(defaultWebClientId)
@@ -51,11 +64,7 @@ fun RegistrationScreen(
     }
     val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
 
-    // Snackbar Host State
-    val snackbarHostState = remember { SnackbarHostState() }
-    val coroutineScope = rememberCoroutineScope()
-
-    // Google Sign-In launcher
+    // Khởi tạo launcher cho Đăng nhập Google
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
         onResult = { result ->
@@ -69,13 +78,13 @@ fun RegistrationScreen(
                 } catch (e: ApiException) {
                     Log.e("RegistrationScreen", "Google sign-in failed", e)
                     coroutineScope.launch {
-                        snackbarHostState.showSnackbar("Google sign-in failed: ${e.message}")
+                        snackbarHostState.showSnackbar("Đăng nhập Google thất bại: ${e.message}")
                     }
                 }
             } else {
                 Log.e("RegistrationScreen", "Google sign-in canceled or failed")
                 coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Google sign-in canceled")
+                    snackbarHostState.showSnackbar("Đăng nhập Google đã bị hủy")
                 }
             }
         }
@@ -83,18 +92,41 @@ fun RegistrationScreen(
 
     LaunchedEffect(authState.isSuccess) {
         if (authState.isSuccess) {
-            onRegistrationSuccess()
-            viewModel.resetState()
+            // Gửi email xác minh
+            try {
+                auth.currentUser?.sendEmailVerification()?.await()
+                Log.d("RegistrationScreen", "Verification email sent to ${auth.currentUser?.email}")
+            } catch (e: Exception) {
+                Log.e("RegistrationScreen", "Failed to send verification email", e)
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar("Không thể gửi email xác minh: ${e.message}")
+                }
+            }
+            // Hiển thị hộp thoại đếm ngược
+            showLoadingDialog = true
         }
     }
 
-    // Show error message in Snackbar
+    // Logic đếm ngược
+    LaunchedEffect(showLoadingDialog) {
+        if (showLoadingDialog) {
+            for (i in 5 downTo 1) {
+                countdownTime = i
+                delay(1000)
+            }
+            showLoadingDialog = false
+            onNavigateToLogin() // Quay lại màn hình đăng nhập
+            viewModel.resetState() // Đặt lại trạng thái sau khi đăng ký thành công
+        }
+    }
+
+    // Hiển thị thông báo lỗi
     LaunchedEffect(authState.errorMessage) {
         authState.errorMessage?.let { message ->
             coroutineScope.launch {
                 snackbarHostState.showSnackbar(message)
             }
-            viewModel.updateError(null) // Reset error message after showing
+            viewModel.updateError(null)
         }
     }
 
@@ -106,6 +138,7 @@ fun RegistrationScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(16.dp)
                 .padding(paddingValues),
             contentAlignment = Alignment.Center
         ) {
@@ -119,7 +152,6 @@ fun RegistrationScreen(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // App Logo
                     Image(
                         painter = painterResource(id = R.drawable.app),
                         contentDescription = null,
@@ -128,21 +160,19 @@ fun RegistrationScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Welcome Text
                     Text(
-                        text = "Create Account",
+                        text = "Tạo tài khoản",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Sign up to get started",
+                        text = "Đăng ký để bắt đầu",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Email TextField
                     OutlinedTextField(
                         value = email,
                         onValueChange = { email = it },
@@ -154,17 +184,26 @@ fun RegistrationScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Password TextField
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Password") },
-                        visualTransformation = PasswordVisualTransformation(),
+                        label = { Text("Mật khẩu") },
+                        visualTransformation = if (isPasswordVisible1 && password.isNotEmpty()) VisualTransformation.None else PasswordVisualTransformation(),
                         leadingIcon = {
                             Icon(
                                 painter = painterResource(id = R.drawable.lock),
                                 contentDescription = null
                             )
+                        },
+                        trailingIcon = {
+                            if (password.isNotEmpty()) {
+                                IconButton(onClick = { isPasswordVisible1 = !isPasswordVisible1 }) {
+                                    Icon(
+                                        imageVector = if (isPasswordVisible1) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = if (isPasswordVisible1) "Ẩn mật khẩu" else "Hiện mật khẩu"
+                                    )
+                                }
+                            }
                         },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
@@ -172,31 +211,38 @@ fun RegistrationScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Confirm Password TextField
                     OutlinedTextField(
                         value = confirmPassword,
                         onValueChange = { confirmPassword = it },
-                        label = { Text("Confirm Password") },
-                        visualTransformation = PasswordVisualTransformation(),
+                        label = { Text("Xác nhận mật khẩu") },
+                        visualTransformation = if (isPasswordVisible2 && confirmPassword.isNotEmpty()) VisualTransformation.None else PasswordVisualTransformation(),
                         leadingIcon = {
                             Icon(
                                 painter = painterResource(id = R.drawable.lock),
                                 contentDescription = null
                             )
                         },
+                        trailingIcon = {
+                            if (confirmPassword.isNotEmpty()) {
+                                IconButton(onClick = { isPasswordVisible2 = !isPasswordVisible2 }) {
+                                    Icon(
+                                        imageVector = if (isPasswordVisible2) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = if (isPasswordVisible2) "Ẩn mật khẩu" else "Hiện mật khẩu"
+                                    )
+                                }
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
-
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Register Button
                     Button(
                         onClick = {
                             if (password == confirmPassword) {
                                 viewModel.register(email.trim(), password)
                             } else {
-                                viewModel.updateError("Passwords do not match")
+                                viewModel.updateError("Mật khẩu không khớp")
                             }
                         },
                         modifier = Modifier
@@ -205,34 +251,33 @@ fun RegistrationScreen(
                         shape = RoundedCornerShape(12.dp),
                         enabled = !authState.isLoading
                     ) {
-                        Text("Register")
+                        Text("Đăng ký")
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Login Navigation
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Already have an account?")
+                        Text("Đã có tài khoản?")
                         TextButton(onClick = onNavigateToLogin) {
-                            Text("Login")
+                            Text("Đăng nhập")
                         }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Divider with "OR"
+                    // Divider với "HOẶC"
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Divider(modifier = Modifier.weight(1f))
-                        Text("  OR  ", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("  HOẶC  ", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Divider(modifier = Modifier.weight(1f))
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Google Sign-Up Button
+                    // Nút Đăng ký với Google
                     OutlinedButton(
                         onClick = {
                             val signInIntent = googleSignInClient.signInIntent
@@ -251,16 +296,29 @@ fun RegistrationScreen(
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign up with Google")
+                        Text("Đăng nhập với Google")
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Loading Indicator
-                    if (authState.isLoading) {
+                    // Hiển thị tiến trình tải
+                    if (authState.isLoading && !showLoadingDialog) {
                         CircularProgressIndicator()
                     }
                 }
+            }
+
+            // Hộp thoại thông báo đếm ngược
+            if (showLoadingDialog) {
+                AlertDialog(
+                    onDismissRequest = { /* Không cho phép đóng hộp thoại */ },
+                    title = { Text("Vui lòng kiểm tra email để xác thực tài khoản.") },
+                    text = {
+                        Text("Hộp thoại này sẽ đóng sau $countdownTime giây.")
+                    },
+                    confirmButton = {},
+                    dismissButton = {}
+                )
             }
         }
     }
