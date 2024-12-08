@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 fun SideDrawer(
     onClose: () -> Unit,
     chatViewModel: ChatViewModel,
-    onLogout: () -> Unit // Thêm tham số này
+    onLogout: () -> Unit
 ) {
     val gradientBrush = Brush.linearGradient( // Sử dụng linearGradient trực tiếp
         colors = listOf(
@@ -98,7 +98,7 @@ fun SideDrawer(
                 modifier = Modifier.weight(1f) // Thêm modifier này
             )
 
-            // Nút "Build 1.1.1" nằm ở cuối cùng và trung tâm
+            // Nút version
             GradientButton(
                 onClick = { showPersonalInfoDialog = true },
                 modifier = Modifier
@@ -107,7 +107,7 @@ fun SideDrawer(
                 gradient = gradientBrush
             ) {
                 Text(
-                    text = "Build 1.1.1",
+                    text = "Nguyễn Quang Trường - D21_TH12",
                     color = Color.White,
                     style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 )
@@ -138,7 +138,7 @@ fun SideDrawer(
                     .fillMaxWidth()
             ) {
                 Text(
-                    text = "Nguyễn Quang Trường - D21_TH12",
+                    text = "Version: ${BuildConfig.VERSION_NAME}",
                     modifier = Modifier
                         .align(Alignment.BottomCenter),
                     style = TextStyle(
@@ -192,6 +192,7 @@ fun SearchBar(
         label = { Text("Tìm kiếm đoạn chat") },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
+        shape = RoundedCornerShape(10.dp),
         trailingIcon = {
             if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = onClearSearch) {
@@ -385,11 +386,10 @@ fun PersonalInfoDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        // Tạo nền gradient cho hộp thoại
+        // Bỏ fillMaxHeight(0.5f) để Dialog tự điều chỉnh kích thước
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.5f)
                 .clip(RoundedCornerShape(16.dp)) // Bo góc tròn
                 .background(
                     Brush.verticalGradient(
@@ -402,16 +402,16 @@ fun PersonalInfoDialog(
                         )
                     )
                 )
+                .padding(24.dp) // Thêm padding vào Box để nội dung không bị sát cạnh
         ) {
             Column(
                 modifier = Modifier
-                    .padding(24.dp)
-                    .fillMaxSize(),
+                    .wrapContentHeight(), // Sử dụng wrapContentHeight thay vì fillMaxSize
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Thêm biểu tượng cá nhân
                 Icon(
-                    imageVector = Icons.Default.Info, // Sử dụng biểu tượng phù hợp
+                    imageVector = Icons.Default.Info,
                     contentDescription = "Thông Tin",
                     tint = Color.White,
                     modifier = Modifier.size(40.dp)
@@ -436,14 +436,14 @@ fun PersonalInfoDialog(
                     horizontalAlignment = Alignment.Start
                 ) {
                     Text(
-                        text = "ChatAI Pro là một ứng dụng mạnh mẽ cho phép tích hợp dữ liệu thời gian thực và thực hiện các tác vụ phức tạp thông qua giao diện lập trình dễ sử dụng. Ứng dụng hỗ trợ kết nối nhanh chóng với các hệ thống nội bộ hoặc dịch vụ bên ngoài, đảm bảo bảo mật cao và hiệu suất ổn định. Với ChatAI Pro, người dùng có thể tối ưu hóa quy trình tự động hóa và nâng cao khả năng phân tích dữ liệu.",
+                        text = "ChatAI là một ứng dụng mạnh mẽ cho phép tích hợp dữ liệu thời gian thực và thực hiện các tác vụ phức tạp thông qua giao diện lập trình dễ sử dụng. Ứng dụng hỗ trợ kết nối nhanh chóng với các hệ thống nội bộ hoặc dịch vụ bên ngoài, đảm bảo bảo mật cao và hiệu suất ổn định. Với ChatAI Pro, người dùng có thể tối ưu hóa quy trình tự động hóa và nâng cao khả năng phân tích dữ liệu.",
                         style = MaterialTheme.typography.bodyLarge.copy(
                             color = Color.White
                         ),
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(1f)) // Đẩy nội dung lên trên
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // Nút Đóng
                 Button(
@@ -466,7 +466,6 @@ fun PersonalInfoDialog(
             }
         }
     }
-
 }
 
 
