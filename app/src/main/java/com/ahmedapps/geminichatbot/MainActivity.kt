@@ -7,14 +7,18 @@ import android.os.Bundle
 import android.os.Environment
 import androidx.compose.foundation.Image
 import android.util.Base64
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -192,6 +196,9 @@ class MainActivity : ComponentActivity() {
         }
         val textColor = if (isDarkTheme) Color.White else Color.Black
 
+        // Biến trạng thái để quản lý việc hiển thị DropdownMenu
+        var showImageSourceMenu by remember { mutableStateOf(false) }
+
         // Yêu cầu quyền CAMERA
         val cameraPermissionState = rememberPermissionState(permission = Manifest.permission.CAMERA)
 
@@ -225,29 +232,32 @@ class MainActivity : ComponentActivity() {
         }
         val canSend = chatState.prompt.isNotEmpty() || chatState.imageUri != null
 
-
-
+        var shouldAutoScroll by remember { mutableStateOf(true) }
+        // Xử lý cuộn trong LazyColumn
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }
                 .collect { isScrolling ->
                     if (isScrolling) {
+                        // Người dùng đang cuộn, tắt tự động cuộn
+                        shouldAutoScroll = false
                         userScrolled = true
                     }
                 }
         }
 
-        LaunchedEffect(chatState.chatList.size,isUserScrolling.value) {
+        LaunchedEffect(chatState.chatList.size) {
             val newMessageAdded = chatState.chatList.size > previousChatListSize
             previousChatListSize = chatState.chatList.size
 
             if (newMessageAdded) {
-                // Có tin nhắn mới, đặt lại userScrolled để tự động cuộn
-                userScrolled = false
-            }
+                // Có tin nhắn mới, bật tự động cuộn
+                shouldAutoScroll = true
 
-            if (!userScrolled && chatState.chatList.isNotEmpty()) {
-                scope.launch {
-                    listState.animateScrollToItem(chatState.chatList.size - 1)
+                if (shouldAutoScroll) {
+                    // Chỉ tự động cuộn nếu đang bật tự động cuộn
+                    scope.launch {
+                        listState.animateScrollToItem(chatState.chatList.size - 1)
+                    }
                 }
             }
         }
@@ -292,7 +302,8 @@ class MainActivity : ComponentActivity() {
         )
 
 
-
+        var showModelSelection by remember { mutableStateOf(false) }
+        val selectedModel by chatViewModel.selectedModel.collectAsState()
         val robotoFontFamily = FontFamily.Default
 
         ModalNavigationDrawer(
@@ -341,7 +352,57 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         },
+
                         actions = {
+                            // Button chọn model
+                            IconButton(onClick = { showModelSelection = true }) {
+                                AnimatedContent(
+                                    targetState = showModelSelection,
+                                    transitionSpec = {
+                                        fadeIn(animationSpec = tween(durationMillis = 300)) togetherWith
+                                                fadeOut(animationSpec = tween(durationMillis = 300))
+                                    }, label = ""
+                                ) { targetState ->
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (targetState) {
+                                                R.drawable.ic_closemodel
+                                            } else {
+                                                R.drawable.ic_openmodel
+                                            }
+                                        ),
+                                        contentDescription = "Chọn model",
+                                        tint = textColor,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+                            }
+                            // Dropdown menu chọn model
+                            DropdownMenu(
+                                expanded = showModelSelection,
+                                onDismissRequest = { showModelSelection = false },
+                                modifier = Modifier.background(backgroundColor, shape = RoundedCornerShape(8.dp))
+                            ) {
+                                chatViewModel.availableModels.forEachIndexed { index, model ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = model,
+                                                fontSize = 16.sp,
+                                                color = textColor,
+                                                fontWeight = if (model == selectedModel) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        },
+                                        onClick = {
+                                            chatViewModel.selectModel(model)
+                                            showModelSelection = false
+                                        }
+                                    )
+                                    if (index < chatViewModel.availableModels.size - 1) {
+                                        Divider(color = Color.LightGray, thickness = 0.8.dp)
+                                    }
+                                }
+                            }
                             IconButton(
                                 onClick = {
                                     chatViewModel.refreshChats()
@@ -357,6 +418,7 @@ class MainActivity : ComponentActivity() {
                                         .alpha(if (chatState.chatList.isNotEmpty()) 1f else 0.5f)
                                 )
                             }
+
                         },
                     )
                 },
@@ -400,7 +462,8 @@ class MainActivity : ComponentActivity() {
                         FloatingActionButton(
                             onClick = {
                                 scope.launch {
-                                    listState.animateScrollToItem(chatState.chatList.size - 1)
+                                    shouldAutoScroll = true
+                                    listState.animateScrollToItem(chatState.chatList.size)
 
                                 }
                             },
@@ -554,88 +617,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
-
-
-
-                                // Popup hiển thị các lựa chọn
-                                AnimatedVisibility(
-                                    visible = showPopup,
-                                    enter = fadeIn(),
-                                    exit = fadeOut(),
-                                    modifier = Modifier
-                                        .align(Alignment.End)
-                                        .fillMaxWidth(0.5f)
-                                ) {
-
-                                    Column(
-
-                                        modifier = Modifier
-                                            .background(backgroundColor, RoundedCornerShape(15.dp))
-                                            .border(0.2.dp, Color.LightGray, RoundedCornerShape(15.dp))
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    // Tạo URI tạm thời và mở máy ảnh
-                                                    photoUri = createImageUri()
-                                                    photoUri?.let {
-                                                        takePictureLauncher.launch(it)
-                                                    }
-                                                    showPopup = false
-                                                }
-                                                .padding(8.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-
-                                        ) {
-                                            Text(
-                                                text = "Chụp ảnh",
-                                                style = TextStyle(
-                                                    color = textColor,
-                                                    fontSize = 16.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.camera_add),
-                                                contentDescription = "Chụp ảnh",
-                                                tint = textColor
-                                            )
-                                        }
-                                        Divider(color = Color.LightGray, thickness = 0.8.dp)
-                                        // Nút 'Thư viện ảnh'
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    imagePicker.launch(
-                                                        PickVisualMediaRequest(
-                                                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                                                        )
-                                                    )
-                                                    showPopup = false
-                                                }
-                                                .padding(8.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = "Thư viện ảnh",
-                                                style = TextStyle(
-                                                    color = textColor,
-                                                    fontSize = 16.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_addpicture),
-                                                contentDescription = "Thư viện ảnh",
-                                                tint = textColor
-                                            )
-                                        }
-                                    }
-                                }
                             }
                         }
                         Box(
@@ -655,18 +636,83 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxWidth(),
                                     verticalAlignment = Alignment.Bottom
                                 ) {
-                                    // Nút '+' để hiển thị popup
+                                    // Nút '+' để hiển thị DropdownMenu
                                     IconButton(
-                                        onClick = { showPopup = !showPopup },
+                                        onClick = { showImageSourceMenu = !showImageSourceMenu },
                                         modifier = Modifier
                                             .padding(bottom = 8.dp)
                                             .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .alpha(if (showImageSourceMenu) 0.5f else 1f),
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_popup),
                                             contentDescription = "Thêm ảnh",
                                             tint = textColor
+                                        )
+                                    }
+                                    // DropdownMenu hiển thị các lựa chọn
+                                    DropdownMenu(
+                                        expanded = showImageSourceMenu,
+                                        onDismissRequest = { showImageSourceMenu = false },
+                                        modifier = Modifier
+                                            .background(backgroundColor, shape = RoundedCornerShape(8.dp))
+                                            .width(IntrinsicSize.Max)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = "Chụp ảnh",
+                                                    style = TextStyle(
+                                                        color = textColor,
+                                                        fontSize = 16.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                )
+                                            },
+                                            onClick = {
+                                                // Tạo URI tạm thời và mở máy ảnh
+                                                photoUri = createImageUri()
+                                                photoUri?.let {
+                                                    takePictureLauncher.launch(it)
+                                                }
+                                                showImageSourceMenu = false
+                                            },
+                                            trailingIcon = {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.camera_add),
+                                                    contentDescription = "Chụp ảnh",
+                                                    tint = textColor
+                                                )
+                                            }
+                                        )
+                                        Divider(color = Color.LightGray, thickness = 0.8.dp)
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = "Thư viện ảnh",
+                                                    style = TextStyle(
+                                                        color = textColor,
+                                                        fontSize = 16.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                )
+                                            },
+                                            onClick = {
+                                                imagePicker.launch(
+                                                    PickVisualMediaRequest(
+                                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                                    )
+                                                )
+                                                showImageSourceMenu = false
+                                            },
+                                            trailingIcon = {
+                                                Icon(
+                                                    painter = painterResource(id = R.drawable.ic_addpicture),
+                                                    contentDescription = "Thư viện ảnh",
+                                                    tint = textColor
+                                                )
+                                            }
                                         )
                                     }
 //                                    Icon(
@@ -1021,17 +1067,17 @@ class MainActivity : ComponentActivity() {
      */
     @Composable
     fun FullScreenImageScreen(
-        imageUrl: String,
+        imageUrl: String?,
         onClose: () -> Unit
     ) {
-        // Biến trạng thái để quản lý các phép biến đổi (scale, translation)
         var scale by remember { mutableStateOf(1f) }
         var offset by remember { mutableStateOf(Offset.Zero) }
+        var showResetButton by remember { mutableStateOf(false) }
 
-        // GestureDetector để xử lý các cử chỉ zoom và kéo
         val transformableState = rememberTransformableState { zoomChange, panChange, _ ->
-            scale = (scale * zoomChange).coerceIn(1f, 5f) // Giới hạn zoom từ 1x đến 5x
+            scale = (scale * zoomChange).coerceIn(1f, 5f)
             offset += panChange
+            showResetButton = scale != 1f || offset != Offset.Zero
         }
 
         Box(
@@ -1039,33 +1085,43 @@ class MainActivity : ComponentActivity() {
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(imageUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "Hình ảnh toàn màn hình",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offset.x,
-                        translationY = offset.y
-                    )
-                    .transformable(state = transformableState) // Xử lý các phép biến đổi
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = {
-                                // Tăng hoặc giảm zoom khi double tap
-                                scale = if (scale < 3f) scale * 2 else 1f
-                            }
+            if (imageUrl != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(imageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Hình ảnh toàn màn hình",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y
                         )
+                        .transformable(state = transformableState)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    scale = if (scale < 3f) scale * 2 else 1f
+                                    offset = Offset.Zero
+                                    showResetButton = false
+                                }
+                            )
+                        },
+                    onError = {
+                        // Xử lý lỗi tải ảnh ở đây, ví dụ:
+                        Log.e("FullScreenImageScreen", "Error loading image: ${it.result.throwable}")
                     }
-            )
+                )
+            } else {
+                // Hiển thị thông báo lỗi hoặc placeholder nếu imageUrl == null
+                Text("Không tìm thấy hình ảnh", color = Color.White)
+            }
 
-            // Nút đóng góc trên bên trái
+            // Nút đóng
             IconButton(
                 onClick = onClose,
                 modifier = Modifier
@@ -1078,6 +1134,33 @@ class MainActivity : ComponentActivity() {
                     contentDescription = "Đóng",
                     tint = Color.White
                 )
+            }
+
+            // Nút reset zoom/pan
+            AnimatedVisibility(
+                visible = showResetButton,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                IconButton(
+                    onClick = {
+                        scale = 1f
+                        offset = Offset.Zero
+                        showResetButton = false
+                    },
+                    modifier = Modifier
+                        .background(Color.Gray.copy(alpha = 0.5f), shape = RoundedCornerShape(50))
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_reset),
+                        contentDescription = "Reset",
+                        tint = Color.White,
+                        modifier = Modifier.size(25.dp)
+                    )
+                }
             }
         }
     }

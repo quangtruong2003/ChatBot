@@ -83,16 +83,15 @@ class AuthViewModel @Inject constructor(
                     } else {
                         _authState.update {
                             it.copy(
-                                errorMessage = "Please verify your email address before logging in.",
+                                errorMessage = "Vui lòng xác minh địa chỉ email của bạn trước khi đăng nhập",
                                 isLoading = false
                             )
                         }
-                        // auth.signOut() // Loại bỏ dòng này
                     }
                 } else {
                     _authState.update {
                         it.copy(
-                            errorMessage = "Login failed. Please check your credentials.",
+                            errorMessage = "Đăng nhập thất bại. Vui lòng kiểm tra thông tin đăng nhập của bạn",
                             isLoading = false
                         )
                     }
@@ -141,7 +140,7 @@ class AuthViewModel @Inject constructor(
                     it.copy(
                         isSuccess = true,
                         isLoading = false,
-                        errorMessage = "Registration successful! Please check your email for verification."
+                        errorMessage = "Đăng ký thành công! Vui lòng kiểm tra email của bạn để xác minh."
                     )
                 }
 

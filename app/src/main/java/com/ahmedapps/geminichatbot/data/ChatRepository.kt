@@ -8,6 +8,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import com.ahmedapps.geminichatbot.BuildConfig
+import com.ahmedapps.geminichatbot.di.GenerativeModelProvider
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import com.google.firebase.auth.FirebaseAuth
@@ -23,11 +25,16 @@ import javax.inject.Inject
 
 class ChatRepository @Inject constructor(
     private val context: Context,
-    private val generativeModel: GenerativeModel,
+    private val generativeModelProvider: GenerativeModelProvider,
     private val db: FirebaseFirestore,
     private val storage: FirebaseStorage,
 ) {
     private val auth = FirebaseAuth.getInstance()
+
+
+    // Lấy GenerativeModel từ GenerativeModelProvider
+    private val generativeModel: GenerativeModel
+        get() = generativeModelProvider.getGenerativeModel()
 
     val userId: String
         get() = auth.currentUser?.uid.orEmpty()
@@ -436,5 +443,11 @@ class ChatRepository @Inject constructor(
     private fun removeVietnameseAccents(str: String): String {
         val normalizedString = Normalizer.normalize(str, Normalizer.Form.NFD)
         return normalizedString.replace("\\p{InCombiningDiacriticalMarks}+".toRegex(), "")
+    }
+
+    // Hàm để cập nhật model (sử dụng GenerativeModelProvider)
+    fun updateGenerativeModel(modelName: String) {
+        generativeModelProvider.updateGenerativeModel(modelName)
+        Log.d("ChatRepository", "Updated Generative Model to: $modelName")
     }
 }

@@ -21,11 +21,8 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideGenerativeModel(): GenerativeModel {
-        return GenerativeModel(
-            modelName = "gemini-1.5-flash",
-            apiKey = BuildConfig.API_KEY
-        )
+    fun provideGenerativeModelProvider(): GenerativeModelProvider {
+        return GenerativeModelProvider()
     }
 
     @Provides
@@ -50,10 +47,10 @@ object AppModule {
     @Singleton
     fun provideChatRepository(
         @ApplicationContext context: Context,
-        generativeModel: GenerativeModel,
+        generativeModelProvider: GenerativeModelProvider,
         db: FirebaseFirestore,
         storage: FirebaseStorage
     ): ChatRepository {
-        return ChatRepository(context, generativeModel, db, storage)
+        return ChatRepository(context, generativeModelProvider, db, storage)
     }
 }

@@ -19,6 +19,26 @@ class ChatViewModel @Inject constructor(
     private val repository: ChatRepository
 ) : ViewModel() {
 
+    val availableModels = listOf(
+        "gemini-1.5-flash-8b",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-exp-1206",
+    )
+    // Model đang được chọn (mặc định là model đầu tiên)
+    private val _selectedModel = MutableStateFlow(availableModels[0])
+    val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
+
+
+    // Hàm để chọn model
+    fun selectModel(model: String) {
+        _selectedModel.value = model
+        // Cập nhật model trong AppModule
+        viewModelScope.launch {
+            repository.updateGenerativeModel(model)
+        }
+    }
+
     private val _chatState = MutableStateFlow(ChatState())
     val chatState: StateFlow<ChatState> = _chatState.asStateFlow()
 
@@ -60,16 +80,28 @@ class ChatViewModel @Inject constructor(
         } else {
             val allSegments = repository.getChatSegments()
             val normalizedQuery = removeVietnameseAccents(query).lowercase(Locale.getDefault())
+
             val results = allSegments.filter { segment ->
                 val normalizedTitle = removeVietnameseAccents(segment.title).lowercase(Locale.getDefault())
-                normalizedTitle.contains(normalizedQuery)
+
+                // Kiểm tra nếu query khớp chính xác với title
+                if (normalizedTitle.contains(normalizedQuery)) {
+                    return@filter true
+                }
+
+                // Tách title và query thành các từ
+                val titleWords = normalizedTitle.split(" ")
+                val queryWords = normalizedQuery.split(" ")
+
+                // Kiểm tra xem tất cả các từ trong query có xuất hiện trong title không (không cần theo thứ tự)
+                queryWords.all { queryWord -> titleWords.any { it.contains(queryWord) } }
             }
             _chatState.update { it.copy(chatSegments = results) }
         }
     }
 
     /**
-     * Loads all chat segments.
+     * Tải tất cả các đoạn hội thoại.
      */
     private fun loadChatSegments() {
         viewModelScope.launch {
@@ -79,7 +111,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Loads chat history for the selected segment or default segment.
+     * Tải lịch sử trò chuyện cho đoạn đã chọn hoặc đoạn mặc định.
      */
     private fun loadDefaultSegmentChatHistory() {
         viewModelScope.launch {
@@ -93,7 +125,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Loads chat history for a specific segment.
+     * Tải lịch sử trò chuyện cho một đoạn cụ thể.
      */
     private fun loadChatHistoryForSegment(segmentId: String) {
         viewModelScope.launch {
@@ -103,7 +135,7 @@ class ChatViewModel @Inject constructor(
     }
 
     /**
-     * Refreshes chats by creating a new chat segment.
+     * Làm mới trò chuyện bằng cách tạo một đoạn trò chuyện mới.
      */
     fun refreshChats() {
         viewModelScope.launch {
@@ -141,7 +173,7 @@ class ChatViewModel @Inject constructor(
      * Tạo một đoạn chat mới.
      */
     private suspend fun createNewSegment() {
-        val newSegmentTitle = "Đoạn chat mới" // Bạn có thể thêm timestamp nếu muốn
+        val newSegmentTitle = "Đoạn chat mới"
         val newSegmentId = repository.addChatSegment(newSegmentTitle)
         if (newSegmentId != null) {
             val newSegment = ChatSegment(
@@ -300,9 +332,9 @@ class ChatViewModel @Inject constructor(
             return
         }
 
-        // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
         try {
             val chat = repository.getResponse(prompt, selectedSegmentId)
+            val currentSegment = chatState.value.selectedSegment
             _chatState.update {
                 it.copy(
                     chatList = it.chatList + chat,
@@ -310,12 +342,11 @@ class ChatViewModel @Inject constructor(
                 )
             }
 
-            // Sau khi nhận được phản hồi đầu tiên, tạo và đặt tiêu đề đoạn chat
-            if (!hasUpdatedTitle && !chat.isFromUser) {
+            // Chỉ cập nhật tiêu đề nếu đoạn chat chưa có tiêu đề và không phải tin nhắn của người dùng
+            if (!hasUpdatedTitle && !chat.isFromUser && currentSegment?.title == "Đoạn chat mới") {
                 repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
                 hasUpdatedTitle = true
-                // Tải lại các đoạn chat để cập nhật tiêu đề
-                loadChatSegments()
+                loadChatSegments() // Cập nhật lại danh sách đoạn chat
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -323,7 +354,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    /**
+     /**
      * Lấy phản hồi từ GenerativeModel kèm hình ảnh.
      * Bổ sung kiểm tra phản hồi tùy chỉnh trước khi gọi API.
      */
@@ -363,6 +394,7 @@ class ChatViewModel @Inject constructor(
                 prompt
             }
             val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
+            val currentSegment = chatState.value.selectedSegment
             _chatState.update {
                 it.copy(
                     chatList = it.chatList + chat,
@@ -370,15 +402,11 @@ class ChatViewModel @Inject constructor(
                 )
             }
 
-            // After receiving the first response, update the chat segment title if needed
-            if (!hasUpdatedTitle && !chat.isFromUser) {
-                repository.updateSegmentTitleFromResponse(
-                    selectedSegmentId,
-                    chat.prompt
-                )
+            // Chỉ cập nhật tiêu đề nếu đoạn chat chưa có tiêu đề và không phải tin nhắn của người dùng
+            if (!hasUpdatedTitle && !chat.isFromUser && currentSegment?.title == "Đoạn chat mới") {
+                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
                 hasUpdatedTitle = true
-                // Reload chat segments to update titles
-                loadChatSegments()
+                loadChatSegments() // Cập nhật lại danh sách đoạn chat
             }
         } catch (e: Exception) {
             e.printStackTrace()
