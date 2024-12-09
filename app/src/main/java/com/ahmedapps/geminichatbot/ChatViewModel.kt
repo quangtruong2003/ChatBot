@@ -25,6 +25,18 @@ class ChatViewModel @Inject constructor(
         "gemini-1.5-pro",
         "gemini-exp-1206",
     )
+    val modelDisplayNameMap = mapOf(
+        "gemini-1.5-flash-8b" to "AI Tốc độ",
+        "gemini-1.5-flash" to "AI Thần đồng",
+        "gemini-1.5-pro" to "AI Lý luận",
+        "gemini-exp-1206" to "AI Coder"
+    )
+    val modelIconMap = mapOf(
+        "AI Tốc độ" to R.drawable.ic_flash,
+        "AI Thần đồng" to R.drawable.ic_thandong,
+        "AI Lý luận" to R.drawable.ic_lyluan,
+        "AI Coder" to R.drawable.ic_coder
+    )
     // Model đang được chọn (mặc định là model đầu tiên)
     private val _selectedModel = MutableStateFlow(availableModels[0])
     val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()

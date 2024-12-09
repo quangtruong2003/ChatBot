@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "2"
+        versionName = "1.0.3 beta"
         // Thêm dòng này để đưa versionName vào BuildConfig
         buildConfigField("String", "VERSION_NAME", "\"${versionName}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

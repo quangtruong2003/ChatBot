@@ -27,6 +27,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.size
@@ -42,6 +43,8 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -53,15 +56,21 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -169,7 +178,7 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalFoundationApi::class)
     @Composable
-    fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {val isError: Boolean = false // Initialize isError
+    fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {val isError: Boolean = false
 
 
         val chatState by chatViewModel.chatState.collectAsState()
@@ -197,7 +206,7 @@ class MainActivity : ComponentActivity() {
         val textColor = if (isDarkTheme) Color.White else Color.Black
 
         // Biến trạng thái để quản lý việc hiển thị DropdownMenu
-        var showImageSourceMenu by remember { mutableStateOf(false) }
+        var showSourceMenu by remember { mutableStateOf(false) }
 
         // Yêu cầu quyền CAMERA
         val cameraPermissionState = rememberPermissionState(permission = Manifest.permission.CAMERA)
@@ -288,6 +297,20 @@ class MainActivity : ComponentActivity() {
                 imageFile
             )
         }
+        fun Modifier.crop(
+            horizontal: Dp = 0.dp,
+            vertical: Dp = 0.dp,
+        ): Modifier = this.layout { measurable, constraints ->
+            val placeable = measurable.measure(constraints)
+            fun Dp.toPxInt(): Int = this.toPx().toInt()
+
+            layout(
+                placeable.width - (horizontal * 2).toPxInt(),
+                placeable.height - (vertical * 2).toPxInt()
+            ) {
+                placeable.placeRelative(-horizontal.toPx().toInt(), -vertical.toPx().toInt())
+            }
+        }
         // Tạo một biến để lưu Uri tạm thời cho ảnh chụp
         var photoUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -301,7 +324,7 @@ class MainActivity : ComponentActivity() {
             }
         )
 
-
+        var isClicked by remember { mutableStateOf(false) }
         var showModelSelection by remember { mutableStateOf(false) }
         val selectedModel by chatViewModel.selectedModel.collectAsState()
         val robotoFontFamily = FontFamily.Default
@@ -321,27 +344,168 @@ class MainActivity : ComponentActivity() {
                 topBar = {
                     CenterAlignedTopAppBar(
                         title = {
-                            Text(
-                                text = "ChatAI",
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                style = TextStyle(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 30.sp,
-                                    textAlign = TextAlign.Center,
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            Color(0xFF1BA1E3),
-                                            Color(0xFF5489D6),
-                                            Color(0xFF9B72CB),
-                                            Color(0xFFD96570),
-                                            Color(0xFFF49C46)
-                                        )
-                                    ),
-                                    fontFamily = robotoFontFamily
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "ChatAI",
+                                    style = TextStyle(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 30.sp,
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                Color(0xFF1BA1E3),
+                                                Color(0xFF5489D6),
+                                                Color(0xFF9B72CB),
+                                                Color(0xFFD96570),
+                                                Color(0xFFF49C46)
+                                            )
+                                        ),
+                                        fontFamily = robotoFontFamily
+                                    )
                                 )
-                            )
+                                // Spacer between actions if needed
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Combined Icon Button for Model Selection
+                                Box(
+                                    modifier = Modifier
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null, // Loại bỏ hiệu ứng hover
+                                            onClick = {
+                                                isClicked = !isClicked // Chuyển đổi trạng thái đã nhấp
+                                                showModelSelection = true
+                                            }
+                                        )
+                                        .alpha(if (isClicked) 0.5f else 1f)
+                                        .padding(0.dp)
+                                ) {
+                                    Row(
+
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        // AnimatedContent for Selected Model Icon
+                                        AnimatedContent(
+                                            targetState = selectedModel,
+                                            transitionSpec = {
+                                                fadeIn(animationSpec = tween(durationMillis = 300)) togetherWith
+                                                        fadeOut(animationSpec = tween(durationMillis = 300))
+                                            },
+                                            label = "SelectedModelIcon"
+                                        ) { targetModel ->
+                                            val modelDisplayName = chatViewModel.modelDisplayNameMap[targetModel] ?: targetModel
+                                            val iconResourceId = chatViewModel.modelIconMap[modelDisplayName] ?: R.drawable.ic_bot
+
+                                            Icon(
+                                                painter = painterResource(id = iconResourceId),
+                                                contentDescription = "Selected Model Icon",
+                                                tint = textColor,
+                                                modifier = Modifier.size(25.dp)
+                                            )
+                                        }
+
+
+                                        // AnimatedContent for Dropdown Toggle Icon
+                                        AnimatedContent(
+                                            targetState = showModelSelection,
+                                            transitionSpec = {
+                                                fadeIn(animationSpec = tween(durationMillis = 300)) togetherWith
+                                                        fadeOut(animationSpec = tween(durationMillis = 300))
+                                            },
+                                            label = "DropdownToggleIcon"
+                                        ) { targetState ->
+                                            Icon(
+                                                painter = painterResource(
+                                                    id = if (targetState) {
+                                                        R.drawable.ic_closemodel
+                                                    } else {
+                                                        R.drawable.ic_openmodel
+                                                    }
+                                                ),
+                                                contentDescription = "Chọn model",
+                                                tint = textColor,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+
+                                    // DropdownMenu associated with the combined icons
+                                    DropdownMenu(
+                                        expanded = showModelSelection,
+                                        onDismissRequest = { showModelSelection = false },
+                                        modifier = Modifier
+                                            .wrapContentSize(Alignment.Center)
+                                            .crop(vertical = 8.dp)
+                                            .background(
+                                                backgroundColor,
+                                                shape = RoundedCornerShape(15.dp)
+                                            )
+                                            .fillMaxWidth(0.45f),
+                                        offset = DpOffset(x = 40.dp, y = 8.dp)
+                                    ) {
+                                        chatViewModel.availableModels.forEachIndexed { index, model ->
+                                            DropdownMenuItem(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .wrapContentHeight(),
+                                                text = {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            val modelDisplayName = chatViewModel.modelDisplayNameMap[model] ?: model
+                                                            val iconResourceId = chatViewModel.modelIconMap[modelDisplayName] ?: R.drawable.ic_bot // Default to ic_bot if not found
+
+                                                            Icon(
+                                                                painter = painterResource(id = iconResourceId),
+                                                                contentDescription = "Model Icon",
+                                                                tint = textColor,
+                                                                modifier = Modifier.size(24.dp)
+                                                            )
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text(
+                                                                text = modelDisplayName,
+                                                                fontSize = 16.sp,
+                                                                color = textColor,
+                                                                fontWeight = if (model == selectedModel) FontWeight.Bold else FontWeight.Normal
+                                                            )
+                                                        }
+                                                        if (model == selectedModel) {
+                                                            Icon(
+                                                                painter = painterResource(id = R.drawable.ic_chonmodel),
+                                                                contentDescription = "Selected Model",
+                                                                tint = textColor,
+                                                                modifier = Modifier.size(24.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                },
+                                                onClick = {
+                                                    chatViewModel.selectModel(model)
+                                                    showModelSelection = false
+                                                }
+                                            )
+                                            if (index < chatViewModel.availableModels.size - 1) {
+                                                Divider(color = Color.LightGray, thickness = 0.8.dp)
+                                            }
+                                        }
+                                        LaunchedEffect(key1 = showModelSelection) {
+                                            if (!showModelSelection) {
+                                                isClicked = false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                         },
+
                         navigationIcon = {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
                                 Icon(
@@ -352,57 +516,8 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         },
-
                         actions = {
-                            // Button chọn model
-                            IconButton(onClick = { showModelSelection = true }) {
-                                AnimatedContent(
-                                    targetState = showModelSelection,
-                                    transitionSpec = {
-                                        fadeIn(animationSpec = tween(durationMillis = 300)) togetherWith
-                                                fadeOut(animationSpec = tween(durationMillis = 300))
-                                    }, label = ""
-                                ) { targetState ->
-                                    Icon(
-                                        painter = painterResource(
-                                            id = if (targetState) {
-                                                R.drawable.ic_closemodel
-                                            } else {
-                                                R.drawable.ic_openmodel
-                                            }
-                                        ),
-                                        contentDescription = "Chọn model",
-                                        tint = textColor,
-                                        modifier = Modifier.size(30.dp)
-                                    )
-                                }
-                            }
-                            // Dropdown menu chọn model
-                            DropdownMenu(
-                                expanded = showModelSelection,
-                                onDismissRequest = { showModelSelection = false },
-                                modifier = Modifier.background(backgroundColor, shape = RoundedCornerShape(8.dp))
-                            ) {
-                                chatViewModel.availableModels.forEachIndexed { index, model ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = model,
-                                                fontSize = 16.sp,
-                                                color = textColor,
-                                                fontWeight = if (model == selectedModel) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                        },
-                                        onClick = {
-                                            chatViewModel.selectModel(model)
-                                            showModelSelection = false
-                                        }
-                                    )
-                                    if (index < chatViewModel.availableModels.size - 1) {
-                                        Divider(color = Color.LightGray, thickness = 0.8.dp)
-                                    }
-                                }
-                            }
+                            // Existing Refresh IconButton
                             IconButton(
                                 onClick = {
                                     chatViewModel.refreshChats()
@@ -418,6 +533,7 @@ class MainActivity : ComponentActivity() {
                                         .alpha(if (chatState.chatList.isNotEmpty()) 1f else 0.5f)
                                 )
                             }
+
 
                         },
                     )
@@ -515,7 +631,8 @@ class MainActivity : ComponentActivity() {
                                         imageUrl = chat.imageUrl,
                                         onLongPress = { textToCopy ->
                                             scope.launch {
-                                                clipboardManager.setText(AnnotatedString(textToCopy))
+                                                val plainText = parseFormattedText(textToCopy).text
+                                                clipboardManager.setText(AnnotatedString(plainText))
                                                 snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
                                             }
                                         },
@@ -530,7 +647,8 @@ class MainActivity : ComponentActivity() {
                                         isError = chat.isError,
                                         onLongPress = { textToCopy ->
                                             scope.launch {
-                                                clipboardManager.setText(AnnotatedString(textToCopy))
+                                                val plainText = parseFormattedText(textToCopy).text
+                                                clipboardManager.setText(AnnotatedString(plainText))
                                                 snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
                                             }
                                         },
@@ -574,7 +692,9 @@ class MainActivity : ComponentActivity() {
                                                 .combinedClickable(
                                                     onClick = {
                                                         val encodedUrl = Base64.encodeToString(
-                                                            uri.toString().toByteArray(Charsets.UTF_8),
+                                                            uri
+                                                                .toString()
+                                                                .toByteArray(Charsets.UTF_8),
                                                             Base64.URL_SAFE or Base64.NO_WRAP
                                                         )
                                                         navController.navigate("fullscreen_image/$encodedUrl")
@@ -638,12 +758,12 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     // Nút '+' để hiển thị DropdownMenu
                                     IconButton(
-                                        onClick = { showImageSourceMenu = !showImageSourceMenu },
+                                        onClick = { showSourceMenu = !showSourceMenu },
                                         modifier = Modifier
                                             .padding(bottom = 8.dp)
                                             .size(40.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .alpha(if (showImageSourceMenu) 0.5f else 1f),
+                                            .alpha(if (showSourceMenu) 0.5f else 1f),
                                     ) {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_popup),
@@ -653,11 +773,16 @@ class MainActivity : ComponentActivity() {
                                     }
                                     // DropdownMenu hiển thị các lựa chọn
                                     DropdownMenu(
-                                        expanded = showImageSourceMenu,
-                                        onDismissRequest = { showImageSourceMenu = false },
+                                        expanded = showSourceMenu,
+                                        onDismissRequest = { showSourceMenu = false },
                                         modifier = Modifier
-                                            .background(backgroundColor, shape = RoundedCornerShape(8.dp))
-                                            .width(IntrinsicSize.Max)
+                                            .crop(vertical = 8.dp)
+                                            .background(
+                                                backgroundColor,
+                                                shape = RoundedCornerShape(15.dp)
+                                            )
+                                            .width(IntrinsicSize.Max),
+                                        offset = DpOffset(x = 0.dp, y = (-8).dp)
                                     ) {
                                         DropdownMenuItem(
                                             text = {
@@ -676,7 +801,7 @@ class MainActivity : ComponentActivity() {
                                                 photoUri?.let {
                                                     takePictureLauncher.launch(it)
                                                 }
-                                                showImageSourceMenu = false
+                                                showSourceMenu = false
                                             },
                                             trailingIcon = {
                                                 Icon(
@@ -704,7 +829,7 @@ class MainActivity : ComponentActivity() {
                                                         ActivityResultContracts.PickVisualMedia.ImageOnly
                                                     )
                                                 )
-                                                showImageSourceMenu = false
+                                                showSourceMenu = false
                                             },
                                             trailingIcon = {
                                                 Icon(
@@ -741,7 +866,11 @@ class MainActivity : ComponentActivity() {
                                             .clip(RoundedCornerShape(20.dp))
                                             .weight(1f)
                                             .verticalScroll(rememberScrollState())
-                                            .border(width = 1.dp, color = Color.LightGray, shape = RoundedCornerShape(20.dp)),
+                                            .border(
+                                                width = 1.dp,
+                                                color = Color.LightGray,
+                                                shape = RoundedCornerShape(20.dp)
+                                            ),
                                         value = chatState.prompt,
                                         onValueChange = {
                                             chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
@@ -791,7 +920,8 @@ class MainActivity : ComponentActivity() {
                                                     enabled = canSend && !chatState.isLoading, // Enable or disable based on canSend
                                                     onClick = {
                                                         if (canSend) { // Additional safety check
-                                                            val sanitizedPrompt = sanitizeMessage(chatState.prompt) // Xử lý chuỗi tin nhắn
+                                                            val sanitizedPrompt =
+                                                                sanitizeMessage(chatState.prompt) // Xử lý chuỗi tin nhắn
                                                             chatViewModel.onEvent(
                                                                 ChatUiEvent.SendPrompt(
                                                                     sanitizedPrompt,
@@ -815,34 +945,54 @@ class MainActivity : ComponentActivity() {
                     if (showWelcomeMessage && chatState.chatList.isEmpty()) {
                         userScrolled = false
 
-                        Column (
+                        Column(
                             modifier = Modifier
-                                .align(Alignment. Center)
+                                .align(Alignment.Center)
                                 .offset(y = (-70).dp),
                             horizontalAlignment = Alignment.CenterHorizontally
-                        ){
+                        ) {
                             Image(
-                            painter = painterResource(id = R.drawable.ic_app),
-                            contentDescription = "Icon Bot",
-                            modifier = Modifier.size(80.dp),
-                        )
+                                painter = painterResource(id = R.drawable.ic_app),
+                                contentDescription = "Icon Bot",
+                                modifier = Modifier.size(80.dp),
+                            )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Xin chào, tôi có thể giúp gì cho bạn?",
-                                style = TextStyle(
-                                    fontSize = 22.sp,
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            Color(0xFF1BA1E3),
-                                            Color(0xFF5489D6),
-                                            Color(0xFF9B72CB),
-                                            Color(0xFFD96570),
-                                            Color(0xFFF49C46)
-                                        )
-                                    ),
-                                )
-                            ) }
 
+                            var textSize by remember { mutableStateOf(22.sp) }
+                            var boxWidth by remember { mutableStateOf(0) }
+
+                            Box(modifier = Modifier
+                                .fillMaxWidth(1f)
+                                .onSizeChanged { size ->
+                                    // Cập nhật kích thước của Box
+                                    boxWidth = size.width
+                                }
+                            ) {
+                                // Tính toán fontSize dựa trên chiều rộng của Box
+                                if (boxWidth > 0) {
+                                    // điều chỉnh công thức này dựa trên thử nghiệm để có kết quả tốt nhất
+                                    textSize = (boxWidth / LocalDensity.current.density * 0.05f).sp
+                                }
+
+                                Text(
+                                    text = "Xin chào, tôi có thể giúp gì cho bạn?",
+                                    style = TextStyle(
+                                        fontSize = textSize, // Sử dụng fontSize đã được tính toán
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                Color(0xFF1BA1E3),
+                                                Color(0xFF5489D6),
+                                                Color(0xFF9B72CB),
+                                                Color(0xFFD96570),
+                                                Color(0xFFF49C46)
+                                            )
+                                        ),
+                                    ),
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
+                        }
                     }
 
                     LaunchedEffect(chatState.chatList.isEmpty()) {
