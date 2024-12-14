@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
@@ -22,8 +21,10 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -39,7 +40,7 @@ fun SideDrawer(
     chatViewModel: ChatViewModel,
     onLogout: () -> Unit
 ) {
-    val gradientBrush = Brush.linearGradient( // Sử dụng linearGradient trực tiếp
+    val gradientBrush = Brush.linearGradient(
         colors = listOf(
             Color(0xFF1BA1E3),
             Color(0xFF5489D6),
@@ -50,12 +51,8 @@ fun SideDrawer(
     )
     val chatState by chatViewModel.chatState.collectAsState()
     val searchQuery = chatState.searchQuery
-    val completedSegments = chatState.chatSegments.filter { it.title != "New Chat" }
-
-    // State to manage the segment selected for deletion
+    val allSegments by chatViewModel.getSortedChatSegments().collectAsState()
     var segmentToDelete by remember { mutableStateOf<ChatSegment?>(null) }
-
-    // State để quản lý hiển thị hộp thoại thông tin cá nhân
     var showPersonalInfoDialog by remember { mutableStateOf(false) }
 
     Surface(
@@ -66,7 +63,6 @@ fun SideDrawer(
                 .fillMaxWidth(0.85f)
                 .padding(16.dp)
         ) {
-            // Search bar for searching chat segments
             SearchBar(
                 searchQuery = searchQuery,
                 onSearchQueryChanged = { query ->
@@ -79,9 +75,8 @@ fun SideDrawer(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // List of completed chat segments with Modifier.weight(1f)
             CompletedChatList(
-                segments = completedSegments,
+                segments = allSegments,
                 selectedSegment = chatState.selectedSegment,
                 onSegmentSelected = { segment ->
                     chatViewModel.onEvent(ChatUiEvent.SelectSegment(segment))
@@ -89,17 +84,16 @@ fun SideDrawer(
                     onClose()
                 },
                 onSegmentLongPress = { segment ->
-                    segmentToDelete = segment // Set the segment to delete
+                    segmentToDelete = segment
                 },
                 onDeleteAllChats = {
                     chatViewModel.clearChat()
                     onClose()
                 },
-                onLogout = onLogout, // Truyền callback đăng xuất
-                modifier = Modifier.weight(1f) // Thêm modifier này
+                onLogout = onLogout,
+                modifier = Modifier.weight(1f)
             )
 
-            // Nút version
             GradientButton(
                 onClick = { showPersonalInfoDialog = true },
                 modifier = Modifier
@@ -114,7 +108,6 @@ fun SideDrawer(
                 )
             }
 
-            // Show confirmation dialog if a segment is selected for deletion
             segmentToDelete?.let { segment ->
                 DeleteConfirmationDialog(
                     segmentTitle = segment.title,
@@ -128,7 +121,6 @@ fun SideDrawer(
                 )
             }
 
-            // Show personal information dialog
             if (showPersonalInfoDialog) {
                 PersonalInfoDialog(
                     onDismiss = { showPersonalInfoDialog = false }
@@ -158,6 +150,7 @@ fun SideDrawer(
         }
     }
 }
+
 @Composable
 fun GradientButton(
     onClick: () -> Unit,
@@ -167,10 +160,10 @@ fun GradientButton(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp)) // Bo góc
-            .background(gradient) // Áp dụng nền gradient
-            .clickable(onClick = onClick) // Xử lý sự kiện nhấn
-            .padding(vertical = 12.dp, horizontal = 16.dp), // Khoảng cách bên trong
+            .clip(RoundedCornerShape(8.dp))
+            .background(gradient)
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp, horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
@@ -207,21 +200,66 @@ fun SearchBar(
     )
 }
 
+/**
+ * Hàm lấy nhãn nhóm ngày cho một timestamp
+ */
+fun getGroupLabel(date: Long): String {
+    val now = Calendar.getInstance()
+    now.set(Calendar.HOUR_OF_DAY, 0)
+    now.set(Calendar.MINUTE, 0)
+    now.set(Calendar.SECOND, 0)
+    now.set(Calendar.MILLISECOND, 0)
+
+    val todayAtMidnight = now.timeInMillis
+
+    val yesterday = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -1) }
+    val yesterdayAtMidnight = yesterday.timeInMillis
+
+    val twoDaysAgo = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -2) }
+    val twoDaysAgoAtMidnight = twoDaysAgo.timeInMillis
+
+    val sevenDaysAgo = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -7) }
+    val sevenDaysAgoAtMidnight = sevenDaysAgo.timeInMillis
+
+    // tomorrowAtMidnight để so sánh cho hôm nay
+    val tomorrow = (now.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
+    val tomorrowAtMidnight = tomorrow.timeInMillis
+
+    return when {
+        // date trong hôm nay: [todayAtMidnight, tomorrowAtMidnight)
+        date in todayAtMidnight until tomorrowAtMidnight -> "Hôm nay"
+
+        // date trong hôm qua: [yesterdayAtMidnight, todayAtMidnight)
+        date in yesterdayAtMidnight until todayAtMidnight -> "Hôm qua"
+
+        // date trong hôm kia: [twoDaysAgoAtMidnight, yesterdayAtMidnight)
+        date in twoDaysAgoAtMidnight until yesterdayAtMidnight -> "Hôm kia"
+
+        // date trong khoảng 3 -> 7 ngày trước: [sevenDaysAgoAtMidnight, twoDaysAgoAtMidnight)
+        date in sevenDaysAgoAtMidnight until twoDaysAgoAtMidnight -> "7 ngày trước"
+
+        else -> {
+            val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+            sdf.format(Date(date))
+        }
+    }
+}
+
+
 @Composable
 fun CompletedChatList(
     segments: List<ChatSegment>,
     selectedSegment: ChatSegment?,
     onSegmentSelected: (ChatSegment) -> Unit,
-    onSegmentLongPress: (ChatSegment) -> Unit, // Long press callback for deletion
-    onDeleteAllChats: () -> Unit, // Callback for deleting all chats
-    onLogout: () -> Unit, // Thêm tham số này
-    modifier: Modifier = Modifier // Thêm tham số modifier
+    onSegmentLongPress: (ChatSegment) -> Unit,
+    onDeleteAllChats: () -> Unit,
+    onLogout: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    // Biến trạng thái để quản lý hiển thị hộp thoại xác nhận
     var showFirstConfirmationDialog by remember { mutableStateOf(false) }
     var showSecondConfirmationDialog by remember { mutableStateOf(false) }
 
-    Column(modifier = modifier) { // Bọc LazyColumn trong Column với modifier
+    Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -233,14 +271,14 @@ fun CompletedChatList(
                 text = "Lịch sử",
                 style = MaterialTheme.typography.titleMedium
             )
-            Row { // Thêm Row chứa các IconButton
+            Row {
                 IconButton(onClick = { showFirstConfirmationDialog = true }) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
+                        painter = painterResource(id = R.drawable.ic_bin),
                         contentDescription = "Xóa tất cả lịch sử"
                     )
                 }
-                IconButton(onClick = onLogout) { // Nút Đăng xuất
+                IconButton(onClick = onLogout) {
                     Icon(
                         imageVector = Icons.Default.ExitToApp,
                         contentDescription = "Đăng xuất"
@@ -249,18 +287,38 @@ fun CompletedChatList(
             }
         }
 
-        // Danh sách các đoạn chat hoàn thành
+        // Thay vì groupBy ngày chính xác, ta groupBy nhãn từ hàm getGroupLabel
+        val groupedByLabel = segments.groupBy { segment ->
+            // Chuyển timestamp thành label
+            val calendar = Calendar.getInstance()
+            calendar.timeInMillis = segment.createdAt
+            getGroupLabel(segment.createdAt)
+        }
+
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize() // Sử dụng fillMaxSize() để chiếm toàn bộ không gian được phân bổ bởi Modifier.weight(1f)
+            modifier = Modifier.fillMaxSize()
         ) {
-            items(segments) { segment ->
-                ChatSegmentItem(
-                    segment = segment,
-                    isSelected = selectedSegment?.id == segment.id,
-                    onClick = { onSegmentSelected(segment) },
-                    onLongPress = { onSegmentLongPress(segment) } // Xử lý long press
-                )
+            groupedByLabel.forEach { (label, segsInLabel) ->
+                item {
+                    // Chỉ in tiêu đề nếu label không rỗng
+                    Text(
+                        text = label,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.End
+                    )
+                }
+                items(segsInLabel) { segment ->
+                    ChatSegmentItem(
+                        segment = segment,
+                        isSelected = selectedSegment?.id == segment.id,
+                        onClick = { onSegmentSelected(segment) },
+                        onLongPress = { onSegmentLongPress(segment) }
+                    )
+                }
             }
         }
 
@@ -316,7 +374,7 @@ fun ChatSegmentItem(
     segment: ChatSegment,
     isSelected: Boolean,
     onClick: () -> Unit,
-    onLongPress: () -> Unit // Long press handler
+    onLongPress: () -> Unit
 ) {
     val backgroundColor = if (isSelected) {
         Modifier
@@ -367,8 +425,8 @@ fun DeleteConfirmationDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = "Xác nhận xóa") },
         text = {
-            val segmentTitleWithoutLineBreaks = segmentTitle.replace("\n", "") // Remove line breaks
-            Text(text = "Bạn có chắc chắn muốn xóa đoạn chat \'$segmentTitleWithoutLineBreaks\'?")
+            val segmentTitleWithoutLineBreaks = segmentTitle.replace("\n", "")
+            Text(text = "Bạn có chắc chắn muốn xóa đoạn chat '$segmentTitleWithoutLineBreaks'?")
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
@@ -388,11 +446,10 @@ fun PersonalInfoDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
-        // Bỏ fillMaxHeight(0.5f) để Dialog tự điều chỉnh kích thước
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp)) // Bo góc tròn
+                .clip(RoundedCornerShape(16.dp))
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
@@ -404,14 +461,12 @@ fun PersonalInfoDialog(
                         )
                     )
                 )
-                .padding(24.dp) // Thêm padding vào Box để nội dung không bị sát cạnh
+                .padding(24.dp)
         ) {
             Column(
-                modifier = Modifier
-                    .wrapContentHeight(), // Sử dụng wrapContentHeight thay vì fillMaxSize
+                modifier = Modifier.wrapContentHeight(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Thêm biểu tượng cá nhân
                 Icon(
                     imageVector = Icons.Default.Info,
                     contentDescription = "Thông Tin",
@@ -421,7 +476,6 @@ fun PersonalInfoDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Tiêu đề
                 Text(
                     text = "Thông Tin",
                     style = MaterialTheme.typography.titleLarge.copy(
@@ -432,7 +486,6 @@ fun PersonalInfoDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Thông tin cá nhân
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = Alignment.Start
@@ -447,7 +500,6 @@ fun PersonalInfoDialog(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Nút Đóng
                 Button(
                     onClick = onDismiss,
                     colors = ButtonDefaults.buttonColors(
@@ -469,27 +521,3 @@ fun PersonalInfoDialog(
         }
     }
 }
-
-
-@Composable
-fun InfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodyLarge.copy(
-                color = Color.White,
-                fontWeight = FontWeight.SemiBold
-            ),
-            modifier = Modifier.width(120.dp)
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge.copy(
-                color = Color.White
-            )
-        )
-    }
-}
-

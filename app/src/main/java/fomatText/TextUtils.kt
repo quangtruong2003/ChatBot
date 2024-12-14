@@ -20,9 +20,9 @@ import org.intellij.lang.annotations.Language
 fun parseFormattedText(input: String): AnnotatedString {
     // Define markdown patterns and their corresponding SpanStyles
     val patterns = listOf(
-        "\\*\\*_(.*?)_\\*\\*" to SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic), // This one first
-        "\\*_(.*?)_\\*" to SpanStyle(fontStyle = FontStyle.Italic), // Then this one
-        "\\*\\*(.*?)\\*\\*" to SpanStyle(fontWeight = FontWeight.Bold), // Then the general bold
+        "\\*\\*_(.*?)_\\*\\*" to SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic),
+        "\\*_(.*?)_\\*" to SpanStyle(fontStyle = FontStyle.Italic),
+        "\\*\\*(.*?)\\*\\*" to SpanStyle(fontWeight = FontWeight.Bold),
         "\\*(.*?)\\*" to SpanStyle(fontStyle = FontStyle.Italic),
         "__([\\s\\S]+?)__" to SpanStyle(textDecoration = TextDecoration.Underline)
     )

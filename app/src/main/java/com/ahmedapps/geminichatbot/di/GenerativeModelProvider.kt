@@ -8,7 +8,7 @@ import javax.inject.Singleton
 @Singleton
 class GenerativeModelProvider @Inject constructor() {
 
-    private var modelName: String = "gemini-1.5-flash-8b"
+    private var modelName: String = "gemini-2.0-flash-exp"
     private var generativeModel: GenerativeModel = createGenerativeModel()
 
     fun getGenerativeModel(): GenerativeModel {

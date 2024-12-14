@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CopyAll
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +27,7 @@ import androidx.compose.ui.text.font.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahmedapps.geminichatbot.R
+import kotlinx.coroutines.launch
 
 /**
  * Composable function to display formatted text based on AnnotatedString.
@@ -33,7 +35,8 @@ import com.ahmedapps.geminichatbot.R
 @Composable
 fun FormattedTextDisplay(
     annotatedString: AnnotatedString,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -52,7 +55,8 @@ fun FormattedTextDisplay(
                         code = section.content,
                         clipboardManager = clipboardManager,
                         context = context,
-                        language = section.language
+                        language = section.language,
+                        snackbarHostState = snackbarHostState
                     )
                 }
                 "INLINE_CODE" -> {
@@ -78,6 +82,7 @@ fun FormattedTextDisplay(
 fun splitAnnotatedString(annotatedString: AnnotatedString): List<AnnotatedStringSection> {
     val sections = mutableListOf<AnnotatedStringSection>()
     var currentIndex = 0
+
 
     while (currentIndex < annotatedString.length) {
         val codeBlockAnnotation = annotatedString.getStringAnnotations(tag = "CODE_BLOCK", start = currentIndex, end = annotatedString.length).firstOrNull()
@@ -150,7 +155,8 @@ fun CodeBlockView(
     code: String,
     clipboardManager: ClipboardManager,
     context: android.content.Context,
-    language: String?
+    language: String?,
+    snackbarHostState: SnackbarHostState
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -158,6 +164,7 @@ fun CodeBlockView(
 
     // Áp dụng syntax highlighting
     val annotatedCode = remember(code) { syntaxHighlight(code) }
+    val coroutineScope = rememberCoroutineScope()
 
     Box(
         modifier = Modifier
@@ -197,15 +204,20 @@ fun CodeBlockView(
                 }
 
                 // Phần icon sao chép (có thể custom riêng)
-                Box(modifier = Modifier
-                    .wrapContentSize()
-                    .padding(end = 10.dp)
+                Box(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .padding(end = 10.dp)
                 ) {
-                    IconButton(onClick = {
-                        clipboardManager.setText(AnnotatedString(code))
-                        Toast.makeText(context, "Đã sao chép đoạn mã", Toast.LENGTH_SHORT).show()
-                    },modifier = Modifier
-                        .size(25.dp),
+                    IconButton(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(code))
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Đã sao chép đoạn mã")
+                            }
+                        },
+                        modifier = Modifier
+                            .size(25.dp),
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_copy),

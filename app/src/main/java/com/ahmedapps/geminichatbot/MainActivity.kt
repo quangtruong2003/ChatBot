@@ -50,6 +50,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -323,6 +326,8 @@ class MainActivity : ComponentActivity() {
                 }
             }
         )
+        val focusRequester = remember { FocusRequester() }
+        val scrollState = rememberScrollState()
 
         var isClicked by remember { mutableStateOf(false) }
         var showModelSelection by remember { mutableStateOf(false) }
@@ -639,7 +644,8 @@ class MainActivity : ComponentActivity() {
                                         onImageClick = { imageUrl ->
                                             val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
                                             navController.navigate("fullscreen_image/$encodedUrl")
-                                        }
+                                        },
+                                        snackbarHostState = snackbarHostState
                                     )
                                 } else {
                                     ModelChatItem(
@@ -655,7 +661,8 @@ class MainActivity : ComponentActivity() {
                                         onImageClick = { imageUrl ->
                                             val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
                                             navController.navigate("fullscreen_image/$encodedUrl")
-                                        }
+                                        },
+                                        snackbarHostState = snackbarHostState
                                     )
                                 }
                             }
@@ -860,25 +867,36 @@ class MainActivity : ComponentActivity() {
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
+
                                     TextField(
                                         modifier = Modifier
                                             .heightIn(min = 50.dp, max = 200.dp)
                                             .clip(RoundedCornerShape(20.dp))
                                             .weight(1f)
-                                            .verticalScroll(rememberScrollState())
+                                            .verticalScroll(scrollState)
                                             .border(
                                                 width = 1.dp,
                                                 color = Color.LightGray,
                                                 shape = RoundedCornerShape(20.dp)
-                                            ),
+                                            )
+                                            .focusRequester(focusRequester)
+                                            .onFocusChanged {
+                                                if (it.isFocused) {
+                                                    scope.launch {
+                                                        scrollState.animateScrollTo(scrollState.maxValue)
+                                                    }
+                                                }
+                                            },
                                         value = chatState.prompt,
                                         onValueChange = {
                                             chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
                                             if (it.isNotEmpty()) {
                                                 showWelcomeMessage = false
                                             }
+                                            scope.launch {
+                                                scrollState.animateScrollTo(scrollState.maxValue)
+                                            }
                                         },
-
                                         placeholder = {
                                             Text(
                                                 text = "Nhập tin nhắn",
@@ -1053,7 +1071,8 @@ class MainActivity : ComponentActivity() {
         imageUrl: String?,
         isError: Boolean,
         onLongPress: (String) -> Unit,
-        onImageClick: (String) -> Unit
+        onImageClick: (String) -> Unit,
+        snackbarHostState: SnackbarHostState
     ) {
         val isDarkTheme = isSystemInDarkTheme()
         val backgroundColor = when {
@@ -1124,7 +1143,8 @@ class MainActivity : ComponentActivity() {
                             .combinedClickable(
                                 onClick = {},
                                 onLongClick = { onLongPress(prompt) }
-                            )
+                            ),
+                        snackbarHostState = snackbarHostState
                     )
                 }
             }
@@ -1140,7 +1160,8 @@ class MainActivity : ComponentActivity() {
         //imageUrl: String?, // Add imageUrl parameter
         isError: Boolean,
         onLongPress: (String) -> Unit,
-        onImageClick: (String) -> Unit
+        onImageClick: (String) -> Unit,
+        snackbarHostState: SnackbarHostState
     ) {
         val isDarkTheme = isSystemInDarkTheme()
         val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -1164,7 +1185,7 @@ class MainActivity : ComponentActivity() {
         ) {
             // Icon (Avatar)
             Image( // or AsyncImage if using a URL
-                painter = painterResource(id = R.drawable.ic_bot), // Replace with your icon resource
+                painter = painterResource(id = R.drawable.ic_bot),
                 contentDescription = "Chatbot Avatar",
                 modifier = Modifier
                     .padding(top = 7.dp)
@@ -1205,7 +1226,8 @@ class MainActivity : ComponentActivity() {
                         .combinedClickable(
                             onClick = {},
                             onLongClick = { onLongPress(response) }
-                        )
+                        ),
+                    snackbarHostState = snackbarHostState
                 )
             }
         }
