@@ -60,7 +60,7 @@ fun SideDrawer(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.85f)
+                .fillMaxWidth()
                 .padding(16.dp)
         ) {
             SearchBar(
@@ -104,7 +104,7 @@ fun SideDrawer(
                 Text(
                     text = "Nguyễn Quang Trường - D21_TH12",
                     color = Color.White,
-                    style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 )
             }
 

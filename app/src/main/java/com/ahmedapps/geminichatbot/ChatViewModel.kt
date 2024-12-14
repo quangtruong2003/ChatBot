@@ -158,16 +158,44 @@ class ChatViewModel @Inject constructor(
                 val currentSelectedSegment = _chatState.value.selectedSegment
                 val hasMessages = _chatState.value.chatList.isNotEmpty()
 
-                // Nếu đã có tin nhắn, tạo mới
-                createNewSegment()
+                // Kiểm tra nếu đang ở đoạn chat cũ (selectedSegment khác null và khác với "Đoạn chat mới")
+                if (currentSelectedSegment != null && currentSelectedSegment.title != "Đoạn chat mới") {
+                    // Lấy danh sách các segments mới nhất
+                    val latestSegments = repository.getChatSegments()
+                    if (latestSegments.isNotEmpty()) {
+                        // Lấy segment mới nhất
+                        val latestSegment = latestSegments.first()
 
-                _chatState.update { it.copy(isLoading = false) }
+                        // Kiểm tra nếu segment mới nhất là "Đoạn chat mới" và chưa có tin nhắn
+                        if (latestSegment.title == "Đoạn chat mới" && repository.getChatHistoryForSegment(latestSegment.id).isEmpty()) {
+                            // Chuyển về segment mới nhất
+                            _chatState.update {
+                                it.copy(
+                                    selectedSegment = latestSegment,
+                                    chatList = emptyList(), // Reset lại tin nhắn
+                                    isLoading = false
+                                )
+                            }
+                        } else {
+                            // Nếu không có "Đoạn chat mới" rỗng, tạo mới
+                            createNewSegment()
+                            _chatState.update { it.copy(isLoading = false) }
+                        }
+                    } else {
+                        // Nếu không có segment nào, tạo mới
+                        createNewSegment()
+                        _chatState.update { it.copy(isLoading = false) }
+                    }
+                } else {
+                    // Nếu đang ở "Đoạn chat mới" hoặc chưa chọn segment, tạo mới
+                    createNewSegment()
+                    _chatState.update { it.copy(isLoading = false) }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 _chatState.update { it.copy(isLoading = false) }
             }
         }
-
     }
 
     /**
@@ -398,7 +426,7 @@ class ChatViewModel @Inject constructor(
         // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
         try {
             val actualPrompt = if (prompt.isEmpty()) {
-                "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình."
+                "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình. Tiêu đề luôn phải là chữ thường"
             } else {
                 prompt
             }

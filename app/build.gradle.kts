@@ -61,7 +61,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
 
     // Compose BOM để quản lý phiên bản Compose
-    implementation(platform("androidx.compose:compose-bom:2024.11.00"))
+    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -71,7 +71,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-text-google-fonts")
 
     // Firebase BOM để quản lý phiên bản Firebase
-    implementation(platform("com.google.firebase:firebase-bom:33.6.0"))
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
 
 //    // Firebase App Check với Play Integrity
 //    implementation ("com.google.firebase:firebase-appcheck-playintegrity:18.0.0")
@@ -110,21 +110,25 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     // Navigation
-    implementation("androidx.navigation:navigation-compose:2.8.4")
+    implementation("androidx.navigation:navigation-compose:2.8.5")
 
     // Play Services Auth
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
 
     // Các dependencies khác
-    implementation("androidx.ink:ink-brush-android:1.0.0-alpha01")
+    implementation("androidx.ink:ink-brush-android:1.0.0-alpha02")
 
     // Testing dependencies
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.11.00"))
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    implementation("com.google.accompanist:accompanist-insets:0.23.1")
+    implementation("com.google.accompanist:accompanist-insets-ui:0.23.1")
+    implementation("androidx.compose.foundation:foundation")
 }
 

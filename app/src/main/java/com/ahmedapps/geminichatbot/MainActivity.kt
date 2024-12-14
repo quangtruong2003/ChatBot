@@ -8,6 +8,7 @@ import android.os.Environment
 import androidx.compose.foundation.Image
 import android.util.Base64
 import android.util.Log
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -65,6 +66,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -78,7 +80,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.rememberNavController
@@ -106,13 +114,14 @@ import java.io.File
 
 
 
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalPermissionsApi::class)
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             GeminiChatBotTheme {
                 val navController = rememberNavController()
@@ -183,7 +192,6 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun ChatScreen(navController: NavController, chatViewModel: ChatViewModel = hiltViewModel()) {val isError: Boolean = false
 
-
         val chatState by chatViewModel.chatState.collectAsState()
         var showLogoutDialog by remember { mutableStateOf(false) }
         var showWelcomeMessage by remember { mutableStateOf(true) }
@@ -226,7 +234,6 @@ class MainActivity : ComponentActivity() {
                 snackbarHostState.showSnackbar("Ứng dụng cần quyền truy cập máy ảnh để chụp ảnh.")
             }
         }
-
 
         val isUserScrolling = remember { mutableStateOf(false) }
         var userScrolled by remember { mutableStateOf(false) }
@@ -337,12 +344,24 @@ class MainActivity : ComponentActivity() {
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
-                SideDrawer(
-                    onClose = { scope.launch { drawerState.close() } },
-                    chatViewModel = chatViewModel,
-                    onLogout = { showLogoutDialog = true }
-                )
-            }
+                ModalDrawerSheet(
+                    drawerContainerColor = MaterialTheme.colorScheme.background,
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .fillMaxHeight()
+                ) {
+                    SideDrawer(
+                        onClose = {
+                            scope.launch {
+                                drawerState.close()
+                            }
+                        },
+                        chatViewModel = chatViewModel,
+                        onLogout = { showLogoutDialog = true }
+                    )
+                }
+            },
+            scrimColor = Color.Transparent // Làm cho lớp phủ trong suốt
         ) {
 
             Scaffold(
@@ -412,7 +431,6 @@ class MainActivity : ComponentActivity() {
                                                 modifier = Modifier.size(25.dp)
                                             )
                                         }
-
 
                                         // AnimatedContent for Dropdown Toggle Icon
                                         AnimatedContent(
@@ -539,7 +557,6 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
 
-
                         },
                     )
                 },
@@ -558,7 +575,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     )
-                }
+                },
+                contentWindowInsets = WindowInsets(0, 0, 0, 0), // Loại bỏ các insets mặc định
             ) { paddingValues ->
                 val clipboardManager = LocalClipboardManager.current
                 val firstVisibleItemIndex by remember {
@@ -570,6 +588,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
+                        .imePadding()
                 ) {
                     AnimatedVisibility(
                         visible = showScrollToBottomButton,
@@ -612,10 +631,11 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                        // Nội dung chính của ChatScreen
+                    // Nội dung chính của ChatScreen
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .navigationBarsPadding()
                     ){
 
 
@@ -749,9 +769,11 @@ class MainActivity : ComponentActivity() {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 16.dp, start = 8.dp, end = 8.dp),
+                                .padding(bottom = 16.dp, start = 8.dp, end = 8.dp)
+                                .imePadding()
+                            ,
 
-                        ) {
+                            ) {
 
                             Box(
                                 modifier = Modifier
@@ -867,7 +889,6 @@ class MainActivity : ComponentActivity() {
 
                                     Spacer(modifier = Modifier.width(8.dp))
 
-
                                     TextField(
                                         modifier = Modifier
                                             .heightIn(min = 50.dp, max = 200.dp)
@@ -966,7 +987,8 @@ class MainActivity : ComponentActivity() {
                         Column(
                             modifier = Modifier
                                 .align(Alignment.Center)
-                                .offset(y = (-70).dp),
+                                .offset(y = (-70).dp)
+                            ,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Image(
@@ -1256,6 +1278,8 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
+                .navigationBarsPadding()
+
         ) {
             if (imageUrl != null) {
                 AsyncImage(
@@ -1284,12 +1308,10 @@ class MainActivity : ComponentActivity() {
                             )
                         },
                     onError = {
-                        // Xử lý lỗi tải ảnh ở đây, ví dụ:
                         Log.e("FullScreenImageScreen", "Error loading image: ${it.result.throwable}")
                     }
                 )
             } else {
-                // Hiển thị thông báo lỗi hoặc placeholder nếu imageUrl == null
                 Text("Không tìm thấy hình ảnh", color = Color.White)
             }
 
@@ -1299,7 +1321,8 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(16.dp)
-                    .background(Color.Gray.copy(alpha = 0.5f), shape = RoundedCornerShape(50))
+                    .statusBarsPadding() // Apply statusBarsPadding before background
+                    .background(Color.Gray.copy(alpha = 0.5f), shape = CircleShape) // Use CircleShape for a circular button
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
@@ -1316,6 +1339,7 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
+                    .statusBarsPadding()
             ) {
                 IconButton(
                     onClick = {
