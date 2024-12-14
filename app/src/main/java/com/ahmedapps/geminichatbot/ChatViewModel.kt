@@ -2,6 +2,7 @@
 package com.ahmedapps.geminichatbot
 
 import android.net.Uri
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ahmedapps.geminichatbot.data.Chat
@@ -241,6 +242,7 @@ class ChatViewModel @Inject constructor(
     /**
      * Handles UI events.
      */
+
     fun onEvent(event: ChatUiEvent) {
         when (event) {
             is ChatUiEvent.SendPrompt -> {
@@ -271,9 +273,11 @@ class ChatViewModel @Inject constructor(
                 _chatState.update { it.copy(searchQuery = event.query) }
                 searchQueryFlow.value = event.query
             }
+
             is ChatUiEvent.SelectSegment -> {
                 viewModelScope.launch {
                     hasUpdatedTitle = false
+
 
                     val chats = repository.getChatHistoryForSegment(event.segment.id)
                     _chatState.update {

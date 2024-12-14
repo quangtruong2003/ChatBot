@@ -66,6 +66,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -109,6 +110,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -221,7 +223,7 @@ class MainActivity : ComponentActivity() {
 
         // Yêu cầu quyền CAMERA
         val cameraPermissionState = rememberPermissionState(permission = Manifest.permission.CAMERA)
-
+        val isDrawerOpen = drawerState.currentValue == DrawerValue.Open
         LaunchedEffect(Unit) {
             if (!cameraPermissionState.status.isGranted) {
                 cameraPermissionState.launchPermissionRequest()
@@ -235,6 +237,15 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        val focusManager = LocalFocusManager.current
+        // Ẩn bàn phím khi Drawer mở
+        LaunchedEffect(drawerState.currentValue) {
+            if (drawerState.currentValue == DrawerValue.Open) {
+                focusManager.clearFocus()
+            } else{
+                focusManager.clearFocus()
+            }
+        }
         val isUserScrolling = remember { mutableStateOf(false) }
         var userScrolled by remember { mutableStateOf(false) }
         var previousChatListSize by remember { mutableStateOf(chatState.chatList.size) }
@@ -341,6 +352,22 @@ class MainActivity : ComponentActivity() {
         val selectedModel by chatViewModel.selectedModel.collectAsState()
         val robotoFontFamily = FontFamily.Default
 
+
+        val localView = LocalView.current
+        val windowInsetsController = remember(localView) {
+            ViewCompat.getWindowInsetsController(localView)
+        }
+
+        LaunchedEffect(drawerState) {
+            snapshotFlow { drawerState.targetValue }
+                .collectLatest { targetValue ->
+                    if (drawerState.currentValue == DrawerValue.Open && targetValue == DrawerValue.Closed) {
+                        windowInsetsController?.hide(WindowInsetsCompat.Type.ime())
+                    }
+                }
+        }
+
+
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
@@ -361,7 +388,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             },
-            scrimColor = Color.Transparent // Làm cho lớp phủ trong suốt
+            scrimColor = Color.Transparent
         ) {
 
             Scaffold(
@@ -530,7 +557,9 @@ class MainActivity : ComponentActivity() {
                         },
 
                         navigationIcon = {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            IconButton(onClick = { scope.launch {
+                                drawerState.open()
+                            } }) {
                                 Icon(
                                     painter = painterResource(id = R.drawable.ic_listhistory),
                                     contentDescription = "Menu",
@@ -576,7 +605,8 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 },
-                contentWindowInsets = WindowInsets(0, 0, 0, 0), // Loại bỏ các insets mặc định
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                modifier = Modifier.then(if (!isDrawerOpen) Modifier.imePadding() else Modifier)
             ) { paddingValues ->
                 val clipboardManager = LocalClipboardManager.current
                 val firstVisibleItemIndex by remember {
@@ -588,7 +618,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(top = paddingValues.calculateTopPadding())
-                        .imePadding()
                 ) {
                     AnimatedVisibility(
                         visible = showScrollToBottomButton,
@@ -635,7 +664,8 @@ class MainActivity : ComponentActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .navigationBarsPadding()
+                            .navigationBarsPadding(),
+
                     ){
 
 
@@ -770,7 +800,7 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(bottom = 16.dp, start = 8.dp, end = 8.dp)
-                                .imePadding()
+                                .then(if (!isDrawerOpen) Modifier.imePadding() else Modifier)
                             ,
 
                             ) {
