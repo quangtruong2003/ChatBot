@@ -1,4 +1,4 @@
-// ChatSegment.kt
+// data/ChatSegment.kt
 package com.ahmedapps.geminichatbot.data
 
 import com.google.firebase.firestore.PropertyName

@@ -1,4 +1,4 @@
-// Chat.kt
+// data/Chat.kt
 package com.ahmedapps.geminichatbot.data
 
 import com.google.firebase.firestore.PropertyName

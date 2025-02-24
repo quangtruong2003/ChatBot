@@ -23,14 +23,16 @@ class ChatViewModel @Inject constructor(
     val availableModels = listOf(
 //        "gemini-1.5-flash-8b",
         "gemini-2.0-flash-exp",
-        "gemini-1.5-pro",
-        "gemini-exp-1206",
+        "gemini-2.0-flash-thinking-exp-01-21",
+        //"gemini-exp-1206",
+        "gemini-2.0-pro-exp-02-05",
     )
     val modelDisplayNameMap = mapOf(
         //"gemini-1.5-flash-8b" to "AI Tốc độ",
         "gemini-2.0-flash-exp" to "AI Thần đồng",
-        "gemini-1.5-pro" to "AI Lý luận",
-        "gemini-exp-1206" to "AI Toàn năng"
+        "gemini-2.0-flash-thinking-exp-01-21" to "AI Thinking",
+        //"gemini-exp-1206" to "AI Toàn năng",
+        "gemini-2.0-pro-exp-02-05" to "AI Toàn năng"
     )
     val modelIconMap = mapOf(
         //"AI Tốc độ" to R.drawable.ic_flash,
@@ -204,6 +206,19 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun createNewSegment() {
         val newSegmentTitle = "Đoạn chat mới"
+        // Kiểm tra xem có segment nào với tiêu đề mặc định không
+        val existingSegment = _chatState.value.chatSegments.find { it.title == newSegmentTitle }
+        if (existingSegment != null) {
+            // Nếu đã tồn tại, chọn segment đó và load lại lịch sử chat
+            _chatState.update { current ->
+                current.copy(
+                    selectedSegment = existingSegment,
+                    chatList = repository.getChatHistoryForSegment(existingSegment.id)
+                )
+            }
+            return
+        }
+        // Nếu không có, tạo mới
         val newSegmentId = repository.addChatSegment(newSegmentTitle)
         if (newSegmentId != null) {
             val newSegment = ChatSegment(
@@ -211,17 +226,18 @@ class ChatViewModel @Inject constructor(
                 title = newSegmentTitle,
                 createdAt = System.currentTimeMillis()
             )
-            _chatState.update {
-                it.copy(
+            _chatState.update { current ->
+                current.copy(
                     selectedSegment = newSegment,
                     chatList = emptyList(),
-                    chatSegments = it.chatSegments + newSegment,
+                    chatSegments = current.chatSegments + newSegment,
                     searchQuery = ""
                 )
             }
             hasUpdatedTitle = false
         }
     }
+
 
 
     /**
@@ -248,9 +264,7 @@ class ChatViewModel @Inject constructor(
             is ChatUiEvent.SendPrompt -> {
                 if (event.prompt.isNotEmpty() || event.imageUri != null) {
                     viewModelScope.launch {
-                        // Xóa "Đoạn chat mới" rỗng nếu có trước khi gửi tin nhắn
                         deleteEmptyNewSegment()
-
                         _chatState.update { it.copy(isLoading = true) }
                         addPrompt(event.prompt, event.imageUri)
                         val selectedSegmentId = _chatState.value.selectedSegment?.id
@@ -269,16 +283,12 @@ class ChatViewModel @Inject constructor(
                 _chatState.update { it.copy(imageUri = event.uri) }
             }
             is ChatUiEvent.SearchSegments -> {
-                // Cập nhật searchQuery và searchQueryFlow
                 _chatState.update { it.copy(searchQuery = event.query) }
                 searchQueryFlow.value = event.query
             }
-
             is ChatUiEvent.SelectSegment -> {
                 viewModelScope.launch {
                     hasUpdatedTitle = false
-
-
                     val chats = repository.getChatHistoryForSegment(event.segment.id)
                     _chatState.update {
                         it.copy(
@@ -287,12 +297,10 @@ class ChatViewModel @Inject constructor(
                             isLoading = false
                         )
                     }
-                    // Xóa nội dung tìm kiếm khi chọn đoạn chat
                     searchQueryFlow.value = ""
                 }
             }
             is ChatUiEvent.ClearSearch -> {
-                // Đặt lại searchQuery và searchQueryFlow về rỗng
                 _chatState.update { it.copy(searchQuery = "") }
                 searchQueryFlow.value = ""
             }
@@ -301,13 +309,21 @@ class ChatViewModel @Inject constructor(
                     deleteSegment(event.segment)
                 }
             }
+            is ChatUiEvent.RenameSegment -> {
+                viewModelScope.launch {
+                    // Cập nhật tiêu đề của đoạn chat dựa trên event mới
+                    repository.updateSegmentTitle(event.segment.id, event.newTitle)
+                    // Sau đó cập nhật lại danh sách đoạn chat trong state
+                    val segments = repository.getChatSegments()
+                    _chatState.update { it.copy(chatSegments = segments) }
+                }
+            }
             is ChatUiEvent.RemoveImage -> {
                 _chatState.update { it.copy(imageUri = null) }
             }
-
-
         }
     }
+
 
     /**
      * Adds a user prompt and handles segment creation if necessary.
@@ -430,7 +446,7 @@ class ChatViewModel @Inject constructor(
         // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
         try {
             val actualPrompt = if (prompt.isEmpty()) {
-                "Trả lời câu hỏi này đầu tiên: Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình. Tiêu đề luôn phải là chữ thường"
+                "Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình và đoán được mong muốn của người dùng về bức ảnh."
             } else {
                 prompt
             }

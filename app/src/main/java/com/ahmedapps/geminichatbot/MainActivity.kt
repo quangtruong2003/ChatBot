@@ -223,17 +223,15 @@ class MainActivity : ComponentActivity() {
 
         // Yêu cầu quyền CAMERA
         val cameraPermissionState = rememberPermissionState(permission = Manifest.permission.CAMERA)
+        LaunchedEffect(cameraPermissionState.status) {
+            if (!cameraPermissionState.status.isGranted && cameraPermissionState.status.shouldShowRationale) {
+                snackbarHostState.showSnackbar("Ứng dụng cần quyền truy cập máy ảnh để chụp ảnh.")
+            }
+        }
         val isDrawerOpen = drawerState.currentValue == DrawerValue.Open
         LaunchedEffect(Unit) {
             if (!cameraPermissionState.status.isGranted) {
                 cameraPermissionState.launchPermissionRequest()
-            }
-        }
-
-        // Kiểm tra quyền và hiển thị thông báo nếu chưa cấp quyền
-        if (!cameraPermissionState.status.isGranted && cameraPermissionState.status.shouldShowRationale) {
-            LaunchedEffect(Unit) {
-                snackbarHostState.showSnackbar("Ứng dụng cần quyền truy cập máy ảnh để chụp ảnh.")
             }
         }
 
@@ -490,10 +488,11 @@ class MainActivity : ComponentActivity() {
                                         modifier = Modifier
                                             .wrapContentSize(Alignment.Center)
                                             .crop(vertical = 8.dp)
-                                            .background(
-                                                backgroundColor,
-                                                shape = RoundedCornerShape(15.dp)
-                                            )
+                                            .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(15.dp))
+//                                            .background(
+//                                                backgroundColor,
+//                                                shape = RoundedCornerShape(15.dp)
+//                                            )
                                             .fillMaxWidth(0.45f),
                                         offset = DpOffset(x = 40.dp, y = 8.dp)
                                     ) {
@@ -542,7 +541,7 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             )
                                             if (index < chatViewModel.availableModels.size - 1) {
-                                                Divider(color = Color.LightGray, thickness = 0.8.dp)
+                                                Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp)
                                             }
                                         }
                                         LaunchedEffect(key1 = showModelSelection) {
@@ -836,10 +835,11 @@ class MainActivity : ComponentActivity() {
                                         onDismissRequest = { showSourceMenu = false },
                                         modifier = Modifier
                                             .crop(vertical = 8.dp)
-                                            .background(
-                                                backgroundColor,
-                                                shape = RoundedCornerShape(15.dp)
-                                            )
+                                            .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(15.dp))
+//                                            .background(
+//                                                backgroundColor,
+//                                                shape = RoundedCornerShape(15.dp)
+//                                            )
                                             .width(IntrinsicSize.Max),
                                         offset = DpOffset(x = 0.dp, y = (-8).dp)
                                     ) {
@@ -870,7 +870,7 @@ class MainActivity : ComponentActivity() {
                                                 )
                                             }
                                         )
-                                        Divider(color = Color.LightGray, thickness = 0.8.dp)
+                                        Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp)
                                         DropdownMenuItem(
                                             text = {
                                                 Text(
