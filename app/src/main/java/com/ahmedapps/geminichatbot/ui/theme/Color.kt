@@ -1,4 +1,7 @@
+//ui.theme
 package com.ahmedapps.geminichatbot.ui.theme
+
+
 
 import androidx.compose.ui.graphics.Color
 

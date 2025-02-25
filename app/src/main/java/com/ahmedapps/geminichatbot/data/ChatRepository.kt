@@ -151,6 +151,7 @@ class ChatRepository @Inject constructor(
             val chatHistory = getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
             val fullPrompt = getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
             val response = generativeModel.generateContent(fullPrompt)
+            Log.d("ChatRepository", "API Response: ${response.text}")
             val responseText = response.text
             val chat = Chat.fromPrompt(
                 prompt = "",
@@ -314,7 +315,7 @@ class ChatRepository @Inject constructor(
      */
     private suspend fun generateChatSegmentTitleFromResponse(chat: String): String = withContext(Dispatchers.IO) {
         try {
-            val prompt = "Đặt 1 tiêu đề duy nhất chính xác, ngắn gọn và xúc tích cho tin nhắn sau: '$chat'. Chỉ trả lời tiêu đề duy nhất. Tiêu đề phải hoàn hảo và hợp lí. Nên nhớ tiêu đề phải bao hàm đủ thông tin trong tin nhắn. Tiêu đề không dài quá 6 từ"
+            val prompt = "Đặt 1 tiêu đề duy nhất chính xác, ngắn gọn và xúc tích cho tin nhắn sau: '$chat'. Chỉ trả lời tiêu đề duy nhất. Tiêu đề phải hoàn hảo và hợp lí. Nên nhớ tiêu đề phải bao hàm đủ thông tin trong tin nhắn. Tiêu đề không dài quá 6 từ, không in đậm, chữ nghiêng và gạch chân"
             val response = generativeModel.generateContent(prompt)
             response.text?.trim() ?: "Untitled Segment"
         } catch (e: Exception) {

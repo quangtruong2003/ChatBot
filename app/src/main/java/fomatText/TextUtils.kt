@@ -1,299 +1,400 @@
-// TextUtils.kt
 package fomatText
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import org.intellij.lang.annotations.Language
-
-
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.sp
 
 /**
- * Enhanced function to parse formatted text with support for combined and nested styles.
+ * Enhanced function to parse formatted text with support for combined and nested styles,
+ * headings, links, blockquotes, images, tables, and inline code.
  */
 fun parseFormattedText(input: String): AnnotatedString {
-    // Define markdown patterns and their corresponding SpanStyles
-    val patterns = listOf(
-        "\\*\\*_(.*?)_\\*\\*" to SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic),
-        "\\*_(.*?)_\\*" to SpanStyle(fontStyle = FontStyle.Italic),
-        "\\*\\*(.*?)\\*\\*" to SpanStyle(fontWeight = FontWeight.Bold),
-        "\\*(.*?)\\*" to SpanStyle(fontStyle = FontStyle.Italic),
-        "__([\\s\\S]+?)__" to SpanStyle(textDecoration = TextDecoration.Underline)
-    )
-
     val builder = AnnotatedString.Builder()
     val lines = input.trimEnd().lines()
 
     var listItemNumber = 1
+    var wasPreviousLineListItem = false
     var isInCodeBlock = false
     var codeBlockLanguage: String? = null
     var codeBlockContent = StringBuilder()
+    var isInTable = false
+    var tableHeader: List<String> = emptyList()
+    val tableRows: MutableList<List<String>> = mutableListOf()
+
 
     for ((index, line) in lines.withIndex()) {
-        // Xử lý đoạn mã
+        // --- Table Handling ---
+        if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
+            if (!isInTable) {
+                isInTable = true
+            }
+            val cells = line.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+
+            if (cells.isNotEmpty()) {
+                if (tableHeader.isEmpty()) {
+                    tableHeader = cells
+                } else {
+                    tableRows.add(cells)
+                }
+            }
+            if (index < lines.lastIndex) { // Check if it's the last line
+                continue // Process next line.  Crucial for correct table parsing.
+            }
+        } else if (isInTable) {
+            //End table
+            appendTable(builder, tableHeader, tableRows)
+            tableHeader = emptyList()
+            tableRows.clear()
+            isInTable = false
+        }
+        // --- End Table Handling ---
+
+
+        // Handle code blocks
         if (line.trim().startsWith("```")) {
             if (isInCodeBlock) {
-                // Kết thúc đoạn mã
+                // End code block
                 val codeContent = codeBlockContent.toString().trimEnd()
-                // Loại bỏ xuống dòng cuối cùng để tránh xuống dòng không cần thiết
-                val codeContentTrimmed = if (codeContent.endsWith("\n")) {
-                    codeContent.dropLast(1)
-                } else {
-                    codeContent
-                }
+                val codeContentTrimmed =
+                    if (codeContent.endsWith("\n")) codeContent.dropLast(1) else codeContent
                 val start = builder.length
                 builder.append(codeContentTrimmed)
                 val end = builder.length
 
-                val annotationItem = if (codeBlockLanguage != null) {
-                    "$codeBlockLanguage::$codeContentTrimmed"
-                } else {
-                    "plain::$codeContentTrimmed"
-                }
-                builder.addStringAnnotation(
-                    tag = "CODE_BLOCK",
-                    annotation = annotationItem,
-                    start = start,
-                    end = end
-                )
+                val annotationItem =
+                    codeBlockLanguage?.let { "$it::$codeContentTrimmed" } ?: "plain::$codeContentTrimmed"
+                builder.addStringAnnotation("CODE_BLOCK", annotationItem, start, end)
 
                 codeBlockContent.clear()
                 codeBlockLanguage = null
                 isInCodeBlock = false
+                wasPreviousLineListItem = false
             } else {
-                // Bắt đầu đoạn mã
+                // Start code block
                 isInCodeBlock = true
                 val parts = line.trim().split("```", limit = 2)
-                codeBlockLanguage = if (parts.size > 1 && parts[1].isNotBlank()) {
-                    parts[1].trim()
-                } else {
-                    null
-                }
+                codeBlockLanguage = parts.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
             }
             continue
         }
 
         if (isInCodeBlock) {
-            // Bên trong đoạn mã
             codeBlockContent.appendLine(line)
             continue
         }
 
         var processedLine = line
 
-        // Xử lý các mục danh sách
-        val listMatch = """^(\s*)\*\s+(.*)""".toRegex().find(line)
-        if (listMatch != null) {
-            val leadingSpaces = listMatch.groupValues[1].length
-            val content = listMatch.groupValues[2]
-            val level = (leadingSpaces / 4) + 1
+        // Handle headings
+        val headingMatch = """^#+ (.*)$""".toRegex().find(line)
+        if (headingMatch != null) {
+            val content = headingMatch.groupValues[1]
+            val level = line.countLeading('#')
+            val fontSize = when (level) {
+                1 -> 24.sp
+                2 -> 20.sp
+                3 -> 18.sp
+                else -> 16.sp
+            }
+            builder.withStyle(SpanStyle(fontSize = fontSize, fontWeight = FontWeight.Bold)) {
+                append(content)
+            }
+            wasPreviousLineListItem = false
+        }
+        // Handle blockquotes
+        else if (line.trim().startsWith(">")) {
+            val content = line.trim().removePrefix(">").trim()
+            builder.withStyle(SpanStyle(color = Color.Gray)) {
+                append("    ") // Indent for blockquote
+                applyInlineStyles(builder, content)
+            }
+            wasPreviousLineListItem = false
+        }
+        // Handle list items
+        else {
+            val listMatch = """^(\s*)\*\s+(.*)""".toRegex().find(line)
+            if (listMatch != null) {
+                val leadingSpaces = listMatch.groupValues[1].length
+                val content = listMatch.groupValues[2]
+                val level = (leadingSpaces / 4) + 1
 
-            val marker = when (level) {
-                1 -> "${listItemNumber++}. "
-                2 -> "• "
-                3 -> "◦ "
-                else -> "• "
+                if (level == 1 && !wasPreviousLineListItem) {
+                    listItemNumber = 1 // Reset numbering for a new level-1 list
+                }
+
+                val marker = when (level) {
+                    1 -> "${listItemNumber++}. "
+                    2 -> "• "
+                    3 -> "◦ "
+                    else -> "• "
+                }
+                val indentation = "    ".repeat(level - 1)
+                processedLine = "$indentation$marker$content"
+                wasPreviousLineListItem = true
+            } else {
+                wasPreviousLineListItem = false
             }
 
-            val indentation = "    ".repeat(level - 1)
-            processedLine = "$indentation$marker$content"
-        }
+            // Handle inline code, images, and styles
+            var remainingText = processedLine
+            var currentIndex = 0
+            val inlineCodePattern = "(?<!\\\\)`([^`]+)(?<!\\\\)`".toRegex()
+            val imagePattern = "!\\[([^\\]]*)\\]\\([^)]*\\)".toRegex()
 
-        // Xử lý các kiểu định dạng nội tuyến
-        var remainingText = processedLine
-        var currentIndex = 0
+            while (currentIndex < remainingText.length) {
+                val inlineCodeMatch = inlineCodePattern.find(remainingText, currentIndex)
+                val imageMatch = imagePattern.find(remainingText, currentIndex)
 
-        // Xử lý code nội tuyến trước để tránh xung đột với các kiểu khác
-        val inlineCodePattern = """`([^`]+)`""".toRegex()
-        inlineCodePattern.findAll(remainingText).forEach { matchResult ->
-            val start = matchResult.range.first
-            val end = matchResult.range.last + 1
-            val codeText = matchResult.groupValues[1]
+                val earliestMatch = listOfNotNull(inlineCodeMatch, imageMatch)
+                    .minByOrNull { it.range.first }
 
-            // Chèn văn bản trước khi gặp code nội tuyến
-            if (start > currentIndex) {
-                val beforeText = remainingText.substring(currentIndex, start)
-                applyInlineStyles(builder, beforeText, patterns)
+                if (earliestMatch == null) {
+                    applyInlineStyles(builder, remainingText.substring(currentIndex))
+                    break
+                }
+
+                val start = earliestMatch.range.first
+                val end = earliestMatch.range.last + 1
+
+                if (start > currentIndex) {
+                    val beforeText = remainingText.substring(currentIndex, start)
+                    applyInlineStyles(builder, beforeText)
+                }
+
+                when (earliestMatch) {
+                    inlineCodeMatch -> {
+                        val codeText = earliestMatch.groupValues[1]
+                        val codeStart = builder.length
+                        builder.withStyle(
+                            SpanStyle(
+                                fontFamily = FontFamily.Monospace,
+                                background = Color(0xFFE0E0E0),
+                                color = Color(0xFF000000)
+                            )
+                        ) {
+                            append(codeText)
+                        }
+                        val codeEnd = builder.length
+                        builder.addStringAnnotation("INLINE_CODE", codeText, codeStart, codeEnd)
+                    }
+                    imageMatch -> {
+                        val altText = earliestMatch.groupValues[1]
+                        builder.withStyle(SpanStyle(color = Color.Gray, fontStyle = FontStyle.Italic)) {
+                            append(altText)
+                        }
+                    }
+                }
+
+                currentIndex = end
             }
-
-            // Chèn code nội tuyến với kiểu monospace
-            val codeStart = builder.length
-            builder.withStyle(
-                style = SpanStyle(
-                    fontFamily = FontFamily.Monospace,
-                    background = Color(0xFFE0E0E0),
-                    color = Color(0xFF000000)
-                )
-            ) {
-                builder.append(codeText)
-            }
-            val codeEnd = builder.length
-            builder.addStringAnnotation(
-                tag = "INLINE_CODE",
-                annotation = codeText,
-                start = codeStart,
-                end = codeEnd
-            )
-
-            currentIndex = end
         }
 
-        // Chèn văn bản còn lại sau code nội tuyến
-        if (currentIndex < remainingText.length) {
-            val afterText = remainingText.substring(currentIndex)
-            applyInlineStyles(builder, afterText, patterns)
-        }
-
-        // Chèn xuống dòng nếu không phải dòng cuối cùng và không phải ngay sau đoạn mã
-        if (index < lines.lastIndex && !isInCodeBlock) {
+        if (index < lines.lastIndex && !isInCodeBlock && !isInTable) {
             builder.append("\n")
         }
     }
 
-    // Xử lý đoạn mã còn lại nếu có
+    // Handle unclosed code block
     if (isInCodeBlock && codeBlockContent.isNotEmpty()) {
         val codeContent = codeBlockContent.toString().trimEnd()
         val start = builder.length
         builder.append(codeContent)
         val end = builder.length
-
-        val annotationItem = if (codeBlockLanguage != null) {
-            "$codeBlockLanguage::$codeContent"
-        } else {
-            "plain::$codeContent"
-        }
-        builder.addStringAnnotation(
-            tag = "CODE_BLOCK",
-            annotation = annotationItem,
-            start = start,
-            end = end
-        )
+        val annotationItem = codeBlockLanguage?.let { "$it::$codeContent" } ?: "plain::$codeContent"
+        builder.addStringAnnotation("CODE_BLOCK", annotationItem, start, end)
     }
+
+    // Handle any remaining table
+    if (isInTable) {
+        appendTable(builder, tableHeader, tableRows)
+    }
+
 
     return builder.toAnnotatedString()
 }
 
+/**
+ * Appends a formatted table to the AnnotatedString.Builder.
+ */
+private fun appendTable(
+    builder: AnnotatedString.Builder,
+    header: List<String>,
+    rows: List<List<String>>
+) {
+    if (header.isEmpty()) return
 
+    val numColumns = header.size
+    val columnWidths = IntArray(numColumns) { 0 }
+
+    // Calculate maximum width for each column
+    for (i in 0 until numColumns) {
+        columnWidths[i] = header[i].length
+        for (row in rows) {
+            if (i < row.size) { // Handle rows with fewer columns
+                columnWidths[i] = maxOf(columnWidths[i], row[i].length)
+            }
+        }
+    }
+
+    // Append header
+    appendTableRow(builder, header, columnWidths, isHeader = true)
+
+    // Append rows
+    for (row in rows) {
+        appendTableRow(builder, row, columnWidths, isHeader = false)
+    }
+}
+
+/**
+ * Appends a single table row to the AnnotatedString.Builder.
+ */
+private fun appendTableRow(
+    builder: AnnotatedString.Builder,
+    row: List<String>,
+    columnWidths: IntArray,
+    isHeader: Boolean
+) {
+    val numColumns = columnWidths.size
+
+    for (i in 0 until numColumns) {
+        val cell = if (i < row.size) row[i] else "" // Handle missing cells
+        val padding = " ".repeat(columnWidths[i] - cell.length)
+        val formattedCell = "$cell$padding  " // Add extra space for separation
+
+        builder.withStyle(
+            style = SpanStyle(
+                fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
+                fontFamily = FontFamily.Monospace
+            )
+        ) {
+            append(formattedCell)
+        }
+    }
+    builder.append("\n")
+}
+
+
+/**
+ * Updated keyword colors map for Kotlin-specific syntax highlighting.
+ */
 private val keywordColors = mapOf(
-    "all" to listOf(
-        // Kotlin keywords
-        "fun" to Color(0xFF2B4EDF), // Light Blue
-        "val" to Color(0xFF2B4EDF),
-        "var" to Color(0xFF2B4EDF),
-        "class" to Color(0xFF2B4EDF),
-        "interface" to Color(0xFF2B4EDF),
-        "object" to Color(0xFF2B4EDF),
-        "if" to Color(0xFF2B4EDF),
-        "else" to Color(0xFF2B4EDF),
-        "when" to Color(0xFF2B4EDF),
-        "for" to Color(0xFF2B4EDF),
-        "while" to Color(0xFF2B4EDF),
-        "do" to Color(0xFF2B4EDF),
-        "in" to Color(0xFF2B4EDF),
-        "is" to Color(0xFF2B4EDF),
+    "kotlin" to listOf(
+        // Control flow and declarations (Light Blue)
         "as" to Color(0xFF2B4EDF),
-        "return" to Color(0xFF2B4EDF),
         "break" to Color(0xFF2B4EDF),
+        "class" to Color(0xFF2B4EDF),
         "continue" to Color(0xFF2B4EDF),
+        "do" to Color(0xFF2B4EDF),
+        "else" to Color(0xFF2B4EDF),
+        "for" to Color(0xFF2B4EDF),
+        "fun" to Color(0xFF2B4EDF),
+        "if" to Color(0xFF2B4EDF),
+        "in" to Color(0xFF2B4EDF),
+        "interface" to Color(0xFF2B4EDF),
+        "is" to Color(0xFF2B4EDF),
+        "object" to Color(0xFF2B4EDF),
+        "return" to Color(0xFF2B4EDF),
         "throw" to Color(0xFF2B4EDF),
         "try" to Color(0xFF2B4EDF),
         "catch" to Color(0xFF2B4EDF),
         "finally" to Color(0xFF2B4EDF),
+        "typealias" to Color(0xFF2B4EDF),
+        "val" to Color(0xFF2B4EDF),
+        "var" to Color(0xFF2B4EDF),
+        "when" to Color(0xFF2B4EDF),
+        "while" to Color(0xFF2B4EDF),
+        "package" to Color(0xFF2B4EDF),
+        "import" to Color(0xFF2B4EDF),
 
-        // Access modifiers và các từ khóa khác
-        "private" to Color(0xFFAA3A3A), // Light Red
+        // Modifiers and other keywords (Light Red)
+        "private" to Color(0xFFAA3A3A),
         "protected" to Color(0xFFAA3A3A),
         "public" to Color(0xFFAA3A3A),
         "internal" to Color(0xFFAA3A3A),
         "data" to Color(0xFFAA3A3A),
         "sealed" to Color(0xFFAA3A3A),
         "const" to Color(0xFFAA3A3A),
-        "static" to Color(0xFFAA3A3A),
-        "final" to Color(0xFFAA3A3A),
-        "abstract" to Color(0xFFAA3A3A),
-        "native" to Color(0xFFAA3A3A),
-        "synchronized" to Color(0xFFAA3A3A),
-        "operator" to Color(0xFFAA3A3A),
-        "inline" to Color(0xFFAA3A3A),
         "lateinit" to Color(0xFFAA3A3A),
+        "vararg" to Color(0xFFAA3A3A),
+        "override" to Color(0xFFAA3A3A),
+        "open" to Color(0xFFAA3A3A),
+        "abstract" to Color(0xFFAA3A3A),
+        "enum" to Color(0xFFAA3A3A),
+        "annotation" to Color(0xFFAA3A3A),
+        "inner" to Color(0xFFAA3A3A),
         "tailrec" to Color(0xFFAA3A3A),
-        "reified" to Color(0xFFAA3A3A),
+        "operator" to Color(0xFFAA3A3A),
+        "infix" to Color(0xFFAA3A3A),
+        "inline" to Color(0xFFAA3A3A),
         "noinline" to Color(0xFFAA3A3A),
         "crossinline" to Color(0xFFAA3A3A),
-        "expect" to Color(0xFFAA3A3A),
+        "external" to Color(0xFFAA3A3A),
         "actual" to Color(0xFFAA3A3A),
+        "expect" to Color(0xFFAA3A3A),
+        "reified" to Color(0xFFAA3A3A),
 
-        // Các từ khóa liên quan đến async
-        "suspend" to Color(0xFF66A16B), // Light Green
-        "async" to Color(0xFF66A16B),
-        "await" to Color(0xFF66A16B),
-        "yield" to Color(0xFF66A16B),
-        "import" to Color(0xFF66A16B),
-        "package" to Color(0xFF66A16B),
-        "extends" to Color(0xFF66A16B),
-        "implements" to Color(0xFF66A16B),
-        "new" to Color(0xFF66A16B),
-        "super" to Color(0xFF66A16B),
-        "this" to Color(0xFF66A16B),
-        "instanceof" to Color(0xFF66A16B),
-        "switch" to Color(0xFF66A16B),
-        "case" to Color(0xFF66A16B),
-        "default" to Color(0xFF66A16B),
-        "void" to Color(0xFF66A16B),
-        "boolean" to Color(0xFF2B4EDF), // Cyan
-        "byte" to Color(0xFF2B4EDF),
-        "short" to Color(0xFF2B4EDF),
-        "char" to Color(0xFF2B4EDF),
-        "int" to Color(0xFF2B4EDF),
-        "long" to Color(0xFF2B4EDF),
-        "float" to Color(0xFF2B4EDF),
-        "double" to Color(0xFF2B4EDF),
-        "String" to Color(0xFF2B4EDF),
+        // Async-related (Light Green)
+        "suspend" to Color(0xFF66A16B),
 
-        // Các từ khóa giá trị
-        "true" to Color(0xFFE6EE9C), // Khaki
+        // Literals (Khaki)
+        "true" to Color(0xFFE6EE9C),
         "false" to Color(0xFFE6EE9C),
-        "null" to Color(0xFFE6EE9C),
-        "undefined" to Color(0xFFE6EE9C),
-        "NaN" to Color(0xFFE6EE9C),
-
-        // Các từ khóa khác
-        "let" to Color(0xFFCE93D8), // Purple
-        "def" to Color(0xFFCE93D8),
-        "from" to Color(0xFFCE93D8),
-        "global" to Color(0xFFCE93D8),
-        "nonlocal" to Color(0xFFCE93D8),
-        "lambda" to Color(0xFFCE93D8),
-        "pass" to Color(0xFFCE93D8),
-        "del" to Color(0xFFCE93D8),
-        "assert" to Color(0xFFCE93D8),
-        "with" to Color(0xFFCE93D8),
-        "raise" to Color(0xFFCE93D8),
-        "of" to Color(0xFFCE93D8),
-        "elif" to Color(0xFFCE93D8),
+        "null" to Color(0xFFE6EE9C)
     )
 )
+
 /**
  * Function to apply syntax highlighting to code based on keywordColors and additional patterns.
  */
 fun syntaxHighlight(code: String): AnnotatedString {
     val builder = AnnotatedString.Builder(code)
 
-    // Lấy danh sách các từ khóa và màu sắc từ keywordColors
-    val keywords = keywordColors["all"] ?: emptyList()
+    // Handle multi-line strings first
+    val multiLineStringRegex = """\"\"\"[\s\S]*?\"\"\"""".toRegex()
+    val multiLineMatches = multiLineStringRegex.findAll(code).toList().sortedBy { it.range.first }
 
-    // Sắp xếp các từ khóa theo độ dài giảm dần để tránh xung đột (ví dụ: "public" trước "pub")
+    var currentIndex = 0
+    for (match in multiLineMatches) {
+        val start = match.range.first
+        val end = match.range.last + 1
+
+        if (start > currentIndex) {
+            val beforeText = code.substring(currentIndex, start)
+            applySyntaxHighlighting(builder, beforeText)
+        }
+
+        builder.addStyle(
+            style = SpanStyle(color = Color(0xFFFFA500)), // Orange for strings
+            start = start,
+            end = end
+        )
+        currentIndex = end
+    }
+
+    if (currentIndex < code.length) {
+        val remainingText = code.substring(currentIndex)
+        applySyntaxHighlighting(builder, remainingText)
+    }
+
+    return builder.toAnnotatedString()
+}
+
+/**
+ * Helper function to apply syntax highlighting to a segment of code.
+ */
+private fun applySyntaxHighlighting(builder: AnnotatedString.Builder, code: String) {
+    val keywords = keywordColors["kotlin"] ?: emptyList()
     val sortedKeywords = keywords.sortedByDescending { it.first.length }
 
-    // Áp dụng màu cho các từ khóa
+    // Apply keyword colors
     for ((keyword, color) in sortedKeywords) {
-        // Sử dụng regex với word boundaries để đảm bảo chỉ tìm đúng từ khóa
         val regex = Regex("\\b${Regex.escape(keyword)}\\b")
         regex.findAll(code).forEach { matchResult ->
             builder.addStyle(
@@ -304,7 +405,7 @@ fun syntaxHighlight(code: String): AnnotatedString {
         }
     }
 
-    // Áp dụng màu cho chú thích (Comments)
+    // Comments
     val singleLineCommentRegex = Regex("//.*")
     singleLineCommentRegex.findAll(code).forEach { matchResult ->
         builder.addStyle(
@@ -323,7 +424,7 @@ fun syntaxHighlight(code: String): AnnotatedString {
         )
     }
 
-    // Áp dụng màu cho chuỗi văn bản (Strings)
+    // Single-line strings
     val stringRegex = Regex("\"([^\"\\\\]|\\\\.)*\"")
     stringRegex.findAll(code).forEach { matchResult ->
         builder.addStyle(
@@ -333,8 +434,8 @@ fun syntaxHighlight(code: String): AnnotatedString {
         )
     }
 
-    // Áp dụng màu cho số (Numbers)
-    val numberRegex = Regex("\\b\\d+\\b")
+    // Numbers (including decimals and exponents)
+    val numberRegex = Regex("(\\b\\d+(\\.\\d*)?|\\.\\d+)([eE][+-]?\\d+)?\\b")
     numberRegex.findAll(code).forEach { matchResult ->
         builder.addStyle(
             style = SpanStyle(color = Color(0xFF006400)), // Dark Green
@@ -343,7 +444,7 @@ fun syntaxHighlight(code: String): AnnotatedString {
         )
     }
 
-    // Áp dụng màu cho annotations
+    // Annotations
     val annotationRegex = Regex("@\\w+")
     annotationRegex.findAll(code).forEach { matchResult ->
         builder.addStyle(
@@ -353,8 +454,8 @@ fun syntaxHighlight(code: String): AnnotatedString {
         )
     }
 
-    // Áp dụng màu cho toán tử (Operators)
-    val operators = listOf("+", "-", "*", "/", "=", "==", ">", "<", ">=", "<=", "&&", "||", "!", "!", "?")
+    // Operators
+    val operators = listOf("+", "-", "*", "/", "=", "==", ">", "<", ">=", "<=", "&&", "||", "!", "?", ":")
     val operatorRegex = Regex("(${operators.joinToString("|") { Regex.escape(it) }})")
     operatorRegex.findAll(code).forEach { matchResult ->
         builder.addStyle(
@@ -364,8 +465,9 @@ fun syntaxHighlight(code: String): AnnotatedString {
         )
     }
 
-    // Áp dụng màu cho các kiểu dữ liệu (Types)
-    val types = listOf("Int", "String", "Float", "Double", "Boolean", "Long", "Short", "Byte", "Char", "Unit", "Any")
+    // Types
+    val types =
+        listOf("Int", "String", "Float", "Double", "Boolean", "Long", "Short", "Byte", "Char", "Unit", "Any")
     val typeRegex = Regex("\\b(${types.joinToString("|") { Regex.escape(it) }})\\b")
     typeRegex.findAll(code).forEach { matchResult ->
         builder.addStyle(
@@ -374,28 +476,38 @@ fun syntaxHighlight(code: String): AnnotatedString {
             end = matchResult.range.last + 1
         )
     }
-
-    return builder.toAnnotatedString()
 }
+
 /**
  * Helper function to apply inline styles based on markdown patterns.
  */
 private fun applyInlineStyles(
     builder: AnnotatedString.Builder,
-    text: String,
-    patterns: List<Pair<String, SpanStyle>>
+    text: String
 ) {
-    var remainingText = text
+    val patterns = listOf(
+        "(?<!\\\\)\\*\\*_(.*?)_(?<!\\\\)\\*\\*" to SpanStyle(
+            fontWeight = FontWeight.Bold,
+            fontStyle = FontStyle.Italic
+        ),
+        "(?<!\\\\)\\*_(.*?)_(?<!\\\\)\\*" to SpanStyle(fontStyle = FontStyle.Italic),
+        "(?<!\\\\)\\*\\*(.*?)(?<!\\\\)\\*\\*" to SpanStyle(fontWeight = FontWeight.Bold),
+        "(?<!\\\\)\\*(.*?)(?<!\\\\)\\*" to SpanStyle(fontStyle = FontStyle.Italic),
+        "(?<!\\\\)__([\\s\\S]+?)(?<!\\\\)__" to SpanStyle(textDecoration = TextDecoration.Underline),
+        "\\[([^\\]]*)\\]\\(([^)]*)\\)" to SpanStyle(
+            color = Color.Blue,
+            textDecoration = TextDecoration.Underline
+        )
+    )
     var currentIndex = 0
 
-    while (currentIndex < remainingText.length) {
+    while (currentIndex < text.length) {
         var earliestMatch: MatchResult? = null
         var selectedPattern: Pair<String, SpanStyle>? = null
 
-        // Tìm kiếm mẫu phù hợp sớm nhất trong văn bản
         for ((pattern, style) in patterns) {
             val regex = pattern.toRegex()
-            val match = regex.find(remainingText, currentIndex)
+            val match = regex.find(text, currentIndex)
             if (match != null && (earliestMatch == null || match.range.first < earliestMatch.range.first)) {
                 earliestMatch = match
                 selectedPattern = Pair(pattern, style)
@@ -403,27 +515,42 @@ private fun applyInlineStyles(
         }
 
         if (earliestMatch != null && selectedPattern != null) {
-            if (earliestMatch.range.first > currentIndex) {
-                // Chèn văn bản trước khi gặp định dạng đặc biệt
-                val beforeText = remainingText.substring(currentIndex, earliestMatch.range.first)
+            val start = earliestMatch.range.first
+            val end = earliestMatch.range.last + 1
+            val content = earliestMatch.groupValues[1]
+
+            if (start > currentIndex) {
+                val beforeText = text.substring(currentIndex, start)
                 builder.append(beforeText)
             }
 
-            // Áp dụng kiểu định dạng cho đoạn văn bản đã chọn
-            val content = earliestMatch.groupValues[1]
-            builder.withStyle(
-                style = selectedPattern.second
-            ) {
-                builder.append(content)
+            // Link
+            if (selectedPattern.first.contains("\\[([^\\]]*)\\]\\(([^)]*)\\)")) {
+                val url = earliestMatch.groupValues[2]
+                val linkStart = builder.length
+                builder.withStyle(selectedPattern.second) {
+                    applyInlineStyles(builder, content) // nested
+                }
+                val linkEnd = builder.length
+                builder.addStringAnnotation("URL", url, linkStart, linkEnd)
+            } else {
+                builder.withStyle(selectedPattern.second) {
+                    applyInlineStyles(builder, content)
+                }
             }
 
-            // Cập nhật currentIndex để tiếp tục xử lý phần còn lại
-            currentIndex = earliestMatch.range.last + 1
+            currentIndex = end
         } else {
-            // Nếu không còn mẫu nào phù hợp, chèn phần còn lại của văn bản
-            builder.append(remainingText.substring(currentIndex))
+            val remainingText = text.substring(currentIndex)
+            builder.append(remainingText)
             break
         }
     }
 }
 
+/**
+ * Helper function to count leading '#' characters in a string.
+ */
+private fun String.countLeading(char: Char): Int {
+    return takeWhile { it == char }.length
+}
