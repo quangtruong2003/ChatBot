@@ -357,11 +357,31 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun insertLocalUserChat(prompt: String) {
+        viewModelScope.launch {
+            val userId = repository.userId
+            val chat = Chat.fromPrompt(
+                prompt = prompt,
+                imageUrl = null,
+                isFromUser = true,
+                isError = false,
+                userId = userId
+            )
+            // Chỉ chèn vào Firestore, không gọi API
+            repository.insertChat(chat, chatState.value.selectedSegment?.id)
+            // Cập nhật lại UI
+            _chatState.update {
+                it.copy(chatList = it.chatList + chat)
+            }
+        }
+    }
+
+
     /**
      * Lấy phản hồi từ GenerativeModel không kèm hình ảnh.
      * Bổ sung kiểm tra phản hồi tùy chỉnh trước khi gọi API.
      */
-    private suspend fun getResponse(prompt: String, selectedSegmentId: String?) {
+    suspend fun getResponse(prompt: String, selectedSegmentId: String?) {
         // Kiểm tra phản hồi tùy chỉnh
         val predefinedResponse = getPredefinedResponse(prompt)
         if (predefinedResponse != null) {

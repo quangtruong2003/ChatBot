@@ -150,6 +150,10 @@ class ChatRepository @Inject constructor(
         try {
             val chatHistory = getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
             val fullPrompt = getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
+
+            // Thêm log hiển thị prompt gửi lên API
+            Log.d("ChatRepository", "Sending prompt (no image): $fullPrompt")
+
             val response = generativeModel.generateContent(fullPrompt)
             Log.d("ChatRepository", "API Response: ${response.text}")
             val responseText = response.text
@@ -213,7 +217,9 @@ class ChatRepository @Inject constructor(
             }
 
             val fullPrompt = getFullPrompt(prompt, hasImage = true, chatHistory = chatHistory)
-            Log.d("ChatRepository", "Full Prompt: $fullPrompt")
+
+            // Thêm log hiển thị prompt gửi lên API
+            Log.d("ChatRepository", "Sending prompt (with image): $fullPrompt")
 
             // Tạo content với cả hình ảnh và text
             val content = content {
@@ -266,8 +272,6 @@ class ChatRepository @Inject constructor(
             )
             insertChat(chat, selectedSegmentId)
             chat
-        } finally {
-            // Nếu cần giải phóng Bitmap sau khi sử dụng, đảm bảo gọi recycle chỉ khi hoàn tất mọi thao tác.
         }
     }
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.Image
 import android.util.Base64
 import android.util.Log
 import android.view.ViewTreeObserver
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -114,12 +115,27 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 
+import com.ahmedapps.geminichatbot.ui.components.WelcomeMessage
+
+
 
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalPermissionsApi::class)
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+
+    private var lastBackPressed: Long = 0
+
+    override fun onBackPressed() {
+        if (System.currentTimeMillis() - lastBackPressed < 2000) {
+            super.onBackPressed()
+        } else {
+            Toast.makeText(this, "Nhấn back lần nữa để thoát", Toast.LENGTH_SHORT).show()
+            lastBackPressed = System.currentTimeMillis()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -493,7 +509,7 @@ class MainActivity : ComponentActivity() {
 //                                                backgroundColor,
 //                                                shape = RoundedCornerShape(15.dp)
 //                                            )
-                                            .fillMaxWidth(0.45f),
+                                            .fillMaxWidth(0.5f),
                                         offset = DpOffset(x = 40.dp, y = 8.dp)
                                     ) {
                                         chatViewModel.availableModels.forEachIndexed { index, model ->
@@ -659,6 +675,8 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+
+
                     // Nội dung chính của ChatScreen
                     Column(
                         modifier = Modifier
@@ -800,21 +818,65 @@ class MainActivity : ComponentActivity() {
                                 .fillMaxWidth()
                                 .padding(bottom = 16.dp, start = 8.dp, end = 8.dp)
                                 .then(if (!isDrawerOpen) Modifier.imePadding() else Modifier)
-                            ,
-
+                                .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(20.dp)),
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                            ) {
-                                Row(
+                                // --- TextField nằm phía trên ---
+                                LaunchedEffect(chatState.imageUri, chatState.prompt, chatState.chatList) {
+                                    showWelcomeMessage = chatState.prompt.isEmpty() && chatState.chatList.isEmpty() && chatState.imageUri == null
+                                }
+                                TextField(
                                     modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .fillMaxWidth(),
-                                    verticalAlignment = Alignment.Bottom
+                                        .heightIn(min = 50.dp, max = 200.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .fillMaxWidth()
+                                        .verticalScroll(scrollState)
+                                        .focusRequester(focusRequester)
+                                        .onFocusChanged {
+                                            if (it.isFocused) {
+                                                scope.launch {
+                                                    scrollState.animateScrollTo(scrollState.maxValue)
+                                                }
+                                            }
+                                        },
+                                    value = chatState.prompt,
+                                    onValueChange = { newValue ->
+                                        chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newValue))
+                                        // Ẩn WelcomeMessage nếu có text, chatList không rỗng hoặc có hình ảnh
+                                        showWelcomeMessage = newValue.isEmpty() && chatState.chatList.isEmpty() && chatState.imageUri == null
+                                        scope.launch {
+                                            scrollState.animateScrollTo(scrollState.maxValue)
+                                        }
+                                    },
+                                    placeholder = {
+                                        Text(
+                                            text = "Nhập tin nhắn cho ChatAI",
+                                            modifier = Modifier.fillMaxWidth(),
+                                            color = Color.Gray
+                                        )
+                                    },
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        disabledContainerColor = MaterialTheme.colorScheme.surface,
+                                        errorContainerColor = MaterialTheme.colorScheme.surface,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent,
+                                        disabledIndicatorColor = Color.Transparent,
+                                        errorIndicatorColor = Color.Transparent
+                                    )
+                                )
+
+                                // --- Hàng chứa nút Icon ---
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    // Nút '+' để hiển thị DropdownMenu
+                                    // --- Nút '+' (Thêm ảnh) ---
                                     IconButton(
                                         onClick = { showSourceMenu = !showSourceMenu },
                                         modifier = Modifier
@@ -826,20 +888,18 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             painter = painterResource(id = R.drawable.ic_popup),
                                             contentDescription = "Thêm ảnh",
-                                            tint = textColor
+                                            tint = textColor,
+                                            modifier = Modifier.alpha(0.6f)
                                         )
                                     }
-                                    // DropdownMenu hiển thị các lựa chọn
+
+                                    // --- DropdownMenu Hiển thị các lựa chọn ---
                                     DropdownMenu(
                                         expanded = showSourceMenu,
                                         onDismissRequest = { showSourceMenu = false },
                                         modifier = Modifier
                                             .crop(vertical = 8.dp)
                                             .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(15.dp))
-//                                            .background(
-//                                                backgroundColor,
-//                                                shape = RoundedCornerShape(15.dp)
-//                                            )
                                             .width(IntrinsicSize.Max),
                                         offset = DpOffset(x = 0.dp, y = (-8).dp)
                                     ) {
@@ -855,11 +915,12 @@ class MainActivity : ComponentActivity() {
                                                 )
                                             },
                                             onClick = {
-                                                // Tạo URI tạm thời và mở máy ảnh
                                                 photoUri = createImageUri()
                                                 photoUri?.let {
                                                     takePictureLauncher.launch(it)
                                                 }
+                                                // Khi thêm ảnh, ẩn WelcomeMessage
+                                                showWelcomeMessage = false
                                                 showSourceMenu = false
                                             },
                                             trailingIcon = {
@@ -888,6 +949,8 @@ class MainActivity : ComponentActivity() {
                                                         ActivityResultContracts.PickVisualMedia.ImageOnly
                                                     )
                                                 )
+                                                // Khi thêm ảnh, ẩn WelcomeMessage
+                                                showWelcomeMessage = false
                                                 showSourceMenu = false
                                             },
                                             trailingIcon = {
@@ -899,77 +962,8 @@ class MainActivity : ComponentActivity() {
                                             }
                                         )
                                     }
-//                                    Icon(
-//                                        modifier = Modifier
-//                                            .padding(bottom = 8.dp)
-//                                            .size(40.dp)
-//                                            .clip(RoundedCornerShape(8.dp))
-//                                            .clickable {
-//                                                imagePicker.launch(
-//                                                    PickVisualMediaRequest
-//                                                        .Builder()
-//                                                        .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly)
-//                                                        .build()
-//                                                )
-//                                            },
-//                                        imageVector = Icons.Rounded.AddPhotoAlternate,
-//                                        contentDescription = "Thêm ảnh",
-//                                        tint = MaterialTheme.colorScheme.primary
-//                                    )
 
-                                    Spacer(modifier = Modifier.width(8.dp))
-
-                                    TextField(
-                                        modifier = Modifier
-                                            .heightIn(min = 50.dp, max = 200.dp)
-                                            .clip(RoundedCornerShape(20.dp))
-                                            .weight(1f)
-                                            .verticalScroll(scrollState)
-                                            .border(
-                                                width = 1.dp,
-                                                color = Color.LightGray,
-                                                shape = RoundedCornerShape(20.dp)
-                                            )
-                                            .focusRequester(focusRequester)
-                                            .onFocusChanged {
-                                                if (it.isFocused) {
-                                                    scope.launch {
-                                                        scrollState.animateScrollTo(scrollState.maxValue)
-                                                    }
-                                                }
-                                            },
-                                        value = chatState.prompt,
-                                        onValueChange = {
-                                            chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(it))
-                                            if (it.isNotEmpty()) {
-                                                showWelcomeMessage = false
-                                            }
-                                            scope.launch {
-                                                scrollState.animateScrollTo(scrollState.maxValue)
-                                            }
-                                        },
-                                        placeholder = {
-                                            Text(
-                                                text = "Nhập tin nhắn",
-                                                modifier = Modifier.fillMaxWidth(),
-                                                style = TextStyle(
-                                                    fontSize = 17.sp,
-                                                    brush = Brush.linearGradient(
-                                                        colors = listOf(
-                                                            Color(0xFF1BA1E3),
-                                                            Color(0xFF5489D6),
-                                                            Color(0xFF9B72CB),
-                                                            Color(0xFFD96570),
-                                                            Color(0xFFF49C46)
-                                                        )
-                                                    ),
-                                                )
-                                            )
-                                        },
-                                    )
-
-                                    Spacer(modifier = Modifier.width(8.dp))
-
+                                    // --- Nút gửi tin nhắn ---
                                     if (chatState.isLoading) {
                                         CircularProgressIndicator(
                                             modifier = Modifier
@@ -984,19 +978,19 @@ class MainActivity : ComponentActivity() {
                                                 .padding(bottom = 8.dp)
                                                 .size(40.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .alpha(if (canSend) 1f else 0.4f) // Adjust opacity based on canSend
+                                                .alpha(if (canSend) 1f else 0.4f)
                                                 .clickable(
-                                                    enabled = canSend && !chatState.isLoading, // Enable or disable based on canSend
+                                                    enabled = canSend && !chatState.isLoading,
                                                     onClick = {
-                                                        if (canSend) { // Additional safety check
-                                                            val sanitizedPrompt =
-                                                                sanitizeMessage(chatState.prompt) // Xử lý chuỗi tin nhắn
+                                                        if (canSend) {
+                                                            val sanitizedPrompt = sanitizeMessage(chatState.prompt)
                                                             chatViewModel.onEvent(
                                                                 ChatUiEvent.SendPrompt(
                                                                     sanitizedPrompt,
                                                                     chatState.imageUri
                                                                 )
                                                             )
+                                                            // Khi gửi tin nhắn, ẩn WelcomeMessage
                                                             showWelcomeMessage = false
                                                         }
                                                     }
@@ -1009,61 +1003,26 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+
+
                     }
 
                     if (showWelcomeMessage && chatState.chatList.isEmpty()) {
                         userScrolled = false
+                        WelcomeMessage { displayText, apiPrompt ->
+                            // 1) Hiển thị tin nhắn user "Bạn sẽ là XXX" (KHÔNG gọi API)
+                            val localUserPrompt = "Bạn sẽ là $displayText"
+                            chatViewModel.insertLocalUserChat(localUserPrompt)
 
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .offset(y = (-70).dp)
-                            ,
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Image(
-                                painter = painterResource(id = R.drawable.ic_app),
-                                contentDescription = "Icon Bot",
-                                modifier = Modifier.size(80.dp),
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            var textSize by remember { mutableStateOf(22.sp) }
-                            var boxWidth by remember { mutableStateOf(0) }
-
-                            Box(modifier = Modifier
-                                .fillMaxWidth(1f)
-                                .onSizeChanged { size ->
-                                    // Cập nhật kích thước của Box
-                                    boxWidth = size.width
-                                }
-                            ) {
-                                // Tính toán fontSize dựa trên chiều rộng của Box
-                                if (boxWidth > 0) {
-                                    // điều chỉnh công thức này dựa trên thử nghiệm để có kết quả tốt nhất
-                                    textSize = (boxWidth / LocalDensity.current.density * 0.05f).sp
-                                }
-
-                                Text(
-                                    text = "Xin chào, tôi có thể giúp gì cho bạn?",
-                                    style = TextStyle(
-                                        fontSize = textSize, // Sử dụng fontSize đã được tính toán
-                                        brush = Brush.linearGradient(
-                                            colors = listOf(
-                                                Color(0xFF1BA1E3),
-                                                Color(0xFF5489D6),
-                                                Color(0xFF9B72CB),
-                                                Color(0xFFD96570),
-                                                Color(0xFFF49C46)
-                                            )
-                                        ),
-                                    ),
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
+                            // 2) Gọi API với apiPrompt
+                            scope.launch {
+                                chatViewModel.getResponse(apiPrompt, chatState.selectedSegment?.id)
                             }
                         }
                     }
+
+
+
 
                     LaunchedEffect(chatState.chatList.isEmpty()) {
                         if (chatState.chatList.isEmpty()) {
