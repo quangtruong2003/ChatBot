@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.Icon
 import androidx.compose.material.IconButton
 import androidx.compose.material.icons.Icons
@@ -63,6 +64,7 @@ fun FormattedTextDisplay(
                     InlineCodeText(text = section.content, isError = false)
                 }
                 else -> {
+                    SelectionContainer {  //ADD SelectionContainer here
                     Text(
                         text = section.annotatedString,
                         style = TextStyle(
@@ -70,6 +72,7 @@ fun FormattedTextDisplay(
                             color = MaterialTheme.colorScheme.onBackground
                         )
                     )
+                    }
                 }
             }
         }
@@ -238,15 +241,17 @@ fun CodeBlockView(
             }
 
             // Phần code (có thể custom riêng)
-            Text(
-                text = annotatedCode,
-                style = TextStyle(
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 14.sp,
-                    color = textColor
-                ),
-                modifier = Modifier.padding(top = 8.dp)
-            )
+            SelectionContainer {
+                Text(
+                    text = annotatedCode,
+                    style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 14.sp,
+                        color = textColor
+                    ),
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
         }
     }
 }
@@ -270,14 +275,16 @@ fun InlineCodeText(
     // Áp dụng syntax highlighting
     val annotatedText = remember(text) { syntaxHighlight(text) }
 
-    Text(
-        text = annotatedText,
-        style = TextStyle(
-            fontFamily = FontFamily.Monospace,
-            background = backgroundColor,
-            color = textColor,
-            fontSize = 17.sp
+    SelectionContainer { // Add SelectionContainer
+        Text(
+            text = annotatedText,
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                background = backgroundColor,
+                color = textColor,
+                fontSize = 17.sp
+            )
         )
-    )
+    }
 }
 

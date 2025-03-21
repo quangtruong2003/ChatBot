@@ -99,7 +99,7 @@ class ChatRepository @Inject constructor(
                         val firstImageChat = chatHistory.firstOrNull { chat ->
                             chat.isFromUser && chat.imageUrl != null && chat.prompt.isNotEmpty()
                         }
-                        firstImageChat?.prompt ?: "Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói rõ mọi thứ trong ảnh."
+                        firstImageChat?.prompt ?: "Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói rõ mọi thứ trong ảnh. Nhớ là hãy trả lời theo vai trò của bạn được giao, nếu không có trả lời như bình thường."
                     }
                     append(promptToUse)
                 } else {
