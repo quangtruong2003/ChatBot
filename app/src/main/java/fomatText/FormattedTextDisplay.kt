@@ -37,13 +37,24 @@ import kotlinx.coroutines.launch
 fun FormattedTextDisplay(
     annotatedString: AnnotatedString,
     modifier: Modifier = Modifier,
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    isNewMessage: Boolean = false,
+    typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
+    onAnimationComplete: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    var animationCompleted by remember(annotatedString) { mutableStateOf(!isNewMessage) }
 
     val sections = remember(annotatedString) {
         splitAnnotatedString(annotatedString)
+    }
+    
+    // Thêm LaunchedEffect để gọi callback khi animation hoàn tất
+    LaunchedEffect(animationCompleted) {
+        if (animationCompleted && isNewMessage) {
+            onAnimationComplete()
+        }
     }
 
     Column(modifier = modifier) {
@@ -57,21 +68,52 @@ fun FormattedTextDisplay(
                         clipboardManager = clipboardManager,
                         context = context,
                         language = section.language,
-                        snackbarHostState = snackbarHostState
+                        snackbarHostState = snackbarHostState,
+                        isAnimated = isNewMessage && !animationCompleted,
+                        typingSpeed = typingSpeed,
+                        onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
                     )
                 }
                 "INLINE_CODE" -> {
-                    InlineCodeText(text = section.content, isError = false)
+                    if (isNewMessage && !animationCompleted) {
+                        SelectionContainer {
+                            AnimatedAnnotatedText(
+                                annotatedString = syntaxHighlight(section.content),
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Monospace,
+                                    background = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surface,
+                                    color = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                                    fontSize = 17.sp
+                                ),
+                                delayMillis = typingSpeed,
+                                onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
+                            )
+                        }
+                    } else {
+                        InlineCodeText(text = section.content, isError = false)
+                    }
                 }
                 else -> {
-                    SelectionContainer {  //ADD SelectionContainer here
-                    Text(
-                        text = section.annotatedString,
-                        style = TextStyle(
-                            fontSize = 17.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    )
+                    SelectionContainer {
+                        if (isNewMessage && !animationCompleted) {
+                            AnimatedAnnotatedText(
+                                annotatedString = section.annotatedString,
+                                style = TextStyle(
+                                    fontSize = 17.sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                ),
+                                delayMillis = typingSpeed,
+                                onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
+                            )
+                        } else {
+                            Text(
+                                text = section.annotatedString,
+                                style = TextStyle(
+                                    fontSize = 17.sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            )
+                        }
                     }
                 }
             }
@@ -159,7 +201,10 @@ fun CodeBlockView(
     clipboardManager: ClipboardManager,
     context: android.content.Context,
     language: String?,
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    isAnimated: Boolean = false,
+    typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
+    onAnimationComplete: () -> Unit = {}
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -242,15 +287,28 @@ fun CodeBlockView(
 
             // Phần code (có thể custom riêng)
             SelectionContainer {
-                Text(
-                    text = annotatedCode,
-                    style = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        color = textColor
-                    ),
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                if (isAnimated) {
+                    AnimatedAnnotatedText(
+                        annotatedString = annotatedCode,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 14.sp,
+                            color = textColor
+                        ),
+                        delayMillis = typingSpeed,
+                        onAnimationComplete = onAnimationComplete
+                    )
+                } else {
+                    Text(
+                        text = annotatedCode,
+                        style = TextStyle(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 14.sp,
+                            color = textColor
+                        ),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
         }
     }

@@ -74,6 +74,8 @@ import com.ahmedapps.geminichatbot.ChatViewModel
 import com.ahmedapps.geminichatbot.R
 import com.ahmedapps.geminichatbot.SideDrawer
 import com.ahmedapps.geminichatbot.ui.components.ModelChatItem
+import com.ahmedapps.geminichatbot.ui.components.ThinkingAnimation
+import com.ahmedapps.geminichatbot.ui.components.ModelWaitingIndicator
 import com.ahmedapps.geminichatbot.ui.components.UserChatItem
 import com.ahmedapps.geminichatbot.ui.components.WelcomeMessage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -84,6 +86,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import fomatText.parseFormattedText
+import fomatText.TypingConfig
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
@@ -605,6 +608,20 @@ fun ChatScreen(
                                     snackbarHostState = snackbarHostState
                                 )
                             } else {
+                                // Kiểm tra xem tin nhắn này có phải là tin nhắn cuối cùng
+                                // và không phải là từ người dùng để xác định hiệu ứng typing
+                                val isLastMessage = chatState.chatList.lastOrNull()?.id == chat.id
+                                val isLoadingCompleted = !chatState.isLoading
+                                
+                                // Hiển thị hiệu ứng typing CHỈ KHI:
+                                // 1. Là tin nhắn mới nhất từ bot (vừa được thêm vào)
+                                // 2. Trạng thái loading đã hoàn tất
+                                // 3. Tin nhắn chưa được đánh dấu là đã hiển thị hiệu ứng
+                                val shouldShowTypingEffect = isLastMessage && 
+                                                            !chat.isFromUser && 
+                                                            isLoadingCompleted && 
+                                                            !chatViewModel.isMessageTyped(chat.id)
+                                
                                 ModelChatItem(
                                     response = chat.prompt,
                                     isError = chat.isError,
@@ -619,7 +636,30 @@ fun ChatScreen(
                                         val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
                                         navController.navigate("fullscreen_image/$encodedUrl")
                                     },
-                                    snackbarHostState = snackbarHostState
+                                    snackbarHostState = snackbarHostState,
+                                    chatId = chat.id,
+                                    isNewChat = shouldShowTypingEffect,
+                                    typingSpeed = TypingConfig.DEFAULT_TYPING_SPEED,
+                                    onAnimationComplete = {
+                                        // Khi hiệu ứng typing hoàn tất, đánh dấu tin nhắn đã được hiển thị
+                                        chatViewModel.markMessageAsTyped(chat.id)
+                                    },
+                                    isMessageTyped = chatViewModel.isMessageTyped(chat.id)
+                                )
+                            }
+                        }
+                        
+                        // Hiển thị chỉ báo "Đang suy nghĩ..." nếu đang đợi phản hồi
+                        item {
+                            if (chatState.isWaitingForResponse) {
+                                ModelChatItem(
+                                    response = "",
+                                    isError = false,
+                                    onLongPress = { },
+                                    onImageClick = { },
+                                    snackbarHostState = snackbarHostState,
+                                    isWaitingForResponse = true,
+                                    isMessageTyped = true // Luôn đánh dấu là đã hiển thị hiệu ứng
                                 )
                             }
                         }
@@ -862,12 +902,17 @@ fun ChatScreen(
 
                                 // --- Nút gửi tin nhắn ---
                                 if (chatState.isLoading) {
-                                    CircularProgressIndicator(
+                                    Icon(
                                         modifier = Modifier
                                             .padding(bottom = 8.dp)
-                                            .size(40.dp),
-                                        color = textColor,
-                                        strokeWidth = 5.dp
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                chatViewModel.stopCurrentResponse()
+                                            },
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Dừng",
+                                        tint = textColor
                                     )
                                 } else {
 

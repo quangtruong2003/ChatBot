@@ -10,24 +10,58 @@ import kotlinx.coroutines.delay
 fun AnimatedAnnotatedText(
     annotatedString: AnnotatedString,
     style: TextStyle,
-    delayMillis: Long = 5L,
+    delayMillis: Long = TypingConfig.DEFAULT_TYPING_SPEED,
+    minTypingSpeed: Long = TypingConfig.MIN_TYPING_SPEED,
+    maxTypingSpeed: Long = TypingConfig.MAX_TYPING_SPEED, 
+    smartTypingSpeed: Boolean = TypingConfig.USE_SMART_TYPING,
     onAnimationComplete: () -> Unit = {}
 ) {
     var currentLength by remember { mutableStateOf(0) }
+    val textLength = annotatedString.text.length
+    
+    // Tính độ tối ưu tốc độ typing dựa trên độ dài văn bản
+    val optimizedDelay = remember(textLength, delayMillis) {
+        if (smartTypingSpeed) {
+            when {
+                textLength > TypingConfig.VERY_LONG_MESSAGE_THRESHOLD -> minTypingSpeed
+                textLength > TypingConfig.LONG_MESSAGE_THRESHOLD -> delayMillis / 2
+                else -> delayMillis
+            }
+        } else {
+            delayMillis
+        }
+    }
+
+    // Tính độ trễ thông minh dựa trên ký tự
+    fun getSmartDelay(currentChar: Char): Long {
+        if (!smartTypingSpeed) return optimizedDelay
+        
+        return when {
+            currentChar == ' ' -> optimizedDelay * TypingConfig.SPACE_SPEED_FACTOR 
+            currentChar == '.' || currentChar == ',' || 
+            currentChar == '!' || currentChar == '?' -> optimizedDelay * TypingConfig.PUNCTUATION_SPEED_FACTOR
+            currentChar == '\n' -> optimizedDelay * TypingConfig.NEWLINE_SPEED_FACTOR
+            else -> optimizedDelay
+        }
+    }
 
     // Khi annotatedString thay đổi, bắt đầu lại animation
     LaunchedEffect(annotatedString) {
         currentLength = 0
         while (currentLength < annotatedString.text.length) {
+            val nextChar = if (currentLength < annotatedString.text.length) 
+                            annotatedString.text[currentLength] else ' '
+            val smartDelay = getSmartDelay(nextChar)
+            
             currentLength++
-            delay(delayMillis)
+            delay(smartDelay)
         }
         onAnimationComplete();
     }
 
     // Lấy ra phần sub-sequence của AnnotatedString
     Text(
-        text = annotatedString.subSequence(0, currentLength),
+        text = if (currentLength > 0) annotatedString.subSequence(0, currentLength) else AnnotatedString(""),
         style = style
     )
 }

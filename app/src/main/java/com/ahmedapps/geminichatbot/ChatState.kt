@@ -13,5 +13,6 @@ data class ChatState(
     val chatSegments: List<ChatSegment> = emptyList(),
     val selectedSegment: ChatSegment? = null,
     val searchQuery: String = "",
-
+    val isWaitingForResponse: Boolean = false,
+    val typedMessages: Set<String> = emptySet()
 )

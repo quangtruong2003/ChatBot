@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "0.5.8 beta"
+        versionName = "0.5.11 beta"
         buildConfigField("String", "VERSION_NAME", "\"${versionName}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -31,6 +31,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        getByName("debug") {
+            isDebuggable = true
+            // Ngăn Gradle tự thêm android:testOnly="true"
+            isTestCoverageEnabled = false
         }
     }
     compileOptions {

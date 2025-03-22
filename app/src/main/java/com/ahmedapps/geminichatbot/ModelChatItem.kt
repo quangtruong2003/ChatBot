@@ -26,7 +26,10 @@ import androidx.compose.ui.unit.sp
 import com.ahmedapps.geminichatbot.R
 import fomatText.FormattedTextDisplay
 import fomatText.parseFormattedText
+import fomatText.TypingConfig
 import androidx.compose.runtime.*
+import com.ahmedapps.geminichatbot.data.Chat
+import kotlinx.coroutines.delay
 
 
 
@@ -36,8 +39,14 @@ fun ModelChatItem(
     response: String,
     isError: Boolean,
     onLongPress: (String) -> Unit,
-    onImageClick: (String) -> Unit, // You might not need this
-    snackbarHostState: SnackbarHostState
+    onImageClick: (String) -> Unit,
+    snackbarHostState: SnackbarHostState,
+    chatId: String? = null,
+    isNewChat: Boolean = false,
+    typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
+    onAnimationComplete: () -> Unit = {},
+    isWaitingForResponse: Boolean = false,
+    isMessageTyped: Boolean = false
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -52,16 +61,39 @@ fun ModelChatItem(
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val scope = rememberCoroutineScope()
 
-    // ADDED: State to track if we're waiting for a response
-    var isThinking by remember { mutableStateOf(true) }
-
-    // ADDED: Update isThinking when the response changes
-    LaunchedEffect(response) {
+    // Theo dõi trạng thái suy nghĩ dựa vào trạng thái isWaitingForResponse 
+    // thay vì chỉ dựa vào response.isEmpty()
+    var isThinking by remember(isWaitingForResponse) { mutableStateOf(isWaitingForResponse) }
+    
+    // Xác định xem tin nhắn này có phải là tin nhắn mới chưa hiển thị hiệu ứng không
+    // Đảm bảo chỉ hiển thị hiệu ứng khi:
+    // 1. Tin nhắn là mới (isNewChat = true)
+    // 2. Có nội dung (response không rỗng)
+    // 3. Chưa được đánh dấu là đã hiển thị hiệu ứng (isMessageTyped = false)
+    var showTypingEffect by remember(chatId, response, isNewChat, isMessageTyped) { 
+        mutableStateOf(isNewChat && response.isNotEmpty() && !isMessageTyped) 
+    }
+    
+    // Khi trạng thái thay đổi, cập nhật
+    LaunchedEffect(response, isWaitingForResponse, isMessageTyped) {
         if (response.isNotEmpty()) {
-            isThinking = false
+            // Cập nhật trạng thái suy nghĩ
+            isThinking = isWaitingForResponse
+            
+            // Cập nhật hiệu ứng typing - chỉ hiển thị nếu là tin nhắn mới và chưa được đánh dấu
+            showTypingEffect = isNewChat && !isMessageTyped
         }
     }
-
+    
+    // Đánh dấu khi hiệu ứng typing đã hoàn tất
+    var isAnimationCompleted by remember { mutableStateOf(false) }
+    
+    // LaunchedEffect để gọi callback khi animation hoàn tất
+    LaunchedEffect(isAnimationCompleted) {
+        if (isAnimationCompleted && showTypingEffect) {
+            onAnimationComplete()
+        }
+    }
 
     Row(
         modifier = Modifier
@@ -81,29 +113,40 @@ fun ModelChatItem(
         )
 
         Column(horizontalAlignment = Alignment.Start) {
-            // MODIFIED: Show "Thinking..." or the response
+            // Hiển thị "Thinking..." hoặc nội dung tin nhắn
             if (isThinking) {
-                ThinkingAnimation()
-            } else {
-                val formattedResponse = parseFormattedText(response) // Xử lí ở đay
-                SelectionContainer {
-                    FormattedTextDisplay(
-                        annotatedString = formattedResponse,
-                        modifier = Modifier
-                            .widthIn(max = maxWidth)
-                            .clip(RoundedCornerShape(15.dp))
-                            .background(backgroundColor)
-                            .padding(12.dp),
-
-                        snackbarHostState = snackbarHostState
-                    )
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = maxWidth)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(backgroundColor)
+                        .padding(12.dp)
+                ) {
+                    ThinkingAnimation()
                 }
+            } else {
+                val formattedResponse = parseFormattedText(response)
+                
+                FormattedTextDisplay(
+                    annotatedString = formattedResponse,
+                    modifier = Modifier
+                        .widthIn(max = maxWidth)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(backgroundColor)
+                        .padding(12.dp),
+                    snackbarHostState = snackbarHostState,
+                    isNewMessage = showTypingEffect,
+                    typingSpeed = typingSpeed,
+                    onAnimationComplete = {
+                        isAnimationCompleted = true
+                    }
+                )
             }
         }
     }
 }
 
-// ADDED: Composable for the blinking "Thinking..." animation
+// Composable cho animation "Thinking..."
 @Composable
 fun ThinkingAnimation() {
     val infiniteTransition = rememberInfiniteTransition(label = "")
@@ -117,7 +160,7 @@ fun ThinkingAnimation() {
     )
 
     Text(
-        text = "Thinking...",
+        text = "Đang suy nghĩ...",
         modifier = Modifier
             .padding(start = 8.dp, top = 4.dp)
             .alpha(alpha),

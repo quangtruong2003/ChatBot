@@ -14,11 +14,27 @@ import kotlinx.coroutines.launch
 import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val repository: ChatRepository
 ) : ViewModel() {
+
+    // Set để lưu trữ ID của các tin nhắn đã hiển thị hiệu ứng typing
+    private val _typedMessagesIds = mutableSetOf<String>()
+    val typedMessagesIds: Set<String> get() = _typedMessagesIds.toSet()
+    
+    // Hàm để đánh dấu một tin nhắn đã được hiển thị hiệu ứng typing
+    fun markMessageAsTyped(messageId: String) {
+        _typedMessagesIds.add(messageId)
+        _chatState.update { it.copy(typedMessages = _typedMessagesIds.toSet()) }
+    }
+    
+    // Kiểm tra xem một tin nhắn đã được hiển thị hiệu ứng typing chưa
+    fun isMessageTyped(messageId: String): Boolean {
+        return _chatState.value.typedMessages.contains(messageId)
+    }
 
     val availableModels = listOf(
 //        "gemini-1.5-flash-8b",
@@ -56,6 +72,40 @@ class ChatViewModel @Inject constructor(
 
     private val _chatState = MutableStateFlow(ChatState())
     val chatState: StateFlow<ChatState> = _chatState.asStateFlow()
+    
+    // Job hiện tại đang xử lý phản hồi
+    private var currentResponseJob: Job? = null
+    
+    // Hàm để dừng phản hồi hiện tại
+    fun stopCurrentResponse() {
+        currentResponseJob?.cancel()
+        
+        // Thêm tin nhắn "Đã dừng" vào cuộc trò chuyện
+        viewModelScope.launch {
+            val chat = Chat.fromPrompt(
+                prompt = "Đã dừng",
+                imageUrl = null,
+                isFromUser = false,
+                isError = false, // Đặt isError = false để không hiển thị nền đỏ
+                userId = repository.userId
+            )
+            
+            val selectedSegmentId = _chatState.value.selectedSegment?.id
+            repository.insertChat(chat, selectedSegmentId)
+            
+            // Đánh dấu tin nhắn này là đã hiển thị hiệu ứng typing
+            _typedMessagesIds.add(chat.id)
+            
+            _chatState.update { 
+                it.copy(
+                    chatList = it.chatList + chat,
+                    isLoading = false, 
+                    isWaitingForResponse = false,
+                    typedMessages = _typedMessagesIds.toSet()
+                ) 
+            }
+        }
+    }
 
     // Biến để theo dõi việc cập nhật tiêu đề
     private var hasUpdatedTitle = false
@@ -83,6 +133,18 @@ class ChatViewModel @Inject constructor(
 
             // Tạo luôn "Đoạn chat mới" khi vào lại app
             createNewSegment()
+            
+            // Đảm bảo ban đầu _typedMessagesIds đã được khởi tạo đầy đủ cho đoạn chat hiện tại
+            _chatState.value.selectedSegment?.id?.let { segmentId ->
+                val chats = repository.getChatHistoryForSegment(segmentId)
+                // Đánh dấu tất cả tin nhắn từ bot là đã hiển thị hiệu ứng typing
+                chats.forEach { chat ->
+                    if (!chat.isFromUser) {
+                        _typedMessagesIds.add(chat.id)
+                    }
+                }
+                _chatState.update { it.copy(typedMessages = _typedMessagesIds.toSet()) }
+            }
         }
     }
 
@@ -146,7 +208,24 @@ class ChatViewModel @Inject constructor(
     private fun loadChatHistoryForSegment(segmentId: String) {
         viewModelScope.launch {
             val chats = repository.getChatHistoryForSegment(segmentId)
-            _chatState.update { it.copy(chatList = chats, isLoading = false) }
+            
+            // Khi chuyển segment, xóa tất cả các ID đã đánh dấu trước đó
+            _typedMessagesIds.clear()
+            
+            // Đánh dấu tất cả tin nhắn từ bot trong segment này là đã hiển thị hiệu ứng typing
+            chats.forEach { chat ->
+                if (!chat.isFromUser) {
+                    _typedMessagesIds.add(chat.id)
+                }
+            }
+            
+            _chatState.update { 
+                it.copy(
+                    chatList = chats, 
+                    isLoading = false,
+                    typedMessages = _typedMessagesIds.toSet()
+                ) 
+            }
         }
     }
 
@@ -263,9 +342,13 @@ class ChatViewModel @Inject constructor(
         when (event) {
             is ChatUiEvent.SendPrompt -> {
                 if (event.prompt.isNotEmpty() || event.imageUri != null) {
-                    viewModelScope.launch {
+                    // Hủy job cũ nếu có
+                    currentResponseJob?.cancel()
+                    
+                    // Tạo job mới và lưu lại để có thể hủy
+                    currentResponseJob = viewModelScope.launch {
                         deleteEmptyNewSegment()
-                        _chatState.update { it.copy(isLoading = true) }
+                        _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) }
                         addPrompt(event.prompt, event.imageUri)
                         val selectedSegmentId = _chatState.value.selectedSegment?.id
                         if (event.imageUri != null) {
@@ -289,12 +372,25 @@ class ChatViewModel @Inject constructor(
             is ChatUiEvent.SelectSegment -> {
                 viewModelScope.launch {
                     hasUpdatedTitle = false
+                    
+                    // Xóa danh sách ID đã đánh dấu trước khi tải đoạn chat mới
+                    _typedMessagesIds.clear()
+                    
                     val chats = repository.getChatHistoryForSegment(event.segment.id)
+                    
+                    // Đánh dấu tất cả tin nhắn từ bot là đã hiển thị hiệu ứng typing
+                    chats.forEach { chat ->
+                        if (!chat.isFromUser) {
+                            _typedMessagesIds.add(chat.id)
+                        }
+                    }
+                    
                     _chatState.update {
                         it.copy(
                             selectedSegment = event.segment,
                             chatList = chats,
-                            isLoading = false
+                            isLoading = false,
+                            typedMessages = _typedMessagesIds.toSet()
                         )
                     }
                     searchQueryFlow.value = ""
@@ -382,52 +478,58 @@ class ChatViewModel @Inject constructor(
      * Bổ sung kiểm tra phản hồi tùy chỉnh trước khi gọi API.
      */
     suspend fun getResponse(prompt: String, selectedSegmentId: String?) {
-        // Kiểm tra phản hồi tùy chỉnh
-        val predefinedResponse = getPredefinedResponse(prompt)
-        if (predefinedResponse != null) {
-            val chat = Chat.fromPrompt(
-                prompt = predefinedResponse,
-                imageUrl = null,
-                isFromUser = false,
-                isError = false,
-                userId = repository.userId
-            )
-            repository.insertChat(chat, selectedSegmentId)
-            _chatState.update {
-                it.copy(
-                    chatList = it.chatList + chat,
-                    isLoading = false
+        // Hủy job hiện tại nếu đang chạy
+        currentResponseJob?.cancel()
+        
+        // Gán job mới
+        currentResponseJob = viewModelScope.launch {
+            // Kiểm tra phản hồi tùy chỉnh
+            val predefinedResponse = getPredefinedResponse(prompt)
+            if (predefinedResponse != null) {
+                val chat = Chat.fromPrompt(
+                    prompt = predefinedResponse,
+                    imageUrl = null,
+                    isFromUser = false,
+                    isError = false,
+                    userId = repository.userId
                 )
+                repository.insertChat(chat, selectedSegmentId)
+                _chatState.update {
+                    it.copy(
+                        chatList = it.chatList + chat,
+                        isLoading = false,
+                        isWaitingForResponse = false
+                    )
+                }
+                return@launch
             }
 
-//            // Cập nhật tiêu đề đoạn chat nếu cần
-//            if (!hasUpdatedTitle) {
-//                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-//                hasUpdatedTitle = true
-//                loadChatSegments()
-//            }
-            return
-        }
+            try {
+                val chat = repository.getResponse(prompt, selectedSegmentId)
+                val currentSegment = chatState.value.selectedSegment
+                
+                // Đảm bảo không đánh dấu tin nhắn mới là đã typed
+                _typedMessagesIds.remove(chat.id)
+                
+                _chatState.update {
+                    it.copy(
+                        chatList = it.chatList + chat,
+                        isLoading = false,
+                        isWaitingForResponse = false,
+                        typedMessages = _typedMessagesIds.toSet()
+                    )
+                }
 
-        try {
-            val chat = repository.getResponse(prompt, selectedSegmentId)
-            val currentSegment = chatState.value.selectedSegment
-            _chatState.update {
-                it.copy(
-                    chatList = it.chatList + chat,
-                    isLoading = false
-                )
+                // Chỉ cập nhật tiêu đề nếu đoạn chat chưa có tiêu đề và không phải tin nhắn của người dùng
+                if (!hasUpdatedTitle && !chat.isFromUser && currentSegment?.title == "Đoạn chat mới") {
+                    repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+                    hasUpdatedTitle = true
+                    loadChatSegments() // Cập nhật lại danh sách đoạn chat
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
             }
-
-            // Chỉ cập nhật tiêu đề nếu đoạn chat chưa có tiêu đề và không phải tin nhắn của người dùng
-            if (!hasUpdatedTitle && !chat.isFromUser && currentSegment?.title == "Đoạn chat mới") {
-                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-                hasUpdatedTitle = true
-                loadChatSegments() // Cập nhật lại danh sách đoạn chat
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            _chatState.update { it.copy(isLoading = false) }
         }
     }
 
@@ -436,58 +538,64 @@ class ChatViewModel @Inject constructor(
      * Bổ sung kiểm tra phản hồi tùy chỉnh trước khi gọi API.
      */
     private suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?) {
-        // Kiểm tra phản hồi tùy chỉnh
-        val predefinedResponse = getPredefinedResponse(prompt)
-        if (predefinedResponse != null) {
-            val chat = Chat.fromPrompt(
-                prompt = predefinedResponse,
-                imageUrl = repository.uploadImage(imageUri),
-                isFromUser = false,
-                isError = false,
-                userId = repository.userId
-            )
-            repository.insertChat(chat, selectedSegmentId)
-            _chatState.update {
-                it.copy(
-                    chatList = it.chatList + chat,
-                    isLoading = false
+        // Hủy job hiện tại nếu đang chạy
+        currentResponseJob?.cancel()
+        
+        // Gán job mới
+        currentResponseJob = viewModelScope.launch {
+            // Kiểm tra phản hồi tùy chỉnh
+            val predefinedResponse = getPredefinedResponse(prompt)
+            if (predefinedResponse != null) {
+                val chat = Chat.fromPrompt(
+                    prompt = predefinedResponse,
+                    imageUrl = repository.uploadImage(imageUri),
+                    isFromUser = false,
+                    isError = false,
+                    userId = repository.userId
                 )
+                repository.insertChat(chat, selectedSegmentId)
+                _chatState.update {
+                    it.copy(
+                        chatList = it.chatList + chat,
+                        isLoading = false,
+                        isWaitingForResponse = false
+                    )
+                }
+                return@launch
             }
 
-//            // Cập nhật tiêu đề đoạn chat nếu cần
-//            if (!hasUpdatedTitle) {
-//                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-//                hasUpdatedTitle = true
-//                loadChatSegments()
-//            }
-            return
-        }
+            // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
+            try {
+                val actualPrompt = if (prompt.isEmpty()) {
+                    "Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình và đoán được mong muốn của người dùng về bức ảnh. Hãy tận dụng câu vai trò đã giao để hoàn thành câu trả lời"
+                } else {
+                    prompt
+                }
+                val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
+                val currentSegment = chatState.value.selectedSegment
+                
+                // Đảm bảo không đánh dấu tin nhắn mới là đã typed
+                _typedMessagesIds.remove(chat.id)
+                
+                _chatState.update {
+                    it.copy(
+                        chatList = it.chatList + chat,
+                        isLoading = false,
+                        isWaitingForResponse = false,
+                        typedMessages = _typedMessagesIds.toSet()
+                    )
+                }
 
-        // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
-        try {
-            val actualPrompt = if (prompt.isEmpty()) {
-                "Bạn hãy xem hình ảnh tôi gửi và cho tôi biết trong ảnh có gì? Bạn hãy nói cho tôi biết rõ mọi thứ trong ảnh. Bạn hãy tùy cơ ứng biến để thể hiện bạn là một người thông minh nhất thế giới khi đọc được nội dung của hình và đoán được mong muốn của người dùng về bức ảnh. Hãy tận dụng câu vai trò đã giao để hoàn thành câu trả lời"
-            } else {
-                prompt
+                // Chỉ cập nhật tiêu đề nếu đoạn chat chưa có tiêu đề và không phải tin nhắn của người dùng
+                if (!hasUpdatedTitle && !chat.isFromUser && currentSegment?.title == "Đoạn chat mới") {
+                    repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
+                    hasUpdatedTitle = true
+                    loadChatSegments() // Cập nhật lại danh sách đoạn chat
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
             }
-            val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
-            val currentSegment = chatState.value.selectedSegment
-            _chatState.update {
-                it.copy(
-                    chatList = it.chatList + chat,
-                    isLoading = false
-                )
-            }
-
-            // Chỉ cập nhật tiêu đề nếu đoạn chat chưa có tiêu đề và không phải tin nhắn của người dùng
-            if (!hasUpdatedTitle && !chat.isFromUser && currentSegment?.title == "Đoạn chat mới") {
-                repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-                hasUpdatedTitle = true
-                loadChatSegments() // Cập nhật lại danh sách đoạn chat
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            _chatState.update { it.copy(isLoading = false) }
         }
     }
 
