@@ -110,7 +110,7 @@ class ChatRepository @Inject constructor(
             chatHistory.filterNot { it.isError }
                 .joinToString(separator = "\n") { chat ->
                     val sender = if (chat.isFromUser) "User" else ""
-                    "$sender: ${chat.prompt}"
+                    "$sender ${chat.prompt}"
                 } + "\nUser: $currentPrompt"
         }
     }

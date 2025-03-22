@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.foundation.text.selection.SelectionContainer
 
 /**
  * A composable function that displays a table.
@@ -48,7 +49,7 @@ fun EnhancedTableView(
     // Lấy độ rộng màn hình
     val screenWidth = LocalConfiguration.current.screenWidthDp
 
-    // Sử dụng cùng hàm tính toán chiều rộng như trong AnimatedTableView
+    // Tính toán chiều rộng cột dựa trên nội dung
     val columnWidths = remember(parsedHeaders, parsedRows, screenWidth) {
         calculateColumnWidthsByContent(parsedHeaders, parsedRows, screenWidth)
     }
@@ -58,11 +59,11 @@ fun EnhancedTableView(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(8.dp))
             .border(
                 width = 1.dp,
                 color = borderColor,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(8.dp)
             ),
         color = Color.Transparent
     ) {
@@ -70,20 +71,21 @@ fun EnhancedTableView(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(scrollState)
-                .padding(vertical = 8.dp)
+                .padding(0.dp)
         ) {
             // Header row
             Row(
                 modifier = Modifier
                     .background(headerBackgroundColor)
-                    .padding(vertical = 16.dp, horizontal = 16.dp),
+                    .padding(vertical = 8.dp)
+                    .height(IntrinsicSize.Min),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 parsedHeaders.forEachIndexed { index, header ->
                     Box(
                         modifier = Modifier
                             .width(columnWidths[index])
-                            .padding(horizontal = 8.dp)
+                            .padding(horizontal = 12.dp) // Tăng padding ngang
                     ) {
                         Text(
                             text = header,
@@ -91,9 +93,19 @@ fun EnhancedTableView(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
                                 color = headerTextColor,
-                                textAlign = TextAlign.Center
+                                textAlign = TextAlign.Start
                             ),
                             modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    
+                    // Thêm divider dọc sau mỗi cột (trừ cột cuối)
+                    if (index < parsedHeaders.size - 1) {
+                        Divider(
+                            color = borderColor,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(1.dp)
                         )
                     }
                 }
@@ -109,23 +121,39 @@ fun EnhancedTableView(
                 Row(
                     modifier = Modifier
                         .background(rowBackground)
-                        .padding(vertical = 12.dp, horizontal = 16.dp),
+                        .height(IntrinsicSize.Min)
+                        .padding(vertical = 6.dp), // Giảm padding dọc
                     verticalAlignment = Alignment.Top
                 ) {
                     row.forEachIndexed { colIndex, cell ->
-                        Box(
-                            modifier = Modifier
-                                .width(if (colIndex < columnWidths.size) columnWidths[colIndex] else 100.dp)
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = cell,
-                                style = TextStyle(
-                                    fontSize = 15.sp,
-                                    color = rowTextColor,
-                                    lineHeight = 24.sp
-                                ),
-                                modifier = Modifier.fillMaxWidth()
+                        // Bọc nội dung trong SelectionContainer để cho phép sao chép
+                        SelectionContainer {
+                            Box(
+                                modifier = Modifier
+                                    .width(if (colIndex < columnWidths.size) columnWidths[colIndex] else 100.dp)
+                                    .padding(horizontal = 12.dp, vertical = 4.dp) // Tăng padding ngang, giữ padding dọc
+                            ) {
+                                // Sử dụng trực tiếp cell (AnnotatedString) để giữ định dạng
+                                Text(
+                                    text = cell,
+                                    style = TextStyle(
+                                        fontSize = 15.sp,
+                                        color = rowTextColor,
+                                        lineHeight = 18.sp, // Giảm line height để các dòng gần nhau hơn
+                                        textAlign = TextAlign.Start
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                        
+                        // Thêm divider dọc giữa các cột (trừ cột cuối cùng)
+                        if (colIndex < row.size - 1) {
+                            Divider(
+                                color = borderColor.copy(alpha = 0.7f), // Làm đậm hơn
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .width(1.dp)
                             )
                         }
                     }
@@ -133,7 +161,7 @@ fun EnhancedTableView(
 
                 if (rowIndex < rows.size - 1) {
                     Divider(
-                        color = borderColor.copy(alpha = 0.5f),
+                        color = borderColor.copy(alpha = 0.7f), // Làm đậm hơn
                         thickness = 0.5.dp
                     )
                 }
@@ -143,8 +171,7 @@ fun EnhancedTableView(
 }
 
 /**
- * Tính toán chiều rộng cột chỉ dựa vào nội dung, 
- * không làm cân đối các cột với nhau
+ * Tính toán chiều rộng cột dựa trên nội dung thực tế
  */
 private fun calculateColumnWidthsByContent(
     headers: List<AnnotatedString>,
@@ -166,8 +193,13 @@ private fun calculateColumnWidthsByContent(
     rows.forEach { row ->
         row.forEachIndexed { idx, cell ->
             if (idx < columnCount) {
+                // Tách văn bản thành các dòng
                 val lines = cell.text.split("\n")
+                
+                // Tìm dòng dài nhất
                 val maxLineLength = lines.maxOfOrNull { it.length } ?: cell.text.length
+                
+                // Cập nhật độ dài tối đa cho cột này
                 maxTextLengths[idx] = maxOf(maxTextLengths[idx], maxLineLength)
             }
         }
@@ -175,8 +207,15 @@ private fun calculateColumnWidthsByContent(
     
     // Tính chiều rộng cho mỗi cột dựa hoàn toàn vào nội dung
     return maxTextLengths.map { textLength ->
-        val characterWidth = 7.5f // Chữ ở giữa bảng 7.5dp/ký tự
-        val fixedPadding = 32f // Đệm cố định
+        // Điều chỉnh hệ số dựa trên loại nội dung
+        val characterWidth = when {
+            textLength <= 5 -> 8.0f  // Cột nhỏ, text ngắn: cần nhiều không gian tương đối
+            textLength <= 15 -> 7.0f // Cột trung bình
+            else -> 6.5f             // Cột lớn, nhiều nội dung: có thể tối ưu không gian
+        }
+        
+        // Tăng padding cố định để tạo khoảng thở cho text
+        val fixedPadding = 28f 
         
         // Chiều rộng dựa trên nội dung thực tế
         val contentBasedWidth = textLength * characterWidth + fixedPadding
