@@ -27,24 +27,34 @@ fun parseFormattedText(input: String): AnnotatedString {
     var isInTable = false
     var tableHeader: List<String> = emptyList()
     val tableRows: MutableList<List<String>> = mutableListOf()
+    
+    // For blockquotes
+    var isInBlockquote = false
+    var blockquoteContent = StringBuilder()
 
 
     for ((index, line) in lines.withIndex()) {
         // --- Table Handling ---
         if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
-            if (!isInTable) {
-                isInTable = true
-            }
-            val cells = line.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+            // Kiểm tra xem dòng này có phải là separator không
+            val isSeparatorLine = line.trim().replace("|", "").trim().all { it == '-' || it == ' ' }
+            
+            if (!isSeparatorLine) {  // Chỉ xử lý nếu không phải dòng separator
+                if (!isInTable) {
+                    isInTable = true
+                }
+                val cells = line.split("|").map { it.trim() }.filter { it.isNotEmpty() }
 
-            if (cells.isNotEmpty()) {
-                if (tableHeader.isEmpty()) {
-                    tableHeader = cells
-                } else {
-                    tableRows.add(cells)
+                if (cells.isNotEmpty()) {
+                    if (tableHeader.isEmpty()) {
+                        tableHeader = cells
+                    } else {
+                        tableRows.add(cells)
+                    }
                 }
             }
-            if (index < lines.lastIndex) { // Check if it's the last line
+            
+            if (index < lines.lastIndex) {
                 continue // Process next line.  Crucial for correct table parsing.
             }
         } else if (isInTable) {
@@ -56,6 +66,28 @@ fun parseFormattedText(input: String): AnnotatedString {
         }
         // --- End Table Handling ---
 
+        // Handle blockquote
+        if (line.trim().startsWith(">")) {
+            if (!isInBlockquote) {
+                isInBlockquote = true
+                blockquoteContent = StringBuilder()
+            }
+            // Extract content without the ">" prefix
+            val content = line.trim().substring(1).trim()
+            blockquoteContent.appendLine(content)
+            
+            if (index < lines.lastIndex) {
+                continue // Process next line for blockquote
+            } else {
+                // End blockquote if last line
+                appendBlockquote(builder, blockquoteContent.toString().trim())
+                isInBlockquote = false
+            }
+        } else if (isInBlockquote) {
+            // End previous blockquote
+            appendBlockquote(builder, blockquoteContent.toString().trim())
+            isInBlockquote = false
+        }
 
         // Handle code blocks
         if (line.trim().startsWith("```")) {
@@ -105,15 +137,6 @@ fun parseFormattedText(input: String): AnnotatedString {
             }
             builder.withStyle(SpanStyle(fontSize = fontSize, fontWeight = FontWeight.Bold)) {
                 append(content)
-            }
-            wasPreviousLineListItem = false
-        }
-        // Handle blockquotes
-        else if (line.trim().startsWith(">")) {
-            val content = line.trim().removePrefix(">").trim()
-            builder.withStyle(SpanStyle(color = Color.Gray)) {
-                append("    ") // Indent for blockquote
-                applyInlineStyles(builder, content)
             }
             wasPreviousLineListItem = false
         }
@@ -196,7 +219,7 @@ fun parseFormattedText(input: String): AnnotatedString {
             }
         }
 
-        if (index < lines.lastIndex && !isInCodeBlock && !isInTable) {
+        if (index < lines.lastIndex && !isInCodeBlock && !isInTable && !isInBlockquote) {
             builder.append("\n")
         }
     }
@@ -215,7 +238,11 @@ fun parseFormattedText(input: String): AnnotatedString {
     if (isInTable) {
         appendTable(builder, tableHeader, tableRows)
     }
-
+    
+    // Handle any remaining blockquote
+    if (isInBlockquote) {
+        appendBlockquote(builder, blockquoteContent.toString().trim())
+    }
 
     return builder.toAnnotatedString()
 }
@@ -230,56 +257,142 @@ private fun appendTable(
 ) {
     if (header.isEmpty()) return
 
-    val numColumns = header.size
-    val columnWidths = IntArray(numColumns) { 0 }
-
-    // Calculate maximum width for each column
-    for (i in 0 until numColumns) {
-        columnWidths[i] = header[i].length
-        for (row in rows) {
-            if (i < row.size) { // Handle rows with fewer columns
-                columnWidths[i] = maxOf(columnWidths[i], row[i].length)
-            }
-        }
+    // Add a special annotation for the table
+    val tableStart = builder.length
+    
+    // Mark the beginning of a new line if needed
+    if (tableStart > 0 && !builder.toString().endsWith("\n")) {
+        builder.append("\n")
     }
-
-    // Append header
-    appendTableRow(builder, header, columnWidths, isHeader = true)
-
-    // Append rows
-    for (row in rows) {
-        appendTableRow(builder, row, columnWidths, isHeader = false)
+    
+    // Create the table header and rows as a single annotation
+    val tableContent = buildTableContent(header, rows)
+    
+    // Append placeholder text and add the annotation
+    builder.append(tableContent)
+    val tableEnd = builder.length
+    
+    // Add a table annotation with all data serialized
+    val headerJson = header.joinToString("|||")
+    val rowsJson = rows.joinToString(";;;") { row ->
+        row.joinToString("|||")
+    }
+    
+    builder.addStringAnnotation(
+        tag = "TABLE",
+        annotation = "$headerJson::$rowsJson",
+        start = tableStart,
+        end = tableEnd
+    )
+    
+    // Add a newline after the table if needed
+    if (!builder.toString().endsWith("\n")) {
+        builder.append("\n")
     }
 }
 
 /**
- * Appends a single table row to the AnnotatedString.Builder.
+ * Xây dựng nội dung bảng dựa trên header và rows
  */
-private fun appendTableRow(
-    builder: AnnotatedString.Builder,
-    row: List<String>,
-    columnWidths: IntArray,
-    isHeader: Boolean
-) {
-    val numColumns = columnWidths.size
+fun buildTableContent(header: List<String>, rows: List<List<String>>): String {
+    val sb = StringBuilder()
 
-    for (i in 0 until numColumns) {
-        val cell = if (i < row.size) row[i] else "" // Handle missing cells
-        val padding = " ".repeat(columnWidths[i] - cell.length)
-        val formattedCell = "$cell$padding  " // Add extra space for separation
-
-        builder.withStyle(
-            style = SpanStyle(
-                fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
-                fontFamily = FontFamily.Monospace
-            )
-        ) {
-            append(formattedCell)
-        }
+    // Header row - giữ nguyên không thay đổi định dạng markdown
+    header.forEach { cell ->
+        sb.append("| $cell ")
     }
-    builder.append("\n")
+    sb.append("|\n")
+
+    // Data rows - giữ nguyên không thay đổi định dạng markdown
+    rows.forEach { row ->
+        row.forEach { cell ->
+            sb.append("| $cell ")
+        }
+        sb.append("|\n")
+    }
+
+    return sb.toString()
 }
 
+/**
+ * Xác định chiều rộng thích hợp cho mỗi cột dựa trên nội dung
+ */
+private fun determineColumnWidths(header: List<String>, rows: List<List<String>>): List<Int> {
+    val columnCount = header.size
+    val widths = MutableList(columnCount) { 0 }
+
+    // Check header lengths
+    header.forEachIndexed { index, cell ->
+        widths[index] = cell.length.coerceAtLeast(widths[index])
+    }
+
+    // Check all row cell lengths
+    rows.forEach { row ->
+        row.forEachIndexed { index, cell ->
+            if (index < columnCount) {
+                widths[index] = cell.length.coerceAtLeast(widths[index])
+            }
+        }
+    }
+
+    // Ensure minimum width for better readability
+    return widths.map { it.coerceAtLeast(3) }
+}
+
+/**
+ * Xử lý markdown trong các ô của bảng (trả về plain text, chuẩn bị cho hiển thị)
+ */
+fun processTableCellMarkdown(cellContent: String): String {
+    // Loại bỏ các định dạng markdown để xác định chiều rộng cột chính xác
+    var content = cellContent
+
+    // Xử lý bold (**text**)
+    content = content.replace("""(\*\*)(.*?)(\*\*)""".toRegex()) { it.groupValues[2] }
+
+    // Xử lý italic (*text*)
+    content = content.replace("""(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)""".toRegex()) { it.groupValues[1] }
+
+    // Xử lý bold-italic (***text***)
+    content = content.replace("""(\*\*\*)(.*?)(\*\*\*)""".toRegex()) { it.groupValues[2] }
+
+    // Xử lý inline code (`text`)
+    content = content.replace("""`(.*?)`""".toRegex()) { it.groupValues[1] }
+
+    return content
+}
+
+/**
+ * Appends a blockquote to the AnnotatedString.Builder.
+ */
+private fun appendBlockquote(
+    builder: AnnotatedString.Builder,
+    content: String
+) {
+    if (content.isEmpty()) return
+    
+    // Add a special annotation for the blockquote
+    val blockquoteStart = builder.length
+    
+    // Mark the beginning of a new line if needed
+    if (blockquoteStart > 0 && !builder.toString().endsWith("\n")) {
+        builder.append("\n")
+    }
+    
+    builder.append(content)
+    val blockquoteEnd = builder.length
+    
+    builder.addStringAnnotation(
+        tag = "BLOCKQUOTE",
+        annotation = content,
+        start = blockquoteStart,
+        end = blockquoteEnd
+    )
+    
+    // Add a newline after the blockquote
+    if (!builder.toString().endsWith("\n")) {
+        builder.append("\n")
+    }
+}
 
 /**
  * Updated keyword colors map for Kotlin-specific syntax highlighting.

@@ -63,7 +63,7 @@ fun FormattedTextDisplay(
 
             when (section.type) {
                 "CODE_BLOCK" -> {
-                    CodeBlockView(
+                    EnhancedCodeBlockView(
                         code = section.content,
                         clipboardManager = clipboardManager,
                         context = context,
@@ -73,6 +73,7 @@ fun FormattedTextDisplay(
                         typingSpeed = typingSpeed,
                         onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
                 "INLINE_CODE" -> {
                     if (isNewMessage && !animationCompleted) {
@@ -92,6 +93,43 @@ fun FormattedTextDisplay(
                     } else {
                         InlineCodeText(text = section.content, isError = false)
                     }
+                }
+                "TABLE" -> {
+                    val (headers, tableRows) = parseTableData(section.content)
+                    
+                    if (isNewMessage && !animationCompleted) {
+                        AnimatedTableView(
+                            headers = headers,
+                            rows = tableRows,
+                            typingSpeed = typingSpeed,
+                            onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
+                            snackbarHostState = snackbarHostState
+                        )
+                    } else {
+                        EnhancedTableView(
+                            headers = headers,
+                            rows = tableRows,
+                            snackbarHostState = snackbarHostState
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                "BLOCKQUOTE" -> {
+                    val blockquoteContent = parseFormattedText(section.content)
+                    
+                    if (isNewMessage && !animationCompleted) {
+                        EnhancedBlockquoteView(
+                            content = blockquoteContent,
+                            isAnimated = true,
+                            typingSpeed = typingSpeed,
+                            onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
+                        )
+                    } else {
+                        EnhancedBlockquoteView(
+                            content = blockquoteContent
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
                 }
                 else -> {
                     SelectionContainer {
@@ -128,12 +166,13 @@ fun splitAnnotatedString(annotatedString: AnnotatedString): List<AnnotatedString
     val sections = mutableListOf<AnnotatedStringSection>()
     var currentIndex = 0
 
-
     while (currentIndex < annotatedString.length) {
         val codeBlockAnnotation = annotatedString.getStringAnnotations(tag = "CODE_BLOCK", start = currentIndex, end = annotatedString.length).firstOrNull()
         val inlineCodeAnnotation = annotatedString.getStringAnnotations(tag = "INLINE_CODE", start = currentIndex, end = annotatedString.length).firstOrNull()
+        val tableAnnotation = annotatedString.getStringAnnotations(tag = "TABLE", start = currentIndex, end = annotatedString.length).firstOrNull()
+        val blockquoteAnnotation = annotatedString.getStringAnnotations(tag = "BLOCKQUOTE", start = currentIndex, end = annotatedString.length).firstOrNull()
 
-        val nextAnnotation = listOfNotNull(codeBlockAnnotation, inlineCodeAnnotation).minByOrNull { it.start }
+        val nextAnnotation = listOfNotNull(codeBlockAnnotation, inlineCodeAnnotation, tableAnnotation, blockquoteAnnotation).minByOrNull { it.start }
 
         if (nextAnnotation != null) {
             if (nextAnnotation.start > currentIndex) {
@@ -170,6 +209,22 @@ fun splitAnnotatedString(annotatedString: AnnotatedString): List<AnnotatedString
                         )
                     )
                 }
+                "TABLE" -> {
+                    sections.add(
+                        AnnotatedStringSection(
+                            type = "TABLE",
+                            content = nextAnnotation.item
+                        )
+                    )
+                }
+                "BLOCKQUOTE" -> {
+                    sections.add(
+                        AnnotatedStringSection(
+                            type = "BLOCKQUOTE",
+                            content = nextAnnotation.item
+                        )
+                    )
+                }
             }
 
             currentIndex = nextAnnotation.end
@@ -189,6 +244,28 @@ fun splitAnnotatedString(annotatedString: AnnotatedString): List<AnnotatedString
     }
 
     return sections
+}
+
+/**
+ * Parse the table annotation data into headers and rows.
+ */
+private fun parseTableData(tableData: String): Pair<List<String>, List<List<String>>> {
+    val parts = tableData.split("::", limit = 2)
+    if (parts.size != 2) return Pair(emptyList(), emptyList())
+    
+    val headers = parts[0].split("|||")
+    val rows = parts[1].split(";;;").map { row -> 
+        row.split("|||") 
+    }
+    
+    // Lọc ra các hàng không phải separator (các hàng chỉ chứa dấu gạch ngang)
+    val filteredRows = rows.filter { rowCells ->
+        !rowCells.all { cell -> 
+            cell.trim().all { char -> char == '-' || char == ' ' } 
+        }
+    }
+    
+    return Pair(headers, filteredRows)
 }
 
 /**
