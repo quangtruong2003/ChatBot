@@ -97,7 +97,8 @@ import java.io.File
 @Composable
 fun ChatScreen(
     navController: NavController,
-    chatViewModel: ChatViewModel = hiltViewModel()
+    chatViewModel: ChatViewModel = hiltViewModel(),
+    onShowUserDetail: () -> Unit
 ) {
     val chatState by chatViewModel.chatState.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
@@ -288,7 +289,11 @@ fun ChatScreen(
                         }
                     },
                     chatViewModel = chatViewModel,
-                    onLogout = { showLogoutDialog = true }
+                    onLogout = { showLogoutDialog = true },
+                    onShowUserDetail = {
+                        // Không đóng drawer khi mở UserDetailBottomSheet
+                        onShowUserDetail()
+                    }
                 )
             }
         },
@@ -758,8 +763,8 @@ fun ChatScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             // --- TextField nằm phía trên ---
-                            LaunchedEffect(chatState.imageUri, chatState.prompt, chatState.chatList) {
-                                showWelcomeMessage = chatState.prompt.isEmpty() && chatState.chatList.isEmpty() && chatState.imageUri == null
+                            LaunchedEffect(chatState.imageUri, chatState.chatList) {
+                                showWelcomeMessage = chatState.chatList.isEmpty()
                             }
                             TextField(
                                 modifier = Modifier
@@ -778,8 +783,6 @@ fun ChatScreen(
                                 value = chatState.prompt,
                                 onValueChange = { newValue ->
                                     chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newValue))
-                                    // Ẩn WelcomeMessage nếu có text, chatList không rỗng hoặc có hình ảnh
-                                    showWelcomeMessage = newValue.isEmpty() && chatState.chatList.isEmpty() && chatState.imageUri == null
                                     scope.launch {
                                         scrollState.animateScrollTo(scrollState.maxValue)
                                     }
@@ -855,9 +858,6 @@ fun ChatScreen(
                                             photoUri?.let {
                                                 takePictureLauncher.launch(it)
                                             }
-                                            // Khi thêm ảnh, ẩn WelcomeMessage
-                                            showWelcomeMessage = false
-                                            // ChatScreen.kt (tiếp tục)
                                             showSourceMenu = false
                                         },
                                         trailingIcon = {
@@ -886,8 +886,6 @@ fun ChatScreen(
                                                     ActivityResultContracts.PickVisualMedia.ImageOnly
                                                 )
                                             )
-                                            // Khi thêm ảnh, ẩn WelcomeMessage
-                                            showWelcomeMessage = false
                                             showSourceMenu = false
                                         },
                                         trailingIcon = {
@@ -934,8 +932,6 @@ fun ChatScreen(
                                                                 chatState.imageUri
                                                             )
                                                         )
-                                                        // Khi gửi tin nhắn, ẩn WelcomeMessage
-                                                        showWelcomeMessage = false
                                                     }
                                                 }
                                             ),

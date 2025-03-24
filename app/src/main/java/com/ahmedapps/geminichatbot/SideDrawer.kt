@@ -1,5 +1,7 @@
 package com.ahmedapps.geminichatbot
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,11 +9,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,8 +23,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -32,16 +36,19 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.ahmedapps.geminichatbot.data.ChatSegment
+import com.google.firebase.auth.FirebaseAuth
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlinx.coroutines.launch
 
 @Composable
 fun SideDrawer(
     onClose: () -> Unit,
     chatViewModel: ChatViewModel,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onShowUserDetail: () -> Unit
 ) {
     val gradientBrush = Brush.linearGradient(
         colors = listOf(
@@ -58,6 +65,7 @@ fun SideDrawer(
     var segmentToDelete by remember { mutableStateOf<ChatSegment?>(null) }
     var segmentToRename by remember { mutableStateOf<ChatSegment?>(null) }
     var showPersonalInfoDialog by remember { mutableStateOf(false) }
+    var isSearchVisible by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.background,
@@ -70,16 +78,6 @@ fun SideDrawer(
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
-                SearchBar(
-                    searchQuery = searchQuery,
-                    onSearchQueryChanged = { query ->
-                        chatViewModel.onEvent(ChatUiEvent.SearchSegments(query))
-                    },
-                    onClearSearch = {
-                        chatViewModel.onEvent(ChatUiEvent.ClearSearch)
-                    }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
                 CompletedChatList(
                     segments = allSegments,
                     selectedSegment = chatState.selectedSegment,
@@ -98,7 +96,22 @@ fun SideDrawer(
                         chatViewModel.clearChat()
                         onClose()
                     },
+                    onToggleSearch = {
+                        isSearchVisible = !isSearchVisible
+                        if (!isSearchVisible) {
+                            chatViewModel.onEvent(ChatUiEvent.ClearSearch)
+                        }
+                    },
+                    isSearchVisible = isSearchVisible,
+                    searchQuery = searchQuery,
+                    onSearchQueryChanged = { query ->
+                        chatViewModel.onEvent(ChatUiEvent.SearchSegments(query))
+                    },
+                    onClearSearch = {
+                        chatViewModel.onEvent(ChatUiEvent.ClearSearch)
+                    },
                     onLogout = onLogout,
+                    onShowUserDetail = onShowUserDetail,
                     modifier = Modifier.weight(1f)
                 )
                 GradientButton(
@@ -161,6 +174,27 @@ fun SideDrawer(
                 onDismiss = { showPersonalInfoDialog = false }
             )
         }
+    }
+}
+
+@OptIn(ExperimentalAnimationApi::class)
+@Composable
+fun AnimatedSearchBar(
+    searchQuery: String,
+    onSearchQueryChanged: (String) -> Unit,
+    onClearSearch: () -> Unit,
+    isVisible: Boolean
+) {
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = slideInVertically(initialOffsetY = { -it }) + expandVertically() + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { -it }) + shrinkVertically() + fadeOut()
+    ) {
+        SearchBar(
+            searchQuery = searchQuery,
+            onSearchQueryChanged = onSearchQueryChanged,
+            onClearSearch = onClearSearch
+        )
     }
 }
 
@@ -253,17 +287,27 @@ fun CompletedChatList(
     onSegmentDelete: (ChatSegment) -> Unit,
     onSegmentRename: (ChatSegment) -> Unit,
     onDeleteAllChats: () -> Unit,
+    onToggleSearch: () -> Unit,
+    isSearchVisible: Boolean,
+    searchQuery: String,
+    onSearchQueryChanged: (String) -> Unit,
+    onClearSearch: () -> Unit,
     onLogout: () -> Unit,
+    onShowUserDetail: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showFirstConfirmationDialog by remember { mutableStateOf(false) }
     var showSecondConfirmationDialog by remember { mutableStateOf(false) }
+    
+    val currentUser = FirebaseAuth.getInstance().currentUser
+    val photoUrl = currentUser?.photoUrl
+    val email = currentUser?.email
 
     Column(modifier = modifier) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp),
+                .padding(bottom = if (!isSearchVisible) 8.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -272,19 +316,51 @@ fun CompletedChatList(
                 style = MaterialTheme.typography.titleMedium
             )
             Row {
+                IconButton(onClick = onToggleSearch) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Tìm kiếm",
+                        tint = if (isSearchVisible) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                    )
+                }
                 IconButton(onClick = { showFirstConfirmationDialog = true }) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_bin),
                         contentDescription = "Xóa tất cả lịch sử"
                     )
                 }
-                IconButton(onClick = onLogout) {
-                    Icon(
-                        imageVector = Icons.Default.ExitToApp,
-                        contentDescription = "Đăng xuất"
-                    )
+                IconButton(onClick = onShowUserDetail) {
+                    if (photoUrl != null) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(photoUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Ảnh đại diện",
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "Thông tin người dùng"
+                        )
+                    }
                 }
             }
+        }
+        
+        AnimatedSearchBar(
+            searchQuery = searchQuery,
+            onSearchQueryChanged = onSearchQueryChanged,
+            onClearSearch = onClearSearch,
+            isVisible = isSearchVisible
+        )
+        
+        if (isSearchVisible) {
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
         val groupedByLabel = segments.groupBy { segment ->

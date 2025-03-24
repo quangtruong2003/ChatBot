@@ -1,4 +1,3 @@
-// MainActivity.kt
 package com.ahmedapps.geminichatbot
 
 import android.os.Bundle
@@ -8,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.runtime.*
 import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavType
@@ -20,10 +20,10 @@ import com.ahmedapps.geminichatbot.loginlogout.ForgotPasswordScreen
 import com.ahmedapps.geminichatbot.loginlogout.RegistrationScreen
 import com.ahmedapps.geminichatbot.ui.screens.ChatScreen
 import com.ahmedapps.geminichatbot.ui.screens.FullScreenImageScreen
-
 import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.AndroidEntryPoint
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @AndroidEntryPoint
@@ -44,10 +44,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
-            GeminiChatBotTheme {
+            GeminiChatBotTheme(dynamicColor = true) {
                 val navController = rememberNavController()
                 val currentUser = FirebaseAuth.getInstance().currentUser
                 val startDestination = if (currentUser != null) "chat" else "login"
+                
+                // State to control user detail bottom sheet
+                var showUserDetail by remember { mutableStateOf(false) }
 
                 NavHost(navController, startDestination = startDestination) {
                     composable("login") {
@@ -57,19 +60,13 @@ class MainActivity : ComponentActivity() {
                                     popUpTo("login") { inclusive = true }
                                 }
                             },
-                            onNavigateToRegister = {
-                                navController.navigate("register")
-                            },
-                            onNavigateToForgotPassword = {
-                                navController.navigate("forgot_password")
-                            }
+                            onNavigateToRegister = { navController.navigate("register") },
+                            onNavigateToForgotPassword = { navController.navigate("forgot_password") }
                         )
                     }
                     composable("forgot_password") {
                         ForgotPasswordScreen(
-                            onBackToLogin = {
-                                navController.popBackStack()
-                            }
+                            onBackToLogin = { navController.popBackStack() }
                         )
                     }
                     composable("register") {
@@ -87,7 +84,24 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     composable("chat") {
-                        ChatScreen(navController = navController)
+                        val chatViewModel = hiltViewModel<ChatViewModel>()
+                        ChatScreen(
+                            navController = navController,
+                            onShowUserDetail = { showUserDetail = true }
+                        )
+                        
+                        // Show user detail as bottom sheet when requested
+                        if (showUserDetail) {
+                            UserDetailBottomSheet(
+                                onDismiss = { showUserDetail = false },
+                                onLogout = {
+                                    FirebaseAuth.getInstance().signOut()
+                                    navController.navigate("login") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
                     }
                     composable(
                         "fullscreen_image/{encodedImageUrl}",
@@ -100,6 +114,7 @@ class MainActivity : ComponentActivity() {
                             onClose = { navController.popBackStack() }
                         )
                     }
+                    // Removed separate user_detail screen as it's now a bottom sheet
                 }
             }
         }
