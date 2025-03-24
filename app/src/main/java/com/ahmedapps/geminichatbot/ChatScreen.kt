@@ -276,6 +276,7 @@ fun ChatScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
+            // open file don't close slide
             ModalDrawerSheet(
                 drawerContainerColor = MaterialTheme.colorScheme.background,
                 modifier = Modifier
