@@ -8,8 +8,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CopyAll
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Rule
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -24,13 +26,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.ChevronRight
 import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UserDetailBottomSheet(
     onDismiss: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onDeleteAllChats: () -> Unit
 ) {
     val currentUser = FirebaseAuth.getInstance().currentUser
     val photoUrl = currentUser?.photoUrl
@@ -39,10 +44,18 @@ fun UserDetailBottomSheet(
     val context = LocalContext.current
 
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showRulesDialog by remember { mutableStateOf(false) }
+    var currentRules by remember { mutableStateOf("") }
+    var showFirstDeleteDialog by remember { mutableStateOf(false) }
+    var showSecondDeleteDialog by remember { mutableStateOf(false) }
     
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(),
+        sheetState = sheetState,
         dragHandle = { 
             // Custom drag handle for the bottom sheet
             Box(
@@ -151,6 +164,85 @@ fun UserDetailBottomSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Rules AI Section (Clickable Card)
+            Card(
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showRulesDialog = true },
+                elevation = CardDefaults.cardElevation(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Rule,
+                            contentDescription = "Thiết lập Rules AI",
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Thiết lập Rules AI",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Delete All Chats Section (Clickable Card)
+            Card(
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showFirstDeleteDialog = true },
+                elevation = CardDefaults.cardElevation(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteForever,
+                            contentDescription = "Xóa tất cả lịch sử chat",
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Xóa tất cả lịch sử chat",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
 
             // Logout button
@@ -179,6 +271,41 @@ fun UserDetailBottomSheet(
                 onConfirm = {
                     showLogoutDialog = false
                     onLogout()
+                }
+            )
+        }
+
+        // Show Rules AI dialog if needed
+        if (showRulesDialog) {
+            RulesAIDialog(
+                initialRules = currentRules,
+                onDismiss = { showRulesDialog = false },
+                onSave = { newRules ->
+                    currentRules = newRules
+                    showRulesDialog = false
+                    Toast.makeText(context, "Đã lưu Rules AI", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        // Show Delete All Chats confirmation dialogs if needed
+        if (showFirstDeleteDialog) {
+            DeleteAllChatsFirstConfirmationDialog(
+                onDismiss = { showFirstDeleteDialog = false },
+                onConfirm = {
+                    showFirstDeleteDialog = false
+                    showSecondDeleteDialog = true
+                }
+            )
+        }
+
+        if (showSecondDeleteDialog) {
+            DeleteAllChatsSecondConfirmationDialog(
+                onDismiss = { showSecondDeleteDialog = false },
+                onConfirm = {
+                    showSecondDeleteDialog = false
+                    onDeleteAllChats()
+                    onDismiss()
                 }
             )
         }
@@ -216,6 +343,156 @@ fun LogoutConfirmationDialog(
                     Spacer(modifier = Modifier.width(8.dp))
                     TextButton(onClick = onConfirm) {
                         Text("Đồng ý")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RulesAIDialog(
+    initialRules: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var rulesText by remember { mutableStateOf(initialRules) }
+    val context = LocalContext.current
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Rule,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Thiết lập Rules AI",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                OutlinedTextField(
+                    value = rulesText,
+                    onValueChange = { rulesText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 150.dp, max = 400.dp),
+                    placeholder = { Text("Ví dụ: Luôn trả lời bằng tiếng Việt, đóng vai trò là một trợ lý...") },
+                    label = { Text("Nội dung Rules") },
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Hủy")
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Button(
+                        onClick = {
+                            onSave(rulesText)
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Lưu")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeleteAllChatsFirstConfirmationDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Xác nhận xóa",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text(
+                    text = "Bạn có chắc chắn muốn xóa toàn bộ lịch sử đoạn chat?",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Hủy")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = onConfirm) {
+                        Text("Xóa")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeleteAllChatsSecondConfirmationDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.background
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Xác nhận lần cuối",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text(
+                    text = "Hành động này không thể hoàn tác. Bạn có thực sự muốn xóa tất cả lịch sử?",
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Hủy")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = onConfirm, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                        Text("Xóa tất cả")
                     }
                 }
             }
