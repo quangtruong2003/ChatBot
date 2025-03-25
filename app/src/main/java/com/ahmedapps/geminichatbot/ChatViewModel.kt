@@ -50,7 +50,7 @@ class ChatViewModel @Inject constructor(
         "gemini-2.0-flash-thinking-exp-01-21" to "AI Thinking",
         //"gemini-exp-1206" to "AI Toàn năng",
         "gemini-2.0-pro-exp-02-05" to "AI Toàn năng",
-        "gemini-2.5-pro-exp-03-25" to "AI Coding"
+        "gemini-2.5-pro-exp-03-25" to "AI Coding",
     )
     val modelIconMap = mapOf(
         //"AI Tốc độ" to R.drawable.ic_flash,
