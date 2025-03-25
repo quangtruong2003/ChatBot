@@ -92,10 +92,6 @@ fun SideDrawer(
                     onSegmentDelete = { segment ->
                         segmentToDelete = segment
                     },
-                    onDeleteAllChats = {
-                        chatViewModel.clearChat()
-                        onClose()
-                    },
                     onToggleSearch = {
                         isSearchVisible = !isSearchVisible
                         if (!isSearchVisible) {
@@ -227,13 +223,27 @@ fun SearchBar(
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit
 ) {
-    OutlinedTextField(
+    TextField(
         value = searchQuery,
         onValueChange = onSearchQueryChanged,
-        label = { Text("Tìm kiếm đoạn chat") },
-        modifier = Modifier.fillMaxWidth(),
+        placeholder = { Text("Tìm kiếm đoạn chat") },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp)
+            .height(48.dp),
         singleLine = true,
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(50),
+        colors = TextFieldDefaults.colors(
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+            disabledIndicatorColor = Color.Transparent,
+        ),
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Tìm kiếm"
+            )
+        },
         trailingIcon = {
             if (searchQuery.isNotEmpty()) {
                 IconButton(onClick = onClearSearch) {
@@ -286,7 +296,6 @@ fun CompletedChatList(
     onSegmentSelected: (ChatSegment) -> Unit,
     onSegmentDelete: (ChatSegment) -> Unit,
     onSegmentRename: (ChatSegment) -> Unit,
-    onDeleteAllChats: () -> Unit,
     onToggleSearch: () -> Unit,
     isSearchVisible: Boolean,
     searchQuery: String,
@@ -296,9 +305,6 @@ fun CompletedChatList(
     onShowUserDetail: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showFirstConfirmationDialog by remember { mutableStateOf(false) }
-    var showSecondConfirmationDialog by remember { mutableStateOf(false) }
-    
     val currentUser = FirebaseAuth.getInstance().currentUser
     val photoUrl = currentUser?.photoUrl
     val email = currentUser?.email
@@ -307,7 +313,7 @@ fun CompletedChatList(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = if (!isSearchVisible) 8.dp else 0.dp),
+                .padding(bottom = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -321,12 +327,6 @@ fun CompletedChatList(
                         imageVector = Icons.Default.Search,
                         contentDescription = "Tìm kiếm",
                         tint = if (isSearchVisible) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                    )
-                }
-                IconButton(onClick = { showFirstConfirmationDialog = true }) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_bin),
-                        contentDescription = "Xóa tất cả lịch sử"
                     )
                 }
                 IconButton(onClick = onShowUserDetail) {
@@ -352,6 +352,10 @@ fun CompletedChatList(
             }
         }
         
+        if (isSearchVisible) {
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
         AnimatedSearchBar(
             searchQuery = searchQuery,
             onSearchQueryChanged = onSearchQueryChanged,
@@ -389,79 +393,6 @@ fun CompletedChatList(
                         onRename = { onSegmentRename(segment) },
                         onDelete = { onSegmentDelete(segment) }
                     )
-                }
-            }
-        }
-
-        if (showFirstConfirmationDialog) {
-            Dialog(onDismissRequest = { showFirstConfirmationDialog = false }) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Xác nhận xóa",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        Text(
-                            text = "Bạn có chắc chắn muốn xóa toàn bộ lịch sử đoạn chat?",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            TextButton(onClick = { showFirstConfirmationDialog = false }) {
-                                Text("Hủy")
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            TextButton(onClick = {
-                                showFirstConfirmationDialog = false
-                                showSecondConfirmationDialog = true
-                            }) {
-                                Text("Xóa")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (showSecondConfirmationDialog) {
-            Dialog(onDismissRequest = { showSecondConfirmationDialog = false }) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Xác nhận",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        Text(
-                            text = "Hành động này không thể hoàn tác. Bạn có thực sự muốn xóa tất cả lịch sử?",
-                            style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
-                        ) {
-                            TextButton(onClick = { showSecondConfirmationDialog = false }) {
-                                Text("Hủy")
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            TextButton(onClick = {
-                                showSecondConfirmationDialog = false
-                                onDeleteAllChats()
-                            }) {
-                                Text("Xóa")
-                            }
-                        }
-                    }
                 }
             }
         }

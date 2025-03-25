@@ -99,6 +99,10 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate("login") {
                                         popUpTo(0) { inclusive = true }
                                     }
+                                    showUserDetail = false
+                                },
+                                onDeleteAllChats = {
+                                    chatViewModel.clearChat()
                                 }
                             )
                         }

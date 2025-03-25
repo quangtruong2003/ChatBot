@@ -486,6 +486,9 @@ class ChatViewModel @Inject constructor(
         
         // Gán job mới
         currentResponseJob = viewModelScope.launch {
+            // Cập nhật cả isLoading và isWaitingForResponse
+            _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) }
+
             // Kiểm tra phản hồi tùy chỉnh
             val predefinedResponse = getPredefinedResponse(prompt)
             if (predefinedResponse != null) {
@@ -531,6 +534,7 @@ class ChatViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                // Đặt lại cả isLoading và isWaitingForResponse khi có lỗi
                 _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
             }
         }
@@ -546,6 +550,9 @@ class ChatViewModel @Inject constructor(
         
         // Gán job mới
         currentResponseJob = viewModelScope.launch {
+            // Cập nhật cả isLoading và isWaitingForResponse
+            _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) }
+
             // Kiểm tra phản hồi tùy chỉnh
             val predefinedResponse = getPredefinedResponse(prompt)
             if (predefinedResponse != null) {
@@ -597,6 +604,7 @@ class ChatViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                 // Đặt lại cả isLoading và isWaitingForResponse khi có lỗi
                 _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
             }
         }
