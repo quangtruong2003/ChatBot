@@ -89,6 +89,7 @@ fun RegistrationScreen(
     var passwordFocused by remember { mutableStateOf(false) }
     var confirmPasswordFocused by remember { mutableStateOf(false) }
     var isGoogleSignInLoading by remember { mutableStateOf(false) }
+    var isGoogleAuthSuccessTrigger by remember { mutableStateOf(false) }
     
     // Thêm biến để theo dõi trạng thái bàn phím
     var isKeyboardVisible by remember { mutableStateOf(false) }
@@ -241,13 +242,20 @@ fun RegistrationScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         isGoogleSignInLoading = false
+        isGoogleAuthSuccessTrigger = false
         
         if (result.resultCode == Activity.RESULT_OK) {
             try {
                 val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
                 val account = task.getResult(ApiException::class.java)
                 account?.idToken?.let { idToken ->
+                    isGoogleAuthSuccessTrigger = true
                     viewModel.firebaseAuthWithGoogle(idToken)
+                } ?: run {
+                    Log.e("RegistrationScreen", "Đăng nhập Google thất bại: Không có idToken")
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("Đăng nhập Google thất bại: Không lấy được thông tin.")
+                    }
                 }
             } catch (e: ApiException) {
                 Log.e("RegistrationScreen", "Đăng nhập Google thất bại", e)
@@ -274,351 +282,17 @@ fun RegistrationScreen(
         }
     }
 
-    // Thêm dialog đăng ký thành công
+    // LaunchedEffect để xử lý điều hướng/dialog dựa trên authState.isSuccess
+    LaunchedEffect(authState.isSuccess) {
         if (authState.isSuccess) {
-        // Dialog hiện đại với animation
-        var expandControls by remember { mutableStateOf(false) }
-
-        // Kích hoạt animation sau khi dialog hiển thị
-        LaunchedEffect(Unit) {
-            delay(150)
-            expandControls = true
-        }
-
-        Dialog(
-            onDismissRequest = {
+            if (isGoogleAuthSuccessTrigger) {
+                // Đăng nhập Google thành công, điều hướng ngay
+                onRegistrationSuccess()
+                // Reset trạng thái ViewModel VÀ cờ trigger cục bộ
                 viewModel.resetState()
-                onNavigateToLogin()
-            },
-            properties = DialogProperties(
-                usePlatformDefaultWidth = false,
-                dismissOnBackPress = true,
-                dismissOnClickOutside = true
-            )
-        ) {
-            // --- Lấy các giá trị màu sắc cần thiết ---
-            val dialogPrimaryColor = MaterialTheme.colorScheme.primary
-            val dialogTertiaryColor = MaterialTheme.colorScheme.tertiary
-            val dialogSurfaceColor = MaterialTheme.colorScheme.surface
-            val dialogPrimaryContainerColor = MaterialTheme.colorScheme.primaryContainer
-            val dialogSecondaryContainerColor = MaterialTheme.colorScheme.secondaryContainer
-            val dialogOnSurfaceColor = MaterialTheme.colorScheme.onSurface
-            val dialogOnSurfaceVariantColor = MaterialTheme.colorScheme.onSurfaceVariant
-
-            // --- Khai báo animation ---
-            val iconScale by animateFloatAsState(
-                targetValue = if (expandControls) 1f else 0.5f,
-                animationSpec = spring(
-                    dampingRatio = 0.6f,
-                    stiffness = Spring.StiffnessLow
-                ),
-                label = "iconScale"
-            )
-
-            val rayAnimation by animateFloatAsState(
-                targetValue = if (expandControls) 20f else 0f,
-                animationSpec = tween(800, easing = EaseOutCubic),
-                label = "rayAnimation"
-            )
-
-            // Sử dụng rememberInfiniteTransition cho animation lặp lại
-            val infiniteTransition = rememberInfiniteTransition(label = "checkmarkPulse")
-            val iconAlpha by infiniteTransition.animateFloat(
-                initialValue = 0.7f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1500, easing = EaseInOutCubic),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "iconAlpha"
-            )
-
-            val iconBounce by infiniteTransition.animateFloat(
-                initialValue = 0.9f,
-                targetValue = 1.1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1800, easing = EaseInOutCubic),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "iconBounce"
-            )
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.95f)
-                    .wrapContentHeight()
-                    .clip(RoundedCornerShape(28.dp))
-                    .shadow(elevation = 24.dp, spotColor = dialogPrimaryColor.copy(alpha = 0.2f), shape = RoundedCornerShape(28.dp))
-                    .background(dialogSurfaceColor)
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    // Checkmark icon với animation
-                    Box(
-                        modifier = Modifier
-                            .size(120.dp)
-                            .scale(iconScale)
-                            .drawBehind {
-                                // Vẽ hình tròn phát sáng phía sau
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        colors = listOf(
-                                            dialogPrimaryColor.copy(alpha = 0.2f),
-                                            dialogPrimaryColor.copy(alpha = 0.1f),
-                                            dialogPrimaryColor.copy(alpha = 0f)
-                                        )
-                                    ),
-                                    radius = size.width * 0.75f
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Outer ring
-                        Box(
-                            modifier = Modifier
-                                .size(100.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            dialogPrimaryColor.copy(alpha = 0.1f),
-                                            dialogTertiaryColor.copy(alpha = 0.1f)
-                                        )
-                                    )
-                                )
-                                .border(
-                                    width = 2.dp,
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            dialogPrimaryColor,
-                                            dialogTertiaryColor
-                                        )
-                                    ),
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            // Check icon container
-                            Box(
-                                modifier = Modifier
-                                    .size(70.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        brush = Brush.linearGradient(
-                                            colors = listOf(
-                                                dialogPrimaryContainerColor,
-                                                dialogSecondaryContainerColor
-                                            )
-                                        )
-                                    )
-                                    .padding(12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                // Checkmark icon với animation
-                                Icon(
-                                    imageVector = Icons.Outlined.CheckCircle,
-                                    contentDescription = null,
-                                    tint = dialogPrimaryColor,
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .scale(iconBounce)
-                                        .alpha(iconAlpha)
-                                )
-                            }
-                        }
-
-                        // Hiệu ứng tia sáng xung quanh icon
-                        Canvas(modifier = Modifier.size(120.dp)) {
-                            val radius = size.width / 2
-                            val centerX = size.width / 2
-                            val centerY = size.height / 2
-                            val rayCount = 8
-                            val rayLengthPx = rayAnimation
-                            val animatedRayLength = rayLengthPx * this.density
-                            
-                            for (i in 0 until rayCount) {
-                                val angle = (i * (360f / rayCount)) * (Math.PI.toFloat() / 180f)
-                                val startX = centerX + (radius - 10f.dp.toPx()) * cos(angle)
-                                val startY = centerY + (radius - 10f.dp.toPx()) * sin(angle)
-                                val endX = centerX + (radius + animatedRayLength - 10f.dp.toPx()) * cos(angle)
-                                val endY = centerY + (radius + animatedRayLength - 10f.dp.toPx()) * sin(angle)
-
-                                drawLine(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            dialogPrimaryColor.copy(alpha = 0.7f),
-                                            dialogPrimaryColor.copy(alpha = 0f)
-                                        ),
-                                        start = Offset(startX, startY),
-                                        end = Offset(endX, endY)
-                                    ),
-                                    start = Offset(startX, startY),
-                                    end = Offset(endX, endY),
-                                    strokeWidth = 2.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Title với animation
-                    AnimatedVisibility(
-                        visible = expandControls,
-                        enter = fadeIn(tween(400)) + expandVertically(tween(400, easing = EaseOutCubic)),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        Text(
-                            text = "Đăng Ký Thành Công",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = dialogOnSurfaceColor,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Email với hiệu ứng typing animation
-                    AnimatedVisibility(
-                        visible = expandControls,
-                        enter = fadeIn(tween(600, delayMillis = 300)) + expandVertically(tween(600, easing = EaseOutCubic, delayMillis = 300)),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        Text(
-                            text = email,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = dialogPrimaryColor,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .background(
-                                    color = dialogPrimaryContainerColor.copy(alpha = 0.4f),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Message
-                    AnimatedVisibility(
-                        visible = expandControls,
-                        enter = fadeIn(tween(800, delayMillis = 500)) + expandVertically(tween(800, easing = EaseOutCubic, delayMillis = 500)),
-                        exit = fadeOut() + shrinkVertically()
-                    ) {
-                        Text(
-                            text = "Chúng tôi đã gửi email xác thực đến địa chỉ của bạn.\nVui lòng kiểm tra cả thư mục chính và spam.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = dialogOnSurfaceVariantColor,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 16.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    // Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Mở ứng dụng Email
-                        val context = LocalContext.current
-
-                        AnimatedVisibility(
-                            visible = expandControls,
-                            enter = fadeIn(tween(1000, delayMillis = 700)) + expandHorizontally(tween(1000, easing = EaseOutCubic, delayMillis = 700)),
-                            exit = fadeOut() + shrinkHorizontally(),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    try {
-                                        // Mở ứng dụng email mặc định
-                                        val intent = Intent(Intent.ACTION_MAIN)
-                                        intent.addCategory(Intent.CATEGORY_APP_EMAIL)
-                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        context.startActivity(intent)
-            } catch (e: Exception) {
-                                        // Fallback nếu không tìm thấy ứng dụng email
-                                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://mail.google.com"))
-                                        context.startActivity(browserIntent)
-                                    }
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            dialogPrimaryColor,
-                                            dialogTertiaryColor
-                                        )
-                                    )
-                                ),
-                                modifier = Modifier.height(56.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = dialogPrimaryColor
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Email,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Mở Email",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-
-                        // Đăng nhập button
-                        AnimatedVisibility(
-                            visible = expandControls,
-                            enter = fadeIn(tween(1000, delayMillis = 800)) + expandHorizontally(tween(1000, easing = EaseOutCubic, delayMillis = 800)),
-                            exit = fadeOut() + shrinkHorizontally(),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Button(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            viewModel.resetState()
-                                    onNavigateToLogin()
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.height(56.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = dialogPrimaryColor
-                                )
-                            ) {
-                                Text(
-                                    text = "Đăng nhập",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Icon(
-                                    imageVector = Icons.Filled.ArrowForward,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+                isGoogleAuthSuccessTrigger = false // Quan trọng: Reset cờ sau khi xử lý thành công
             }
+            // Nếu không phải Google Auth trigger, dialog sẽ tự hiển thị bởi khối if bên dưới
         }
     }
 

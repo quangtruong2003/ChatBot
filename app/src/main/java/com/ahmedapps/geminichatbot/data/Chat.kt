@@ -2,6 +2,7 @@
 package com.ahmedapps.geminichatbot.data
 
 import com.google.firebase.firestore.PropertyName
+import java.util.*
 
 data class Chat(
     @get:PropertyName("id")
@@ -27,12 +28,22 @@ data class Chat(
             isError: Boolean = false,
             userId: String
         ): Chat {
+            val timestamp = System.currentTimeMillis()
+            // Đảm bảo ID không bao giờ rỗng
+            val safeId = if (UUID.randomUUID().toString().isEmpty()) {
+                "chat_${timestamp}_${prompt.hashCode()}"
+            } else {
+                UUID.randomUUID().toString()
+            }
+            
             return Chat(
+                id = safeId,
                 prompt = prompt,
                 imageUrl = imageUrl,
                 isFromUser = isFromUser,
                 isError = isError,
-                userId = userId
+                userId = userId,
+                timestamp = timestamp
             )
         }
     }
