@@ -10,12 +10,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.core.view.WindowCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.ahmedapps.geminichatbot.auth.LoginScreen
+import com.ahmedapps.geminichatbot.loginlogout.LoginScreen
 import com.ahmedapps.geminichatbot.loginlogout.ForgotPasswordScreen
 import com.ahmedapps.geminichatbot.loginlogout.RegistrationScreen
 import com.ahmedapps.geminichatbot.ui.screens.ChatScreen
@@ -30,13 +31,18 @@ import dagger.hilt.android.AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private var lastBackPressed: Long = 0
+    private var currentDestination: String = ""
 
     override fun onBackPressed() {
-        if (System.currentTimeMillis() - lastBackPressed < 2000) {
-            super.onBackPressed()
+        if (currentDestination == "chat") {
+            if (System.currentTimeMillis() - lastBackPressed < 2000) {
+                super.onBackPressed()
+            } else {
+                Toast.makeText(this, "Nhấn back lần nữa để thoát", Toast.LENGTH_SHORT).show()
+                lastBackPressed = System.currentTimeMillis()
+            }
         } else {
-            Toast.makeText(this, "Nhấn back lần nữa để thoát", Toast.LENGTH_SHORT).show()
-            lastBackPressed = System.currentTimeMillis()
+            super.onBackPressed()
         }
     }
 
@@ -48,6 +54,20 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val currentUser = FirebaseAuth.getInstance().currentUser
                 val startDestination = if (currentUser != null) "chat" else "login"
+                
+                // Thiết lập giá trị ban đầu cho currentDestination
+                currentDestination = startDestination
+                
+                // Theo dõi điểm đến hiện tại
+                DisposableEffect(navController) {
+                    val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
+                        currentDestination = destination.route?.split('/')?.firstOrNull() ?: ""
+                    }
+                    navController.addOnDestinationChangedListener(listener)
+                    onDispose {
+                        navController.removeOnDestinationChangedListener(listener)
+                    }
+                }
                 
                 // State to control user detail bottom sheet
                 var showUserDetail by remember { mutableStateOf(false) }
