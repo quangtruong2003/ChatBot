@@ -62,6 +62,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import java.net.URLEncoder
 import java.net.URLDecoder
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 
 @OptIn(
     ExperimentalComposeUiApi::class,
@@ -92,6 +96,9 @@ fun LoginScreen(
     val emailFocusRequester = remember { FocusRequester() } // Focus requester cho email
     val coroutineScope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
+    var isKeyboardVisible by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
 
     // Hàm kiểm tra email hợp lệ
     fun validateEmail(email: String): Boolean {
@@ -109,7 +116,7 @@ fun LoginScreen(
     // Animations (giữ nguyên)
     val logoSize by animateFloatAsState(
         targetValue = if (startAnimation) 1f else 0.5f,
-        animationSpec = tween(500, easing = EaseOutBack), label = "logoSize"
+        animationSpec = tween(500, easing = EaseOutCubic), label = "logoSize"
     )
     val titleAlpha by animateFloatAsState(
         targetValue = if (startAnimation) 1f else 0f,
@@ -117,7 +124,7 @@ fun LoginScreen(
     )
     val cardOffset by animateDpAsState(
         targetValue = if (startAnimation) 0.dp else 50.dp,
-        animationSpec = tween(700, delayMillis = 200, easing = EaseOutBack), label = "cardOffset"
+        animationSpec = tween(700, delayMillis = 200, easing = EaseOutCubic), label = "cardOffset"
     )
     val buttonScale by animateFloatAsState(
         targetValue = if (startAnimation) 1f else 0.8f,
@@ -245,14 +252,16 @@ fun LoginScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            snackbarHost = { SnackbarHostState() }
         ) { paddingValues ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
                     .verticalScroll(scrollState)
-                    .padding(24.dp),
+                    .padding(24.dp)
+                    .imePadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(modifier = Modifier.height(40.dp))
@@ -278,12 +287,7 @@ fun LoginScreen(
                         modifier = Modifier
                             .size(80.dp)
                             .clip(CircleShape)
-                            .border(
-                                width = 3.dp,
-                                brush = Brush.linearGradient(colors = listOf(primaryColor, tertiaryColor)),
-                                shape = CircleShape
-                            )
-                            .padding(8.dp) // Padding bên trong border
+                            .padding(8.dp) // Có thể giữ lại hoặc điều chỉnh padding tùy ý
                     )
                 }
 
@@ -296,9 +300,10 @@ fun LoginScreen(
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.alpha(titleAlpha)
+                    modifier = Modifier
+                        .alpha(titleAlpha)
+                        .padding(8.dp)
                 )
-                Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Đăng nhập để tiếp tục cuộc trò chuyện với ChatAI",
                     style = MaterialTheme.typography.bodyLarge,
@@ -393,7 +398,7 @@ fun LoginScreen(
                             exit = shrinkVertically(tween(300)) + fadeOut(tween(300))
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) { // Đảm bảo Column bao quanh
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
                                 // Password Field
                                 OutlinedTextField(
@@ -444,13 +449,16 @@ fun LoginScreen(
                                     visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .onFocusChanged {
-                                            passwordFocused = it.isFocused
-                                            if (it.isFocused) {
-                                                // Tự động cuộn xuống khi focus vào mật khẩu nếu cần
+                                        .onFocusChanged { state ->
+                                            passwordFocused = state.isFocused
+                                            if (state.isFocused) {
+                                                isKeyboardVisible = true
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+
+                                                // Đảm bảo cuộn đến vị trí này khi được focus
                                                 coroutineScope.launch {
-                                                    delay(200) // Đợi bàn phím xuất hiện
-                                                    scrollState.animateScrollTo(scrollState.maxValue)
+                                                    delay(100) // Chờ một chút để bàn phím bắt đầu xuất hiện
+                                                    scrollState.animateScrollTo((scrollState.maxValue * 0.15f).toInt())
                                                 }
                                             }
                                         },
