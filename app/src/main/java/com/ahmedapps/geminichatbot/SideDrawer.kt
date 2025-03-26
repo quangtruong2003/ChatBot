@@ -1,5 +1,8 @@
 package com.ahmedapps.geminichatbot
 
+import android.os.Build
+import android.os.Vibrator
+import android.provider.Settings.Global.getString
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -21,11 +24,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +48,12 @@ import com.ahmedapps.geminichatbot.data.ChatSegment
 import com.google.firebase.auth.FirebaseAuth
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import android.content.Context
+import android.view.HapticFeedbackConstants
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.scale
 
 @Composable
 fun SideDrawer(
@@ -66,83 +78,85 @@ fun SideDrawer(
     var segmentToRename by remember { mutableStateOf<ChatSegment?>(null) }
     var showPersonalInfoDialog by remember { mutableStateOf(false) }
     var isSearchVisible by remember { mutableStateOf(false) }
+    var expandedSegmentId by remember { mutableStateOf<String?>(null) }
 
     Surface(
         color = MaterialTheme.colorScheme.background,
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize()
         ) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
+                .fillMaxSize()
                     .padding(16.dp)
             ) {
                 CompletedChatList(
                     segments = allSegments,
                     selectedSegment = chatState.selectedSegment,
-                    onSegmentSelected = { segment ->
-                        chatViewModel.onEvent(ChatUiEvent.SelectSegment(segment))
+                expandedSegmentId = expandedSegmentId,
+                onSegmentExpand = { segmentId -> expandedSegmentId = segmentId },
+                onSegmentDismiss = { expandedSegmentId = null },
+                onSegmentSelected = { segment ->
+                    chatViewModel.onEvent(ChatUiEvent.SelectSegment(segment))
+                    chatViewModel.onEvent(ChatUiEvent.ClearSearch)
+                    expandedSegmentId = null
+                    onClose()
+                },
+                onSegmentRename = { segment ->
+                    segmentToRename = segment
+                },
+                onSegmentDelete = { segment ->
+                    segmentToDelete = segment
+                    expandedSegmentId = null
+                },
+                onToggleSearch = {
+                    isSearchVisible = !isSearchVisible
+                    if (!isSearchVisible) {
                         chatViewModel.onEvent(ChatUiEvent.ClearSearch)
-                        onClose()
-                    },
-                    onSegmentRename = { segment ->
-                        segmentToRename = segment
-                    },
-                    onSegmentDelete = { segment ->
-                        segmentToDelete = segment
-                    },
-                    onToggleSearch = {
-                        isSearchVisible = !isSearchVisible
-                        if (!isSearchVisible) {
-                            chatViewModel.onEvent(ChatUiEvent.ClearSearch)
-                        }
-                    },
-                    isSearchVisible = isSearchVisible,
-                    searchQuery = searchQuery,
-                    onSearchQueryChanged = { query ->
-                        chatViewModel.onEvent(ChatUiEvent.SearchSegments(query))
-                    },
-                    onClearSearch = {
-                        chatViewModel.onEvent(ChatUiEvent.ClearSearch)
-                    },
-                    onLogout = onLogout,
-                    onShowUserDetail = onShowUserDetail,
-                    modifier = Modifier.weight(1f)
+                    }
+                    expandedSegmentId = null
+                },
+                isSearchVisible = isSearchVisible,
+                searchQuery = searchQuery,
+                onSearchQueryChanged = { query ->
+                    chatViewModel.onEvent(ChatUiEvent.SearchSegments(query))
+                },
+                onClearSearch = {
+                    chatViewModel.onEvent(ChatUiEvent.ClearSearch)
+                },
+                onLogout = onLogout,
+                onShowUserDetail = onShowUserDetail,
+                modifier = Modifier.weight(1f)
+            )
+            GradientButton(
+                onClick = { showPersonalInfoDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                gradient = gradientBrush
+            ) {
+                Text(
+                    text = "Nguyễn Quang Trường - D21_TH12",
+                    color = Color.White,
+                    style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 )
-                GradientButton(
-                    onClick = { showPersonalInfoDialog = true },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    gradient = gradientBrush
-                ) {
-                    Text(
-                        text = "Nguyễn Quang Trường - D21_TH12",
-                        color = Color.White,
-                        style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    )
-                }
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Version: ${BuildConfig.VERSION_NAME}",
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                        style = TextStyle(
-                            brush = Brush.linearGradient(
-                                colors = listOf(
-                                    Color(0xFF1BA1E3),
-                                    Color(0xFF5489D6),
-                                    Color(0xFF9B72CB),
-                                    Color(0xFFD96570),
-                                    Color(0xFFF49C46)
-                                )
+            }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Version: ${BuildConfig.VERSION_NAME}",
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    style = TextStyle(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF1BA1E3),
+                                Color(0xFF5489D6),
+                                Color(0xFF9B72CB),
+                                Color(0xFFD96570),
+                                Color(0xFFF49C46)
                             )
                         )
                     )
-                }
+                )
             }
         }
-        // Dialog xóa
         segmentToDelete?.let { segment ->
             DeleteConfirmationDialog(
                 segmentTitle = segment.title,
@@ -153,7 +167,6 @@ fun SideDrawer(
                 onDismiss = { segmentToDelete = null }
             )
         }
-        // Dialog đổi tên
         segmentToRename?.let { segment ->
             RenameSegmentDialog(
                 segment = segment,
@@ -164,7 +177,6 @@ fun SideDrawer(
                 onDismiss = { segmentToRename = null }
             )
         }
-        // Dialog thông tin cá nhân
         if (showPersonalInfoDialog) {
             PersonalInfoDialog(
                 onDismiss = { showPersonalInfoDialog = false }
@@ -289,10 +301,34 @@ fun getGroupLabel(date: Long): String {
     }
 }
 
+/**
+ * Hàm định dạng thời gian tương đối cho timestamp
+ */
+private fun formatRelativeTime(createdAt: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - createdAt
+    val seconds = diff / 1000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+
+    return when {
+        seconds < 60 -> "Vừa xong"
+        minutes < 60 -> "$minutes phút trước"
+        hours < 24 -> "$hours giờ trước"
+        else -> {
+            val sdf = SimpleDateFormat("HH:mm dd/MM/yyyy", Locale.getDefault())
+            sdf.format(Date(createdAt))
+        }
+    }
+}
+
 @Composable
 fun CompletedChatList(
     segments: List<ChatSegment>,
     selectedSegment: ChatSegment?,
+    expandedSegmentId: String?,
+    onSegmentExpand: (String) -> Unit,
+    onSegmentDismiss: () -> Unit,
     onSegmentSelected: (ChatSegment) -> Unit,
     onSegmentDelete: (ChatSegment) -> Unit,
     onSegmentRename: (ChatSegment) -> Unit,
@@ -385,10 +421,14 @@ fun CompletedChatList(
                         textAlign = TextAlign.End
                     )
                 }
-                items(segsInLabel) { segment ->
+                items(segsInLabel, key = { it.id }) { segment ->
                     ChatSegmentItem(
                         segment = segment,
                         isSelected = selectedSegment?.id == segment.id,
+                        isExpanded = expandedSegmentId == segment.id,
+                        expandedSegmentId = expandedSegmentId,
+                        onExpand = { onSegmentExpand(segment.id) },
+                        onDismiss = onSegmentDismiss,
                         onClick = { onSegmentSelected(segment) },
                         onRename = { onSegmentRename(segment) },
                         onDelete = { onSegmentDelete(segment) }
@@ -418,55 +458,97 @@ fun Modifier.crop(
 fun ChatSegmentItem(
     segment: ChatSegment,
     isSelected: Boolean,
+    isExpanded: Boolean,
+    expandedSegmentId: String?,
+    onExpand: () -> Unit,
+    onDismiss: () -> Unit,
     onClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    val hapticFeedback = LocalHapticFeedback.current
+
+    val scale by animateFloatAsState(
+        targetValue = if (isExpanded) 1.05f else 1f,
+        animationSpec = tween(durationMillis = 200)
+    )
+    val elevation by animateFloatAsState(
+        targetValue = if (isExpanded) 8f else 0f,
+        animationSpec = tween(durationMillis = 200)
+    )
+    
+    val alpha = if (expandedSegmentId != null && !isExpanded) {
+        0.2f
+    } else {
+        1f
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                else Color.Transparent
-            )
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = { expanded = true }
-            )
-            .padding(vertical = 8.dp, horizontal = 16.dp)
+            .padding(vertical = 2.dp)
+            .alpha(alpha)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = segment.title,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            val sdf = SimpleDateFormat("HH:mm dd/MM/yyyy", Locale.getDefault())
-            val date = Date(segment.createdAt)
-            Text(
-                text = sdf.format(date),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.alpha(0.5f)
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .scale(scale)
+                .shadow(
+                    elevation = elevation.dp,
+                    shape = RoundedCornerShape(10.dp)
+                )
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    when {
+                        isExpanded -> MaterialTheme.colorScheme.surfaceVariant
+                        isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        else -> Color.Transparent
+                    }
+                )
+                .combinedClickable(
+                    onClick = {
+                        if (isExpanded) {
+                            onDismiss()
+                        }
+                        onClick()
+                    },
+                    onLongClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onExpand()
+                    }
+                )
+                .padding(vertical = 8.dp, horizontal = 16.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = segment.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = formatRelativeTime(segment.createdAt),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.alpha(0.5f)
+                )
+            }
         }
+        
         DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
+            expanded = isExpanded,
+            onDismissRequest = onDismiss,
             modifier = Modifier
                 .wrapContentSize(Alignment.Center)
                 .crop(vertical = 8.dp)
                 .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(15.dp))
                 .fillMaxWidth(0.45f),
-            offset = DpOffset(x = 40.dp, y = 8.dp)
+            offset = DpOffset(x = 40.dp, y = (-8).dp)
         ) {
             DropdownMenuItem(
                 text = { Text("Đổi tên đoạn chat") },
                 onClick = {
-                    expanded = false
+                    onDismiss()
                     onRename()
                 }
             )
@@ -474,7 +556,7 @@ fun ChatSegmentItem(
             DropdownMenuItem(
                 text = { Text("Xóa đoạn chat") },
                 onClick = {
-                    expanded = false
+                    onDismiss()
                     onDelete()
                 }
             )

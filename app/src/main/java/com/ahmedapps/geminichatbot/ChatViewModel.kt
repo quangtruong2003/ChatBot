@@ -243,43 +243,35 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _chatState.update { it.copy(isLoading = true) }
-
-                val currentSelectedSegment = _chatState.value.selectedSegment
-                val hasMessages = _chatState.value.chatList.isNotEmpty()
-
-                // Kiểm tra nếu đang ở đoạn chat cũ (selectedSegment khác null và khác với "Đoạn chat mới")
-                if (currentSelectedSegment != null && currentSelectedSegment.title != "Đoạn chat mới") {
-                    // Lấy danh sách các segments mới nhất
-                    val latestSegments = repository.getChatSegments()
-                    if (latestSegments.isNotEmpty()) {
-                        // Lấy segment mới nhất
-                        val latestSegment = latestSegments.first()
-
-                        // Kiểm tra nếu segment mới nhất là "Đoạn chat mới" và chưa có tin nhắn
-                        if (latestSegment.title == "Đoạn chat mới" && repository.getChatHistoryForSegment(latestSegment.id).isEmpty()) {
-                            // Chuyển về segment mới nhất
-                            _chatState.update {
-                                it.copy(
-                                    selectedSegment = latestSegment,
-                                    chatList = emptyList(), // Reset lại tin nhắn
-                                    isLoading = false
-                                )
-                            }
-                        } else {
-                            // Nếu không có "Đoạn chat mới" rỗng, tạo mới
-                            createNewSegment()
-                            _chatState.update { it.copy(isLoading = false) }
-                        }
-                    } else {
-                        // Nếu không có segment nào, tạo mới
-                        createNewSegment()
-                        _chatState.update { it.copy(isLoading = false) }
+                
+                // Xóa các "Đoạn chat mới" rỗng trước
+                deleteEmptyNewSegment()
+                
+                // Tạo một đoạn chat mới và chuyển đến đó
+                val newSegmentTitle = "Đoạn chat mới"
+                val newSegmentId = repository.addChatSegment(newSegmentTitle)
+                
+                if (newSegmentId != null) {
+                    val newSegment = ChatSegment(
+                        id = newSegmentId,
+                        title = newSegmentTitle,
+                        createdAt = System.currentTimeMillis()
+                    )
+                    
+                    // Cập nhật state với segment mới và danh sách chat rỗng
+                    _chatState.update { currentState ->
+                        currentState.copy(
+                            selectedSegment = newSegment,
+                            chatList = emptyList(),
+                            chatSegments = currentState.chatSegments + newSegment,
+                            isLoading = false
+                        )
                     }
+                    hasUpdatedTitle = false
                 } else {
-                    // Nếu đang ở "Đoạn chat mới" hoặc chưa chọn segment, tạo mới
-                    createNewSegment()
                     _chatState.update { it.copy(isLoading = false) }
                 }
+                
             } catch (e: Exception) {
                 e.printStackTrace()
                 _chatState.update { it.copy(isLoading = false) }
@@ -701,29 +693,27 @@ class ChatViewModel @Inject constructor(
         }
     }
     /**
-     * Xóa "Đoạn chat mới" nếu nó không có tin nhắn khi chọn đoạn chat khác.
+     * Xóa "Đoạn chat mới" rỗng.
      */
     private suspend fun deleteEmptyNewSegment() {
         val currentSegments = _chatState.value.chatSegments
-        val selectedSegment = _chatState.value.selectedSegment
-
-        // Tìm "Đoạn chat mới" chưa có tin nhắn
-        val newSegmentToDelete = currentSegments.find { it.title == "Đoạn chat mới" && it.id != selectedSegment?.id }
-
-        if (newSegmentToDelete != null) {
-            val segmentIdToDelete = newSegmentToDelete.id
-            val isSegmentEmpty = repository.getChatHistoryForSegment(segmentIdToDelete).isEmpty()
-
+        val selectedSegment = _chatState.value.selectedSegment?.id
+        
+        // Tìm tất cả các "Đoạn chat mới" không phải là segment hiện tại
+        val newSegmentsToDelete = currentSegments.filter { 
+            it.title == "Đoạn chat mới" && it.id != selectedSegment 
+        }
+        
+        for (segment in newSegmentsToDelete) {
+            val isSegmentEmpty = repository.getChatHistoryForSegment(segment.id).isEmpty()
             if (isSegmentEmpty) {
-                repository.deleteChatSegment(segmentIdToDelete)
-                // Cập nhật lại danh sách chatSegments trong StateFlow
-                _chatState.update { currentState ->
-                    currentState.copy(
-                        chatSegments = currentState.chatSegments.filter { it.id != segmentIdToDelete }
-                    )
-                }
+                repository.deleteChatSegment(segment.id)
             }
         }
+        
+        // Cập nhật lại danh sách chatSegments sau khi xóa
+        val updatedSegments = repository.getChatSegments()
+        _chatState.update { it.copy(chatSegments = updatedSegments) }
     }
     private val predefinedResponses: List<Pair<Regex, String>> = listOf(
         // Các mẫu câu hỏi về bản thân
