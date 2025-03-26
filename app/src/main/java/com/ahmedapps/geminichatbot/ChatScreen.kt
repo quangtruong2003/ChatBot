@@ -87,6 +87,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.firebase.auth.FirebaseAuth
 import fomatText.parseFormattedText
 import fomatText.TypingConfig
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
@@ -168,37 +169,56 @@ fun ChatScreen(
     val canSend = chatState.prompt.isNotEmpty() || chatState.imageUri != null
 
     var shouldAutoScroll by remember { mutableStateOf(true) }
+    // Thêm biến để phát hiện khi danh sách đang hiển thị do LazyColumn được khởi tạo lại
+    var isInitialLoad by remember { mutableStateOf(true) }
+
     // Xử lý cuộn trong LazyColumn
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .collect { isScrolling ->
                 if (isScrolling) {
-                    // Người dùng đang cuộn, tắt tự động cuộn
                     shouldAutoScroll = false
                     userScrolled = true
                 }
             }
     }
 
-    LaunchedEffect(chatState.chatList.size) {
-        val newMessageAdded = chatState.chatList.size > previousChatListSize
-        previousChatListSize = chatState.chatList.size
-
-        if (newMessageAdded) {
-            // Có tin nhắn mới, bật tự động cuộn
-            shouldAutoScroll = true
-
-            if (shouldAutoScroll) {
-                // Chỉ tự động cuộn nếu đang bật tự động cuộn
-                scope.launch {
-                    listState.animateScrollToItem(chatState.chatList.size - 1)
-                }
-            }
+    // Đánh dấu tất cả tin nhắn là đã typed khi chọn đoạn chat mới hoặc màn hình được tạo lần đầu
+    LaunchedEffect(chatState.selectedSegment) {
+        // Delay nhỏ để đảm bảo state đã được cập nhật sau khi chọn segment
+        kotlinx.coroutines.delay(100)
+        chatViewModel.markAllCurrentMessagesAsTyped()
+        // Reset trạng thái cuộn khi chuyển chat
+        userScrolled = false
+        shouldAutoScroll = true
+        // Cuộn xuống cuối khi chuyển chat
+        if (chatState.chatList.isNotEmpty()) {
+            listState.scrollToItem(chatState.chatList.size - 1)
         }
     }
 
+    // Khi có tin nhắn mới, xử lý cuộn tự động
+    LaunchedEffect(chatState.chatList.size) {
+        val newMessageAdded = chatState.chatList.size > previousChatListSize
+        if (newMessageAdded) {
+            // Reset trạng thái cuộn khi có tin nhắn mới
+            userScrolled = false
+            shouldAutoScroll = true
+            previousChatListSize = chatState.chatList.size
 
-
+            // Chỉ cuộn tự động nếu người dùng không đang cuộn thủ công
+            if (shouldAutoScroll) {
+                // Delay nhỏ để chờ UI cập nhật trước khi cuộn
+                kotlinx.coroutines.delay(50)
+                listState.animateScrollToItem(chatState.chatList.size - 1)
+            }
+        } else if (chatState.chatList.size < previousChatListSize) {
+            // Xử lý trường hợp danh sách bị xóa (ví dụ: refresh)
+            previousChatListSize = chatState.chatList.size
+            userScrolled = false
+            shouldAutoScroll = true
+        }
+    }
 
     // Image Picker đăng ký bên trong composable để tránh vấn đề ViewModel chưa được khởi tạo
     val context = LocalContext.current
@@ -594,7 +614,12 @@ fun ChatScreen(
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
                     ) {
-                        items(chatState.chatList) { chat ->
+                        items(
+                            items = chatState.chatList,
+                            key = { chat -> 
+                                if (chat.id.isEmpty()) "chat_${chat.hashCode()}" else chat.id 
+                            }
+                        ) { chat ->
                             if (chat.isFromUser) {
                                 UserChatItem(
                                     prompt = chat.prompt,
@@ -614,20 +639,28 @@ fun ChatScreen(
                                     snackbarHostState = snackbarHostState
                                 )
                             } else {
-                                // Kiểm tra xem tin nhắn này có phải là tin nhắn cuối cùng
-                                // và không phải là từ người dùng để xác định hiệu ứng typing
-                                val isLastMessage = chatState.chatList.lastOrNull()?.id == chat.id
-                                val isLoadingCompleted = !chatState.isLoading
-                                
-                                // Hiển thị hiệu ứng typing CHỈ KHI:
-                                // 1. Là tin nhắn mới nhất từ bot (vừa được thêm vào)
-                                // 2. Trạng thái loading đã hoàn tất
-                                // 3. Tin nhắn chưa được đánh dấu là đã hiển thị hiệu ứng
-                                val shouldShowTypingEffect = isLastMessage && 
-                                                            !chat.isFromUser && 
-                                                            isLoadingCompleted && 
-                                                            !chatViewModel.isMessageTyped(chat.id)
-                                
+                                // Đơn giản hóa logic kiểm tra hiệu ứng typing
+
+                                // Một tin nhắn chỉ được hiển thị hiệu ứng typing nếu:
+                                // 1. Là tin nhắn mới nhất từ bot
+                                // 2. Chưa từng hiển thị hiệu ứng typing
+                                val isLatestBotMessage = chatState.chatList
+                                    .filter { !it.isFromUser }
+                                    .lastOrNull()?.id == chat.id
+
+                                val isMessageAlreadyTyped = chatViewModel.isMessageTyped(chat.id)
+
+                                val shouldShowTypingEffect = isLatestBotMessage && !isMessageAlreadyTyped
+
+                                // Dùng LaunchedEffect để kiểm soát việc đánh dấu tin nhắn cũ
+                                LaunchedEffect(chat.id) {
+                                    // Đánh dấu các tin nhắn cũ không cần hiệu ứng là đã typed
+                                    if (!isLatestBotMessage && !isMessageAlreadyTyped) {
+                                        delay(50) // Delay nhỏ để tránh race condition
+                                        chatViewModel.markMessageAsTyped(chat.id)
+                                    }
+                                }
+
                                 ModelChatItem(
                                     response = chat.prompt,
                                     isError = chat.isError,
@@ -647,17 +680,16 @@ fun ChatScreen(
                                     isNewChat = shouldShowTypingEffect,
                                     typingSpeed = TypingConfig.DEFAULT_TYPING_SPEED,
                                     onAnimationComplete = {
-                                        // Khi hiệu ứng typing hoàn tất, đánh dấu tin nhắn đã được hiển thị
                                         chatViewModel.markMessageAsTyped(chat.id)
                                     },
-                                    isMessageTyped = chatViewModel.isMessageTyped(chat.id)
+                                    isMessageTyped = isMessageAlreadyTyped
                                 )
                             }
                         }
-                        
-                        // Hiển thị chỉ báo "Đang suy nghĩ..." nếu đang đợi phản hồi
-                        item {
-                            if (chatState.isWaitingForResponse) {
+
+                        // Chỉ báo "Đang suy nghĩ..." với key duy nhất và rõ ràng
+                        item(key = "waiting_indicator_unique") {
+                            if (chatState.isWaitingForResponse && chatState.imageUri == null) {
                                 ModelChatItem(
                                     response = "",
                                     isError = false,
@@ -665,7 +697,7 @@ fun ChatScreen(
                                     onImageClick = { },
                                     snackbarHostState = snackbarHostState,
                                     isWaitingForResponse = true,
-                                    isMessageTyped = true // Luôn đánh dấu là đã hiển thị hiệu ứng
+                                    isMessageTyped = true
                                 )
                             }
                         }

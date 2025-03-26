@@ -116,6 +116,10 @@ class ChatViewModel @Inject constructor(
     // MutableStateFlow cho search query với debounce
     private val searchQueryFlow = MutableStateFlow("")
 
+    // Thêm trạng thái theo dõi việc xử lý hình ảnh
+    private val _isImageProcessing = MutableStateFlow(false)
+    val isImageProcessing = _isImageProcessing.asStateFlow()
+
     init {
         viewModelScope.launch {
             searchQueryFlow
@@ -280,6 +284,7 @@ class ChatViewModel @Inject constructor(
                 e.printStackTrace()
                 _chatState.update { it.copy(isLoading = false) }
             }
+            _isImageProcessing.value = false
         }
     }
 
@@ -345,16 +350,20 @@ class ChatViewModel @Inject constructor(
         when (event) {
             is ChatUiEvent.SendPrompt -> {
                 if (event.prompt.isNotEmpty() || event.imageUri != null) {
-                    // Hủy job cũ nếu có
                     currentResponseJob?.cancel()
-                    
-                    // Tạo job mới và lưu lại để có thể hủy
+                    // Không cần markAllMessagesAsTyped() ở đây nữa
+
                     currentResponseJob = viewModelScope.launch {
                         deleteEmptyNewSegment()
-                        _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) }
+                        _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) } // Bắt đầu loading
                         addPrompt(event.prompt, event.imageUri)
                         val selectedSegmentId = _chatState.value.selectedSegment?.id
+
+                        // Quan trọng: Reset prompt và imageUri *sau khi* addPrompt
+                         _chatState.update { it.copy(prompt = "", imageUri = null) }
+
                         if (event.imageUri != null) {
+                            _isImageProcessing.value = true
                             getResponseWithImage(event.prompt, event.imageUri, selectedSegmentId)
                         } else {
                             getResponse(event.prompt, selectedSegmentId)
@@ -363,10 +372,11 @@ class ChatViewModel @Inject constructor(
                 }
             }
             is ChatUiEvent.UpdatePrompt -> {
-                _chatState.update { it.copy(prompt = event.newPrompt) }
+                 _chatState.update { it.copy(prompt = event.newPrompt) }
             }
             is ChatUiEvent.OnImageSelected -> {
-                _chatState.update { it.copy(imageUri = event.uri) }
+                 _chatState.update { it.copy(imageUri = event.uri) }
+                 // Không cần markAllMessagesAsTyped() ở đây
             }
             is ChatUiEvent.SearchSegments -> {
                 _chatState.update { it.copy(searchQuery = event.query) }
@@ -419,6 +429,12 @@ class ChatViewModel @Inject constructor(
             }
             is ChatUiEvent.RemoveImage -> {
                 _chatState.update { it.copy(imageUri = null) }
+            }
+            is ChatUiEvent.RefreshChats -> {
+                refreshChats()
+            }
+            is ChatUiEvent.StopResponse -> {
+                stopCurrentResponse()
             }
         }
     }
@@ -512,29 +528,25 @@ class ChatViewModel @Inject constructor(
 
             try {
                 val chat = repository.getResponse(prompt, selectedSegmentId)
-                val currentSegment = chatState.value.selectedSegment
-                
-                // Đảm bảo không đánh dấu tin nhắn mới là đã typed
-                _typedMessagesIds.remove(chat.id)
-                
+
+                // Không cần xóa ID khỏi _typedMessagesIds ở đây vì nó chưa bao giờ được thêm vào
+                // _typedMessagesIds.remove(chat.id) // Xóa dòng này
+
                 _chatState.update {
                     it.copy(
                         chatList = it.chatList + chat,
-                        isLoading = false,
-                        isWaitingForResponse = false,
-                        typedMessages = _typedMessagesIds.toSet()
+                        isLoading = false, // Kết thúc loading chung
+                        isWaitingForResponse = false, // Kết thúc chờ đợi
+                        // Đảm bảo typedMessages không chứa ID mới (nếu có lỗi logic nào đó)
+                        typedMessages = _typedMessagesIds.toSet() - chat.id
                     )
-                }
-
-                // Chỉ cập nhật tiêu đề nếu đoạn chat chưa có tiêu đề và không phải tin nhắn của người dùng
-                if (!hasUpdatedTitle && !chat.isFromUser && currentSegment?.title == "Đoạn chat mới") {
-                    repository.updateSegmentTitleFromResponse(selectedSegmentId, chat.prompt)
-                    hasUpdatedTitle = true
-                    loadChatSegments() // Cập nhật lại danh sách đoạn chat
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
                 // Đặt lại cả isLoading và isWaitingForResponse khi có lỗi
+                _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) } // Kết thúc loading/chờ đợi khi lỗi
+            } finally {
+                // Đảm bảo isLoading và isWaitingForResponse luôn được reset
                 _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
             }
         }
@@ -567,12 +579,18 @@ class ChatViewModel @Inject constructor(
                 _chatState.update {
                     it.copy(
                         chatList = it.chatList + chat,
-                        isLoading = false,
-                        isWaitingForResponse = false
+                        isLoading = false, // Kết thúc loading chung
+                        isWaitingForResponse = false, // Kết thúc chờ đợi
+                        isImageProcessing = false, // Kết thúc xử lý ảnh
+                        // Đảm bảo typedMessages không chứa ID mới
+                        typedMessages = _typedMessagesIds.toSet() - chat.id
                     )
                 }
                 return@launch
             }
+
+            // Đánh dấu tất cả tin nhắn hiện tại là đã typed trước khi bắt đầu xử lý hình ảnh
+            markAllMessagesAsTyped()
 
             // Nếu không có phản hồi tùy chỉnh, tiếp tục gọi API như bình thường
             try {
@@ -584,7 +602,7 @@ class ChatViewModel @Inject constructor(
                 val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
                 val currentSegment = chatState.value.selectedSegment
                 
-                // Đảm bảo không đánh dấu tin nhắn mới là đã typed
+                // Quan trọng: Đảm bảo tin nhắn mới KHÔNG được đánh dấu là đã typed
                 _typedMessagesIds.remove(chat.id)
                 
                 _chatState.update {
@@ -592,7 +610,9 @@ class ChatViewModel @Inject constructor(
                         chatList = it.chatList + chat,
                         isLoading = false,
                         isWaitingForResponse = false,
-                        typedMessages = _typedMessagesIds.toSet()
+                        imageUri = null,
+                        isImageProcessing = false,
+                        typedMessages = _typedMessagesIds.toSet() - chat.id
                     )
                 }
 
@@ -606,6 +626,9 @@ class ChatViewModel @Inject constructor(
                 e.printStackTrace()
                  // Đặt lại cả isLoading và isWaitingForResponse khi có lỗi
                 _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
+            } finally {
+                // Đảm bảo isLoading, isWaitingForResponse và isImageProcessing luôn được reset
+                _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false, isImageProcessing = false) }
             }
         }
     }
@@ -842,5 +865,38 @@ class ChatViewModel @Inject constructor(
             }
         }
         return null
+    }
+
+    /**
+     * Đánh dấu tất cả tin nhắn của bot trong danh sách hiện tại là đã hiển thị hiệu ứng typing
+     */
+    fun markAllMessagesAsTyped() {
+        _chatState.value.chatList.forEach { chat ->
+            if (!chat.isFromUser) {
+                _typedMessagesIds.add(chat.id)
+            }
+        }
+        _chatState.update { it.copy(typedMessages = _typedMessagesIds.toSet()) }
+    }
+
+    // Đổi tên hàm cho rõ ràng hơn
+    fun markAllCurrentMessagesAsTyped() {
+        viewModelScope.launch {
+            val currentIds = _chatState.value.chatList.map { it.id }.toSet()
+            // Chỉ thêm ID của tin nhắn bot hiện có vào danh sách đã typed
+            _chatState.value.chatList.forEach { chat ->
+                if (!chat.isFromUser) {
+                    _typedMessagesIds.add(chat.id)
+                }
+            }
+            // Cập nhật state với danh sách ID đã typed (chỉ chứa ID hợp lệ)
+             _chatState.update { state ->
+                // Lọc ra những ID không còn tồn tại trong chatList hiện tại
+                val validTypedIds = _typedMessagesIds.intersect(currentIds)
+                _typedMessagesIds.clear()
+                _typedMessagesIds.addAll(validTypedIds)
+                state.copy(typedMessages = validTypedIds)
+            }
+        }
     }
 }
