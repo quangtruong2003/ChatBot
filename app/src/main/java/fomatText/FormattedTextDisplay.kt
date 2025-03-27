@@ -42,6 +42,10 @@ import androidx.compose.ui.unit.sp
 import com.ahmedapps.geminichatbot.R
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.fillMaxHeight
 
 /**
  * Composable function to display formatted text based on AnnotatedString.
@@ -58,6 +62,7 @@ fun FormattedTextDisplay(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     var animationCompleted by remember(annotatedString) { mutableStateOf(!isNewMessage) }
+    val haptic = LocalHapticFeedback.current
 
     // Lấy các màu từ theme để sử dụng trong enhancedTextProcessing
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -80,14 +85,14 @@ fun FormattedTextDisplay(
 
             when (section.type) {
                 "CODE_BLOCK" -> {
-                    // Sử dụng EnhancedCodeBlockView cải tiến với cuộn ngang
                     EnhancedCodeBlockView(
                         code = section.content,
                         language = section.language ?: "",
                         isDarkTheme = isSystemInDarkTheme(),
                         isAnimated = isNewMessage && !animationCompleted,
                         typingSpeed = typingSpeed,
-                        onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
+                        onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
+                        hapticFeedback = haptic
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -103,7 +108,8 @@ fun FormattedTextDisplay(
                                     fontSize = 17.sp
                                 ),
                                 delayMillis = typingSpeed,
-                                onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
+                                onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
+                                hapticFeedback = haptic
                             )
                         }
                     } else {
@@ -119,7 +125,8 @@ fun FormattedTextDisplay(
                             rows = tableRows,
                             typingSpeed = typingSpeed,
                             onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
-                            snackbarHostState = snackbarHostState
+                            snackbarHostState = snackbarHostState,
+                            hapticFeedback = haptic
                         )
                     } else {
                         EnhancedTableView(
@@ -134,11 +141,12 @@ fun FormattedTextDisplay(
                     val blockquoteContent = parseFormattedText(section.content)
                     
                     if (isNewMessage && !animationCompleted) {
-                        EnhancedBlockquoteView(
+                        EnhancedBlockquoteViewWithHaptic(
                             content = blockquoteContent,
                             isAnimated = true,
                             typingSpeed = typingSpeed,
-                            onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
+                            onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
+                            hapticFeedback = haptic
                         )
                     } else {
                         EnhancedBlockquoteView(
@@ -157,7 +165,8 @@ fun FormattedTextDisplay(
                                     color = MaterialTheme.colorScheme.onBackground
                                 ),
                                 delayMillis = typingSpeed,
-                                onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true }
+                                onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
+                                hapticFeedback = haptic
                             )
                         } else {
                             Text(
@@ -288,58 +297,57 @@ private fun parseTableData(tableData: String): Pair<List<String>, List<List<Stri
  * Composable function to display code blocks with optional language.
  */
 @Composable
-fun CodeBlockView(
+fun EnhancedCodeBlockView(
     code: String,
-    clipboardManager: ClipboardManager,
-    context: android.content.Context,
     language: String?,
-    snackbarHostState: SnackbarHostState,
+    isDarkTheme: Boolean,
     isAnimated: Boolean = false,
     typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
-    onAnimationComplete: () -> Unit = {}
+    onAnimationComplete: () -> Unit = {},
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
 ) {
-    val isDarkTheme = isSystemInDarkTheme()
-    val textColor = if (isDarkTheme) Color.White else Color.Black
-    val backgroundColor = if (isDarkTheme) Color(0xFF1E1E1E) else Color(0xFFF5F5F5)
-    val borderColor = if (isDarkTheme) Color(0xFF3E3E3E) else Color(0xFFDDDDDD)
-    val scrollIndicatorColor = if (isDarkTheme) Color(0xFF6E6E6E) else Color(0xFFAAAAAA)
-    
-    val horizontalScrollState = rememberScrollState()
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    
-    // Check if scrolling is needed
-    val needsScrolling by remember {
-        derivedStateOf {
-            horizontalScrollState.maxValue > 0
-        }
-    }
-    
     var showCopyConfirmation by remember { mutableStateOf(false) }
-    var displayedText by remember { mutableStateOf(if (isAnimated) "" else code) }
-    
-    // Animation effect for typing
+    var displayedCode by remember { mutableStateOf(if (isAnimated) AnnotatedString("") else syntaxHighlight(code)) }
+
     LaunchedEffect(code, isAnimated) {
         if (isAnimated) {
-            displayedText = ""
-            var currentText = ""
-            
-            for (char in code) {
-                currentText += char
-                displayedText = currentText
-                delay(typingSpeed)
+            displayedCode = AnnotatedString("")
+            val builder = AnnotatedString.Builder()
+            val fullStyledCode = syntaxHighlight(code)
+
+            for (i in code.indices) {
+                val char = code[i]
+                val styles = fullStyledCode.spanStyles.filter { it.start <= i && i < it.end }
+                val paragraphStyles = fullStyledCode.paragraphStyles.filter { it.start <= i && i < it.end }
+
+                val charDelay = calculateCharDelay(char, typingSpeed)
+                delay(charDelay)
+
+                builder.withStyle(SpanStyle()) {
+                    paragraphStyles.forEach { pushStyle(it.item) }
+                    styles.forEach { pushStyle(it.item) }
+                    append(char)
+                    styles.forEach { pop() }
+                    paragraphStyles.forEach { pop() }
+                }
+                displayedCode = builder.toAnnotatedString()
+
+                try {
+                    if (char == '\n') {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    } else if (!char.isWhitespace()) {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                } catch (e: Exception) {
+                    // Log error if needed
+                }
             }
-            
             onAnimationComplete()
         } else {
-            displayedText = code
-        }
-    }
-    
-    // Hide copy confirmation after a delay
-    LaunchedEffect(showCopyConfirmation) {
-        if (showCopyConfirmation) {
-            delay(2000)
-            showCopyConfirmation = false
+            displayedCode = syntaxHighlight(code)
         }
     }
 
@@ -348,15 +356,14 @@ fun CodeBlockView(
             .fillMaxWidth()
             .padding(vertical = 8.dp),
         shape = RoundedCornerShape(8.dp),
-        color = backgroundColor,
+        color = if (isDarkTheme) Color(0xFF1E1E1E) else Color(0xFFF5F5F5),
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = borderColor
+            color = if (isDarkTheme) Color(0xFF3E3E3E) else Color(0xFFDDDDDD)
         ),
         shadowElevation = 2.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Header with language name and copy button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -366,7 +373,7 @@ fun CodeBlockView(
                 Text(
                     text = language ?: "Code",
                     style = TextStyle(
-                        color = textColor.copy(alpha = 0.7f),
+                        color = if (isDarkTheme) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -374,27 +381,12 @@ fun CodeBlockView(
                 
                 Spacer(modifier = Modifier.weight(1f))
                 
-                // Scroll indicator (only shown if scrolling is needed)
-                if (needsScrolling) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowRight,
-                        contentDescription = "Swipe to see more",
-                        tint = scrollIndicatorColor,
-                        modifier = Modifier
-                            .size(20.dp)
-                            .alpha(0.7f)
-                    )
-                }
-                
-                Spacer(modifier = Modifier.width(8.dp))
-                
-                // Copy button with animation
                 IconButton(
                     onClick = {
                         clipboardManager.setText(AnnotatedString(code))
                         showCopyConfirmation = true
                         coroutineScope.launch {
-                            snackbarHostState.showSnackbar("Đã sao chép đoạn mã")
+                            Toast.makeText(context, "Đã sao chép đoạn mã", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.size(32.dp)
@@ -407,7 +399,7 @@ fun CodeBlockView(
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Copy code",
-                            tint = textColor.copy(alpha = 0.7f),
+                            tint = if (isDarkTheme) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.7f),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -420,51 +412,30 @@ fun CodeBlockView(
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = "Copied",
-                            tint = Color(0xFF4CAF50), // Green color for confirmation
+                            tint = Color(0xFF4CAF50),
                             modifier = Modifier.size(20.dp)
                         )
                     }
                 }
             }
             
-            Divider(color = borderColor)
+            Divider(color = if (isDarkTheme) Color(0xFF3E3E3E) else Color(0xFFDDDDDD))
             
-            // Code content with horizontal scroll
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(horizontalScrollState)
+                    .horizontalScroll(rememberScrollState())
                     .padding(16.dp)
             ) {
                 SelectionContainer {
                     Text(
-                        text = displayedText,
+                        text = displayedCode,
                         style = TextStyle(
                             fontFamily = FontFamily.Monospace,
                             fontSize = 14.sp,
-                            color = textColor
+                            color = if (isDarkTheme) Color(0xFFD4D4D4) else Color(0xFF333333)
                         ),
-                        softWrap = false, // Prevent wrapping to enable horizontal scrolling
-                        overflow = TextOverflow.Visible
-                    )
-                }
-            }
-            
-            // Scroll indicator at bottom (only shown if scrolling is needed and scrolled)
-            if (needsScrolling && horizontalScrollState.value > 0) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Text(
-                        text = "◄ Scroll for more",
-                        style = TextStyle(
-                            color = scrollIndicatorColor,
-                            fontSize = 12.sp,
-                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                        )
+                        softWrap = false
                     )
                 }
             }
@@ -649,6 +620,288 @@ private fun AnimatedText(
     Text(
         text = displayedText,
         style = style
+    )
+}
+
+/**
+ * AnimatedAnnotatedText Composable để hiển thị animation đánh máy
+ * Cập nhật để nhận và sử dụng HapticFeedback
+ */
+@Composable
+private fun AnimatedAnnotatedText(
+    annotatedString: AnnotatedString,
+    style: TextStyle,
+    delayMillis: Long,
+    onAnimationComplete: () -> Unit = {},
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
+) {
+    var displayedText by remember { mutableStateOf(AnnotatedString("")) }
+
+    LaunchedEffect(annotatedString) {
+        displayedText = AnnotatedString("")
+        val builder = AnnotatedString.Builder()
+
+        for (i in annotatedString.indices) {
+            val char = annotatedString[i]
+            val charDelay = calculateCharDelay(char, delayMillis)
+            delay(charDelay)
+
+            val styles = annotatedString.spanStyles.filter { it.start <= i && i < it.end }
+            val paragraphStyles = annotatedString.paragraphStyles.filter { it.start <= i && i < it.end }
+
+            builder.withStyle(SpanStyle()) {
+                paragraphStyles.forEach { pushStyle(it.item) }
+                styles.forEach { pushStyle(it.item) }
+                append(char)
+                styles.forEach { pop() }
+                paragraphStyles.forEach { pop() }
+            }
+            displayedText = builder.toAnnotatedString()
+
+            try {
+                if (char == '\n') {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                } else if (!char.isWhitespace()) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+            } catch (e: Exception) {
+                // Ghi log hoặc xử lý lỗi nếu cần thiết
+            }
+        }
+        onAnimationComplete()
+    }
+
+    Text(
+        text = displayedText,
+        style = style
+    )
+}
+
+/**
+ * Hàm tính toán delay dựa trên ký tự (có thể tái sử dụng từ TypingConfig)
+ */
+private fun calculateCharDelay(char: Char, baseDelay: Long): Long {
+    val punctuationFactor = try { TypingConfig.PUNCTUATION_SPEED_FACTOR } catch (e: NoSuchFieldError) { 3L }
+    val spaceFactor = try { TypingConfig.SPACE_SPEED_FACTOR } catch (e: NoSuchFieldError) { 2L }
+    val newlineFactor = try { TypingConfig.NEWLINE_SPEED_FACTOR } catch (e: NoSuchFieldError) { 4L }
+    val minSpeed = try { TypingConfig.MIN_TYPING_SPEED } catch (e: NoSuchFieldError) { 2L }
+    val maxSpeed = try { TypingConfig.MAX_TYPING_SPEED } catch (e: NoSuchFieldError) { 15L }
+
+    return when {
+        char == '\n' -> baseDelay * newlineFactor
+        char.isWhitespace() -> baseDelay * spaceFactor
+        ",.?!:;".contains(char) -> baseDelay * punctuationFactor
+        else -> baseDelay
+    }.coerceIn(minSpeed, maxSpeed)
+}
+
+/**
+ * Cập nhật AnimatedTableView để nhận và sử dụng HapticFeedback
+ * Đảm bảo định nghĩa hàm này có tham số hapticFeedback
+ */
+@Composable
+fun AnimatedTableView(
+    headers: List<String>,
+    rows: List<List<String>>,
+    typingSpeed: Long,
+    onAnimationComplete: () -> Unit,
+    snackbarHostState: SnackbarHostState,
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
+) {
+    var displayedRowCount by remember { mutableStateOf(0) }
+    var displayedCellCount by remember { mutableStateOf(List(rows.size) { 0 }) }
+    val isDarkTheme = isSystemInDarkTheme()
+    val borderColor = if (isDarkTheme) Color.DarkGray else Color.LightGray
+
+    LaunchedEffect(rows) {
+        // Animate headers first (optional, có thể hiển thị ngay)
+        // ...
+
+        // Animate rows and cells
+        for (rowIndex in rows.indices) {
+            val newCellCount = displayedCellCount.toMutableList()
+            for (colIndex in rows[rowIndex].indices) {
+                val cellText = rows[rowIndex][colIndex]
+                for (charIndex in cellText.indices) {
+                     val char = cellText[charIndex]
+                     val charDelay = calculateCharDelay(char, typingSpeed)
+                     delay(charDelay) // Delay cho từng ký tự trong cell
+
+                    // Kích hoạt rung phản hồi cho từng ký tự
+                    try {
+                        if (char == '\n') { // Hiếm khi có trong table cell nhưng vẫn check
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        } else if (!char.isWhitespace()) {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    } catch (e: Exception) {
+                        // Log error if needed
+                    }
+                }
+                // Cập nhật số lượng cell đã hiển thị hoàn chỉnh trong row hiện tại
+                newCellCount[rowIndex] = colIndex + 1
+                displayedCellCount = newCellCount
+
+                // Có thể thêm delay nhỏ giữa các cell nếu muốn
+                 delay(typingSpeed * 3)
+            }
+            // Cập nhật số lượng row đã hiển thị hoàn chỉnh
+            displayedRowCount = rowIndex + 1
+             // Có thể thêm delay nhỏ giữa các row nếu muốn
+             delay(typingSpeed * 5)
+        }
+        onAnimationComplete()
+    }
+
+    // Phần UI của TableView, sử dụng displayedRowCount và displayedCellCount để hiển thị dần
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .padding(8.dp)
+    ) {
+        // Headers
+        Row(Modifier.background(MaterialTheme.colorScheme.surfaceVariant)) {
+            headers.forEach { header ->
+                TableCell(text = header, isHeader = true, weight = 1f / headers.size)
+            }
+        }
+        Divider(color = borderColor)
+
+        // Rows (hiển thị dựa trên displayedRowCount)
+        rows.take(displayedRowCount).forEachIndexed { rowIndex, row ->
+            Row(Modifier.fillMaxWidth()) {
+                row.take(displayedCellCount[rowIndex]).forEachIndexed { colIndex, cell ->
+                    // Lấy toàn bộ text của cell để hiển thị, vì animation ký tự đã xong
+                    val fullCellText = rows[rowIndex][colIndex]
+                    TableCell(text = fullCellText, weight = 1f / headers.size)
+                }
+                // Hiển thị các cell còn lại trong row dưới dạng trống hoặc placeholder nếu cần
+                 repeat(headers.size - displayedCellCount[rowIndex]) {
+                     TableCell(text = "...", weight = 1f / headers.size, alpha = 0.5f) // Placeholder
+                 }
+            }
+             if (rowIndex < displayedRowCount - 1) {
+                 Divider(color = borderColor.copy(alpha = 0.5f))
+             }
+        }
+         // Hiển thị các row còn lại dưới dạng trống hoặc placeholder nếu cần
+         repeat(rows.size - displayedRowCount) {
+             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                 repeat(headers.size) {
+                     TableCell(text = "...", weight = 1f / headers.size, alpha = 0.5f) // Placeholder
+                 }
+             }
+             if (it < rows.size - displayedRowCount -1) {
+                 Divider(color = borderColor.copy(alpha = 0.5f))
+             }
+         }
+    }
+}
+
+/**
+ * Cập nhật EnhancedBlockquoteView để nhận và sử dụng HapticFeedback
+ * Đảm bảo định nghĩa hàm này có tham số hapticFeedback
+ */
+@Composable
+private fun EnhancedBlockquoteViewWithHaptic(
+    content: AnnotatedString,
+    isAnimated: Boolean = false,
+    typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
+    onAnimationComplete: () -> Unit = {},
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback? = null
+) {
+    val isDarkTheme = isSystemInDarkTheme()
+    val blockquoteColor = if (isDarkTheme) Color(0xFF4A4A4A) else Color(0xFFE0E0E0)
+    val textColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+
+    var displayedText by remember { mutableStateOf(if (isAnimated) AnnotatedString("") else content) }
+
+    LaunchedEffect(content, isAnimated) {
+        if (isAnimated && hapticFeedback != null) { // Kiểm tra null cho hapticFeedback
+            displayedText = AnnotatedString("")
+            val builder = AnnotatedString.Builder()
+
+            for (i in content.indices) {
+                val char = content[i]
+                val charDelay = calculateCharDelay(char, typingSpeed)
+                delay(charDelay)
+
+                // Append ký tự với style gốc
+                val styles = content.spanStyles.filter { it.start <= i && i < it.end }
+                val paragraphStyles = content.paragraphStyles.filter { it.start <= i && i < it.end }
+
+                builder.withStyle(SpanStyle()) {
+                    paragraphStyles.forEach { pushStyle(it.item) }
+                    styles.forEach { pushStyle(it.item) }
+                    append(char)
+                    styles.forEach { pop() }
+                    paragraphStyles.forEach { pop() }
+                }
+                displayedText = builder.toAnnotatedString()
+
+                // Kích hoạt rung phản hồi
+                try {
+                    if (char == '\n') {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    } else if (!char.isWhitespace()) {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                } catch (e: Exception) {
+                    // Log error if needed
+                }
+            }
+            onAnimationComplete()
+        } else {
+            displayedText = content
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Spacer(
+            modifier = Modifier
+                .width(4.dp)
+                .height(IntrinsicSize.Min)
+                .background(blockquoteColor, RoundedCornerShape(2.dp))
+                .fillMaxHeight()
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        SelectionContainer(modifier = Modifier.weight(1f)) {
+            Text(
+                text = displayedText,
+                style = TextStyle(
+                    fontSize = 16.sp,
+                    color = textColor,
+                    fontStyle = FontStyle.Italic,
+                    lineHeight = 22.sp
+                )
+            )
+        }
+    }
+}
+
+@Composable
+fun RowScope.TableCell(
+    text: String, 
+    weight: Float,
+    isHeader: Boolean = false,
+    alpha: Float = 1.0f
+) {
+    Text(
+        text = text,
+        modifier = Modifier
+            .weight(weight)
+            .padding(8.dp)
+            .alpha(alpha),
+        fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
+        textAlign = TextAlign.Center,
+        fontSize = 14.sp,
+        maxLines = 3,
+        overflow = TextOverflow.Ellipsis
     )
 }
 

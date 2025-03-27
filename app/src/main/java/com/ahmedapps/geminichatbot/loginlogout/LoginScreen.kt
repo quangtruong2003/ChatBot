@@ -93,13 +93,28 @@ fun LoginScreen(
     val defaultWebClientId = stringResource(id = R.string.default_web_client_id)
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-    val emailFocusRequester = remember { FocusRequester() } // Focus requester cho email
+    
+    // Thêm focus requester cho password ở đây
+    val emailFocusRequester = remember { FocusRequester() }
+    val passwordFocusRequester = remember { FocusRequester() }
+    
     val coroutineScope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
     var isKeyboardVisible by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
 
+    // Thêm các state cho lỗi cụ thể và trạng thái email
+    var emailError by remember { mutableStateOf<String?>(null) }
+    var passwordError by remember { mutableStateOf<String?>(null) }
+    var showResendEmailButton by remember { mutableStateOf(false) }
+
+    // Thêm state kiểm tra email
+    var emailExists by remember { mutableStateOf<Boolean?>(null) }
+    
+    // 1. Thêm biến để theo dõi kiểm tra email
+    var isCheckingEmail by remember { mutableStateOf(false) }
+    
     // Hàm kiểm tra email hợp lệ
     fun validateEmail(email: String): Boolean {
         return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
@@ -108,6 +123,22 @@ fun LoginScreen(
     // Kiểm tra email khi giá trị thay đổi
     LaunchedEffect(email) {
         isEmailValid = validateEmail(email)
+    }
+
+    // 2. Thêm LaunchedEffect để kiểm tra email khi người dùng nhập
+    LaunchedEffect(email) {
+        if (email.isNotBlank() && isEmailValid) {
+            // Gọi hàm kiểm tra trong ViewModel
+            viewModel.checkEmailExists(email)
+        } else {
+            // Reset trạng thái kiểm tra nếu email trống hoặc không hợp lệ
+            viewModel.resetEmailCheckState()
+        }
+    }
+
+    // Theo dõi trạng thái email từ authState
+    LaunchedEffect(authState.emailExists) {
+        emailExists = authState.emailExists
     }
 
     // Animation states
@@ -189,12 +220,76 @@ fun LoginScreen(
         }
     }
 
-    // Show error message in Snackbar
+    // Sửa lại hàm handleError để không hiển thị lỗi đã hiển thị dưới trường nhập liệu
+    fun handleError(message: String?): Boolean {
+        // Reset các lỗi trước
+        emailError = null
+        passwordError = null
+        showResendEmailButton = false
+        
+        // Nếu không có lỗi, không cần xử lý
+        if (message == null) return false
+        
+        // Xử lý lỗi và quyết định có nên hiển thị trên Snackbar không
+        when {
+            message.contains("không tồn tại") -> {
+                emailError = message
+                return false // Không hiển thị trên Snackbar
+            }
+            message.contains("Sai mật khẩu") -> {
+                passwordError = message
+                return false // Không hiển thị trên Snackbar
+            }
+            message.contains("chưa được xác minh") -> {
+                emailError = message
+                showResendEmailButton = true
+                return false // Không hiển thị trên Snackbar
+            }
+            else -> return true // Các lỗi khác sẽ hiển thị trên Snackbar
+        }
+    }
+    
+    // Giá trị để tạo hiệu ứng rung (shake effect) khi có lỗi
+    val shakeOffset = remember { Animatable(0f) }
+    
+    // Sửa lại LaunchedEffect xử lý lỗi
     LaunchedEffect(authState.errorMessage) {
         authState.errorMessage?.let { message ->
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            snackbarHostState.showSnackbar(message)
-            viewModel.updateError(null) // Reset lỗi sau khi hiển thị
+            
+            // Xử lý lỗi để hiển thị lỗi cụ thể, trả về true nếu cần hiển thị trên Snackbar
+            val shouldShowSnackbar = handleError(message)
+            
+            // Tạo hiệu ứng rung
+            shakeOffset.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = 0.2f,
+                    stiffness = 600f
+                ),
+                initialVelocity = -500f
+            )
+            
+            // Chỉ hiển thị Snackbar nếu cần
+            if (shouldShowSnackbar) {
+                snackbarHostState.showSnackbar(message)
+            }
+            
+            // Reset thông báo lỗi trong ViewModel
+            viewModel.updateError(null)
+        }
+    }
+
+    // Thêm hiệu ứng pulsing cho border khi có lỗi
+    val errorBorderPulse = remember { Animatable(1f) }
+    
+    LaunchedEffect(emailError, passwordError) {
+        if (emailError != null || passwordError != null) {
+            // Tạo hiệu ứng nhấp nháy cho border
+            while (true) {
+                errorBorderPulse.animateTo(1.2f, animationSpec = tween(500))
+                errorBorderPulse.animateTo(1f, animationSpec = tween(500))
+            }
         }
     }
 
@@ -253,7 +348,7 @@ fun LoginScreen(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            snackbarHost = { SnackbarHostState() }
+            snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { paddingValues ->
             Column(
                 modifier = Modifier
@@ -335,7 +430,10 @@ fun LoginScreen(
                         // Email Field
                         OutlinedTextField(
                             value = email,
-                            onValueChange = { email = it },
+                            onValueChange = { 
+                                email = it
+                                emailError = null // Xóa lỗi khi người dùng nhập
+                            },
                             label = { Text("Email", style = MaterialTheme.typography.bodyMedium) },
                             leadingIcon = {
                                 AnimatedContent(
@@ -346,40 +444,70 @@ fun LoginScreen(
                                     Icon(
                                         imageVector = if (focused) Icons.Filled.AlternateEmail else Icons.Outlined.Email,
                                         contentDescription = null,
-                                        tint = if (focused) primaryColor else onSurfaceVariantColor
+                                        tint = if (focused) primaryColor else if (emailError != null) errorColor else onSurfaceVariantColor
                                     )
                                 }
                             },
                             trailingIcon = {
-                                if (email.isNotEmpty()) {
-                                    AnimatedVisibility(
-                                        visible = isEmailValid,
-                                        enter = scaleIn(), exit = scaleOut()
-                                    ) {
+                                // Ưu tiên 1: Loading khi đang kiểm tra email
+                                if (authState.emailCheckLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = primaryColor
+                                    )
+                                }
+                                // Ưu tiên 2: Hiển thị các trạng thái khác khi không loading và email không trống
+                                else if (email.isNotEmpty()) {
+                                    // 2.1: Hiển thị lỗi nếu có
+                                    if (emailError != null) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Error,
+                                            contentDescription = "Email error",
+                                            tint = errorColor
+                                        )
+                                    }
+                                    // 2.2: Hiển thị cảnh báo khi email không tồn tại
+                                    else if (authState.emailExists == false) {
+                                        Icon(
+                                            imageVector = Icons.Filled.ErrorOutline,
+                                            contentDescription = "Email không tồn tại",
+                                            tint = errorColor
+                                        )
+                                    }
+                                    // 2.3: Hiển thị dấu tích khi email tồn tại và hợp lệ
+                                    else if (authState.emailExists == true && isEmailValid) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
                                             contentDescription = "Email hợp lệ",
-                                            tint = Color.Green // Hoặc primaryColor
+                                            tint = Color.Green
+                                        )
+                                    }
+                                    // 2.4: Hiển thị dấu tích mờ khi email hợp lệ nhưng chưa kiểm tra tồn tại
+                                    else if (isEmailValid) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Email định dạng hợp lệ",
+                                            tint = Color.Green.copy(alpha = 0.7f)
                                         )
                                     }
                                 }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .focusRequester(emailFocusRequester) // Gắn focus requester
+                                .focusRequester(emailFocusRequester)
                                 .onFocusChanged { emailFocused = it.isFocused }
                                 .padding(bottom = 8.dp),
                             singleLine = true,
                             shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors( // Sử dụng API M3 mới
+                            colors = OutlinedTextFieldDefaults.colors(
                                 cursorColor = primaryColor,
-                                focusedBorderColor = primaryColor,
-                                unfocusedBorderColor = outlineColor,
+                                focusedBorderColor = if (emailError != null) errorColor else primaryColor,
+                                unfocusedBorderColor = if (emailError != null) errorColor else outlineColor,
                                 focusedContainerColor = surfaceVariantAlphaColor,
                                 unfocusedContainerColor = surfaceVariantAlphaColor,
-                                focusedLeadingIconColor = primaryColor,
-                                unfocusedLeadingIconColor = onSurfaceVariantColor,
-                                // Không cần error colors ở đây trừ khi bạn thêm logic isError
+                                focusedLeadingIconColor = if (emailError != null) errorColor else primaryColor,
+                                unfocusedLeadingIconColor = if (emailError != null) errorColor else onSurfaceVariantColor,
                             ),
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Email,
@@ -388,7 +516,30 @@ fun LoginScreen(
                             keyboardActions = KeyboardActions(
                                 onNext = { if (isEmailValid) focusManager.moveFocus(FocusDirection.Down) },
                                 onDone = { keyboardController?.hide() }
-                            )
+                            ),
+                            isError = emailError != null || authState.emailExists == false,
+                            supportingText = {
+                                when {
+                                    // Ưu tiên 1: Hiển thị lỗi cụ thể nếu có
+                                    emailError != null -> {
+                                        Text(
+                                            text = emailError!!,
+                                            color = errorColor,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                    // Ưu tiên 2: Hiển thị thông báo khi email không tồn tại
+                                    authState.emailExists == false && email.isNotEmpty() && isEmailValid -> {
+                                        Text(
+                                            text = "Email chưa đăng ký tài khoản. Bạn cần đăng ký trước.",
+                                            color = errorColor,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
                         )
 
                         // Password field và các nút bên dưới chỉ hiển thị khi email hợp lệ
@@ -403,7 +554,10 @@ fun LoginScreen(
                                 // Password Field
                                 OutlinedTextField(
                                     value = password,
-                                    onValueChange = { password = it },
+                                    onValueChange = { 
+                                        password = it 
+                                        passwordError = null // Xóa lỗi khi người dùng nhập
+                                    },
                                     label = { Text("Mật khẩu", style = MaterialTheme.typography.bodyMedium) },
                                     leadingIcon = {
                                         AnimatedContent(
@@ -414,7 +568,7 @@ fun LoginScreen(
                                             Icon(
                                                 imageVector = if (focused) Icons.Filled.Lock else Icons.Outlined.Lock,
                                                 contentDescription = null,
-                                                tint = if (focused) primaryColor else onSurfaceVariantColor
+                                                tint = if (focused) primaryColor else if (passwordError != null) errorColor else onSurfaceVariantColor
                                             )
                                         }
                                     },
@@ -449,6 +603,7 @@ fun LoginScreen(
                                     visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .focusRequester(passwordFocusRequester)
                                         .onFocusChanged { state ->
                                             passwordFocused = state.isFocused
                                             if (state.isFocused) {
@@ -461,19 +616,20 @@ fun LoginScreen(
                                                     scrollState.animateScrollTo((scrollState.maxValue * 0.15f).toInt())
                                                 }
                                             }
-                                        },
+                                        }
+                                        .offset(x = if (passwordError != null) shakeOffset.value.dp else 0.dp),
                                     singleLine = true,
                                     shape = RoundedCornerShape(16.dp),
-                                    colors = OutlinedTextFieldDefaults.colors( // API M3 mới
+                                    colors = OutlinedTextFieldDefaults.colors(
                                         cursorColor = primaryColor,
-                                        focusedBorderColor = primaryColor,
-                                        unfocusedBorderColor = outlineColor,
+                                        focusedBorderColor = if (passwordError != null) errorColor else primaryColor,
+                                        unfocusedBorderColor = if (passwordError != null) errorColor else outlineColor,
                                         focusedContainerColor = surfaceVariantAlphaColor,
                                         unfocusedContainerColor = surfaceVariantAlphaColor,
-                                        focusedLeadingIconColor = primaryColor,
-                                        unfocusedLeadingIconColor = onSurfaceVariantColor,
-                                        focusedTrailingIconColor = primaryColor,
-                                        unfocusedTrailingIconColor = onSurfaceVariantColor
+                                        focusedLeadingIconColor = if (passwordError != null) errorColor else primaryColor,
+                                        unfocusedLeadingIconColor = if (passwordError != null) errorColor else onSurfaceVariantColor,
+                                        focusedTrailingIconColor = if (passwordError != null) errorColor else primaryColor,
+                                        unfocusedTrailingIconColor = if (passwordError != null) errorColor else onSurfaceVariantColor
                                     ),
                                     keyboardOptions = KeyboardOptions(
                                         keyboardType = KeyboardType.Password,
@@ -487,7 +643,18 @@ fun LoginScreen(
                                                 viewModel.login(email.trim(), password)
                                             }
                                         }
-                                    )
+                                    ),
+                                    isError = passwordError != null,
+                                    supportingText = {
+                                        passwordError?.let {
+                                            Text(
+                                                text = it,
+                                                color = errorColor,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
                                 )
 
                                 Spacer(modifier = Modifier.height(8.dp))
@@ -526,13 +693,16 @@ fun LoginScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(56.dp)
-                                        .scale(buttonScale), // Sử dụng scale thay cho graphicsLayer
+                                        .scale(buttonScale),
                                     shape = RoundedCornerShape(16.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = primaryColor,
                                         contentColor = onPrimaryColor
                                     ),
-                                    enabled = !authState.isLoading && email.isNotEmpty() && password.isNotEmpty()
+                                    enabled = !authState.isLoading && 
+                                              email.isNotEmpty() && password.isNotEmpty() &&
+                                              (authState.emailExists != false) && 
+                                              !authState.emailCheckLoading
                                 ) {
                                     AnimatedContent(
                                         targetState = authState.isLoading,
@@ -553,6 +723,60 @@ fun LoginScreen(
                                                 Text("Đăng nhập", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Icon(Icons.Default.ArrowForward, null, Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Thêm nút gửi lại email xác thực NGAY SAU nút đăng nhập
+                                // Thay đổi: AnimatedVisibility để chỉ hiển thị nút này khi showResendEmailButton=true
+                                AnimatedVisibility(
+                                    visible = showResendEmailButton,
+                                    enter = expandVertically() + fadeIn(),
+                                    exit = shrinkVertically() + fadeOut()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        
+                                        val timerRunning by EmailVerificationTimer.isRunning
+                                        val timeLeft by EmailVerificationTimer.timeLeft
+                                        
+                                        Button(
+                                            onClick = {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                viewModel.resendVerificationEmail(email.trim())
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(48.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                            ),
+                                            enabled = !timerRunning && !authState.isLoading
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.MarkEmailRead, 
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                
+                                                // Hiển thị thời gian còn lại nếu đang đếm ngược
+                                                if (timerRunning) {
+                                                    val seconds = (timeLeft / 1000).toInt()
+                                                    Text("Gửi lại sau ${seconds}s", fontSize = 14.sp)
+                                                } else {
+                                                    Text("Gửi lại email xác thực", fontSize = 14.sp)
+                                                }
                                             }
                                         }
                                     }
@@ -683,6 +907,38 @@ fun LoginScreen(
             } // Kết thúc Column chính
         } // Kết thúc Scaffold
     } // Kết thúc Box background
+
+    // Trong LoginScreen Composable, thêm LaunchedEffect để đọc email từ EmailDataHolder
+    LaunchedEffect(Unit) {
+        val savedEmail = EmailDataHolder.getEmail()
+        if (savedEmail.isNotEmpty()) {
+            email = savedEmail
+            // Tùy chọn: focus vào trường mật khẩu nếu email đã được điền
+            if (isEmailValid) {
+                delay(300) // Chờ một chút để animation hoàn thành
+                passwordFocusRequester.requestFocus()
+            }
+        }
+    }
+
+    // Thêm LaunchedEffect để theo dõi hoạt động của timer
+    LaunchedEffect(EmailVerificationTimer.isRunning.value) {
+        if (EmailVerificationTimer.isRunning.value) {
+            Log.d("EmailTimer", "Timer started")
+            
+            // Theo dõi thời gian còn lại
+            while (true) {
+                delay(1000)
+                val remainingTime = EmailVerificationTimer.timeLeft.value / 1000
+                Log.d("EmailTimer", "Remaining time: $remainingTime seconds")
+                
+                if (!EmailVerificationTimer.isRunning.value) {
+                    Log.d("EmailTimer", "Timer stopped")
+                    break
+                }
+            }
+        }
+    }
 }
 
 @Composable

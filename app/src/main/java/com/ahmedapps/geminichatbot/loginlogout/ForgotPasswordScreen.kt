@@ -101,17 +101,20 @@ class ForgotPasswordViewModel @javax.inject.Inject constructor(
         _state.value = ForgotPasswordState(isLoading = true)
         viewModelScope.launch {
             try {
-                val signInMethods = auth.fetchSignInMethodsForEmail(email).await().signInMethods
-                if (signInMethods.isNullOrEmpty()) {
-                    _state.value = ForgotPasswordState(errorMessage = "Email không tồn tại trong hệ thống")
-                } else {
-                    auth.sendPasswordResetEmail(email).await()
-                    _state.value = ForgotPasswordState(isSuccess = true)
-                }
+                // Bỏ kiểm tra fetchSignInMethodsForEmail vì có thể gây lỗi không nhất quán
+                // và trực tiếp gửi email đặt lại mật khẩu
+                auth.sendPasswordResetEmail(email).await()
+                _state.value = ForgotPasswordState(isSuccess = true)
             } catch (e: Exception) {
                 Log.e("ForgotPasswordVM", "Error initiating password reset", e)
-                val error = e.localizedMessage ?: "Đã xảy ra lỗi không xác định, vui lòng thử lại sau"
-                _state.value = ForgotPasswordState(errorMessage = error)
+                
+                // Xử lý lỗi cụ thể từ Firebase
+                val errorMessage = when (e) {
+                    is FirebaseAuthInvalidUserException -> "Email không tồn tại trong hệ thống"
+                    else -> e.localizedMessage ?: "Đã xảy ra lỗi không xác định, vui lòng thử lại sau"
+                }
+                
+                _state.value = ForgotPasswordState(errorMessage = errorMessage)
             }
         }
     }
@@ -145,7 +148,6 @@ fun ForgotPasswordScreen(
     var emailFocused by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     val coroutineScope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
     val scrollState = rememberScrollState()
     val haptic = LocalHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
@@ -556,7 +558,6 @@ fun ForgotPasswordScreen(
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let { message ->
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            snackbarHostState.showSnackbar(message)
         }
     }
 
@@ -615,7 +616,6 @@ fun ForgotPasswordScreen(
             modifier = Modifier.fillMaxSize(),
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),  // Sửa để tương đồng với LoginScreen
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
         ) { paddingValues ->
             Column(
                 modifier = Modifier
@@ -766,10 +766,6 @@ fun ForgotPasswordScreen(
                                     keyboardController?.hide()
                                     if (isEmailValid) {
                                         viewModel.initiatePasswordReset(emailState.trim())
-                                    } else {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Vui lòng nhập email hợp lệ")
-                                        }
                                     }
                                 }
                             )
@@ -780,10 +776,6 @@ fun ForgotPasswordScreen(
                                 keyboardController?.hide()
                                 if (isEmailValid) {
                                     viewModel.initiatePasswordReset(emailState.trim())
-                                } else {
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("Vui lòng nhập email hợp lệ")
-                                    }
                                 }
                             },
                             modifier = Modifier

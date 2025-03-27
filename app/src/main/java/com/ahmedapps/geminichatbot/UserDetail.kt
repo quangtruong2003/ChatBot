@@ -104,7 +104,8 @@ fun UserDetailBottomSheet(
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     if (photoUrl != null) {
