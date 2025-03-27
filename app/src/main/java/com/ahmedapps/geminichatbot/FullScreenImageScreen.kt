@@ -49,6 +49,8 @@ import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import coil.size.Precision
+import coil.size.Scale
 import com.ahmedapps.geminichatbot.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -148,6 +150,10 @@ fun FullScreenImageScreen(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
                     .crossfade(true)
+                    .size(2048)
+                    .precision(Precision.AUTOMATIC)
+                    .scale(Scale.FIT)
+                    .allowHardware(false)
                     .build(),
                 contentDescription = "Hình ảnh toàn màn hình",
                 contentScale = ContentScale.Fit,
@@ -326,6 +332,7 @@ private suspend fun saveImage(context: Context, imageUrl: String?, imageLoader: 
         // Tải hình ảnh từ URL
         val request = ImageRequest.Builder(context)
             .data(imageUrl)
+            .size(2048)
             .build()
 
         val result = withContext(Dispatchers.IO) {
@@ -335,6 +342,7 @@ private suspend fun saveImage(context: Context, imageUrl: String?, imageLoader: 
         val bitmap = (result as? BitmapDrawable)?.bitmap
 
         if (bitmap != null) {
+            val maxDimension = 4096
             // Lưu hình ảnh vào thư viện
             val saved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 saveImageOnAndroid10AndAbove(context, bitmap)

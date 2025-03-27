@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,6 +52,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -91,6 +93,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.window.PopupProperties
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
     ExperimentalPermissionsApi::class
@@ -116,6 +121,9 @@ fun ChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showPopup by remember { mutableStateOf(false) }
+
+    // Lấy đối tượng HapticFeedback
+    val hapticFeedback = LocalHapticFeedback.current
 
     val isDarkTheme = isSystemInDarkTheme()
     val backgroundColor = when {
@@ -148,24 +156,79 @@ fun ChatScreen(
     LaunchedEffect(drawerState.currentValue) {
         if (drawerState.currentValue == DrawerValue.Open) {
             focusManager.clearFocus()
-        } else{
-            focusManager.clearFocus()
         }
     }
     val isUserScrolling = remember { mutableStateOf(false) }
     var userScrolled by remember { mutableStateOf(false) }
     var previousChatListSize by remember { mutableStateOf(chatState.chatList.size) }
+
+    // State to track if the user has intentionally scrolled away from the bottom
+    var userScrolledAwayFromBottom by remember { mutableStateOf(false) }
+
+    // Effect to detect user scrolling up
+    LaunchedEffect(listState) {
+        var previousFirstVisibleItemIndex = listState.firstVisibleItemIndex
+        var previousFirstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset
+
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (currentIndex, currentOffset) ->
+                val isScrollingUp = currentIndex < previousFirstVisibleItemIndex ||
+                        (currentIndex == previousFirstVisibleItemIndex && currentOffset < previousFirstVisibleItemScrollOffset)
+
+                if (isScrollingUp) {
+                    // Check if we are not already at the very top (index 0, offset 0)
+                    // And if the list has content
+                    if ((currentIndex > 0 || currentOffset > 0) && listState.layoutInfo.totalItemsCount > 0) {
+                        // Only set to true if user scrolls up significantly enough to potentially hide the last item
+                        val layoutInfo = listState.layoutInfo
+                        val totalItemsCount = layoutInfo.totalItemsCount
+                        val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull()
+                        // Consider scrolled up if the last item is no longer the last visible one
+                        if (lastVisibleItem != null && lastVisibleItem.index < totalItemsCount - 1) {
+                            userScrolledAwayFromBottom = true
+                        } else if (lastVisibleItem == null && totalItemsCount > 0) {
+                            // Handle case where list scrolls very fast and last item info might be briefly unavailable
+                            userScrolledAwayFromBottom = true
+                        }
+                    }
+                }
+
+                // Update previous values
+                previousFirstVisibleItemIndex = currentIndex
+                previousFirstVisibleItemScrollOffset = currentOffset
+            }
+    }
+
+    // Derived state for button visibility based on user scroll action
     val showScrollToBottomButton by remember {
         derivedStateOf {
-            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()
-            if (lastVisibleItem != null) {
-                // Kiểm tra nếu chỉ số của mục cuối cùng hiển thị nhỏ hơn chỉ số của mục cuối cùng trong danh sách
-                lastVisibleItem.index < chatState.chatList.lastIndex
+            val layoutInfo = listState.layoutInfo
+            val visibleItemsInfo = layoutInfo.visibleItemsInfo
+            val totalItemsCount = layoutInfo.totalItemsCount
+
+            if (visibleItemsInfo.isEmpty() || totalItemsCount == 0) {
+                false // No button if list is empty
             } else {
-                false
+                val lastVisibleItem = visibleItemsInfo.last()
+                // Check if the very last item in the list is visible
+                val isLastItemVisible = lastVisibleItem.index == totalItemsCount - 1
+
+                // If last item becomes fully visible, reset the scrolled away flag
+                if (isLastItemVisible) {
+                    // Check if the last item is fully visible (offset is 0 or near 0)
+                    // This prevents hiding the button if only a pixel of the last item is visible
+                    val lastItemBottomOffset = layoutInfo.viewportSize.height - lastVisibleItem.offset - lastVisibleItem.size
+                    if (lastItemBottomOffset <= 10) { // Use a slightly larger threshold
+                        userScrolledAwayFromBottom = false
+                    }
+                }
+
+                // Show button if user has scrolled away
+                userScrolledAwayFromBottom
             }
         }
     }
+
     val canSend = chatState.prompt.isNotEmpty() || chatState.imageUri != null
 
     var shouldAutoScroll by remember { mutableStateOf(true) }
@@ -191,9 +254,13 @@ fun ChatScreen(
         // Reset trạng thái cuộn khi chuyển chat
         userScrolled = false
         shouldAutoScroll = true
+        userScrolledAwayFromBottom = false // Reset scroll flag when changing chat
         // Cuộn xuống cuối khi chuyển chat
         if (chatState.chatList.isNotEmpty()) {
-            listState.scrollToItem(chatState.chatList.size - 1)
+            // Use a slightly longer delay to allow layout calculations to potentially settle
+            kotlinx.coroutines.delay(100) // Increased delay
+            // Scroll to the absolute bottom using Int.MAX_VALUE
+            listState.animateScrollToItem(Int.MAX_VALUE)
         }
     }
 
@@ -208,15 +275,22 @@ fun ChatScreen(
 
             // Chỉ cuộn tự động nếu người dùng không đang cuộn thủ công
             if (shouldAutoScroll) {
+                // Reset the scrolled away flag *before* starting the scroll animation
+                userScrolledAwayFromBottom = false
                 // Delay nhỏ để chờ UI cập nhật trước khi cuộn
-                kotlinx.coroutines.delay(50)
-                listState.animateScrollToItem(chatState.chatList.size - 1)
+                kotlinx.coroutines.delay(50) // Keep this delay for responsiveness
+                // Ensure we scroll to the actual last index/bottom
+                if (chatState.chatList.isNotEmpty()) {
+                    // Scroll to the absolute bottom using Int.MAX_VALUE
+                    listState.animateScrollToItem(Int.MAX_VALUE)
+                }
             }
         } else if (chatState.chatList.size < previousChatListSize) {
             // Xử lý trường hợp danh sách bị xóa (ví dụ: refresh)
             previousChatListSize = chatState.chatList.size
             userScrolled = false
             shouldAutoScroll = true
+            userScrolledAwayFromBottom = false // Also reset if list is cleared/refreshed
         }
     }
 
@@ -282,16 +356,6 @@ fun ChatScreen(
     val windowInsetsController = remember(localView) {
         ViewCompat.getWindowInsetsController(localView)
     }
-
-    LaunchedEffect(drawerState) {
-        snapshotFlow { drawerState.targetValue }
-            .collectLatest { targetValue ->
-                if (drawerState.currentValue == DrawerValue.Open && targetValue == DrawerValue.Closed) {
-                    windowInsetsController?.hide(WindowInsetsCompat.Type.ime())
-                }
-            }
-    }
-
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -359,6 +423,8 @@ fun ChatScreen(
                                         onClick = {
                                             isClicked = !isClicked // Chuyển đổi trạng thái đã nhấp
                                             showModelSelection = true
+                                            // Thêm phản hồi rung khi mở dropdown model
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
                                     )
                                     .alpha(if (isClicked) 0.5f else 1f)
@@ -417,6 +483,7 @@ fun ChatScreen(
                                 DropdownMenu(
                                     expanded = showModelSelection,
                                     onDismissRequest = { showModelSelection = false },
+                                    properties = PopupProperties(focusable = false),
                                     modifier = Modifier
                                         .wrapContentSize(Alignment.Center)
                                         .crop(vertical = 8.dp)
@@ -473,6 +540,8 @@ fun ChatScreen(
                                             onClick = {
                                                 chatViewModel.selectModel(model)
                                                 showModelSelection = false
+                                                // Thêm phản hồi rung khi chọn model
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             }
                                         )
                                         if (index < chatViewModel.availableModels.size - 1) {
@@ -493,6 +562,8 @@ fun ChatScreen(
                     navigationIcon = {
                         IconButton(onClick = { scope.launch {
                             drawerState.open()
+                            // Thêm phản hồi rung khi mở drawer
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         } }) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_listhistory),
@@ -507,6 +578,8 @@ fun ChatScreen(
                         IconButton(
                             onClick = {
                                 chatViewModel.refreshChats()
+                                // Thêm phản hồi rung khi làm mới chat
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             },
                             enabled = chatState.chatList.isNotEmpty()
                         ) {
@@ -558,16 +631,21 @@ fun ChatScreen(
                     enter = fadeIn(),
                     exit = fadeOut(),
                     modifier = Modifier
-                        .align(Alignment.BottomCenter) // Align at the bottom center within the Box
+                        .align(Alignment.BottomCenter)
                         .padding(bottom = 180.dp)
-                        .zIndex(1f)// Add padding to adjust above the input bar
+                        .zIndex(1f)
                 ) {
                     FloatingActionButton(
                         onClick = {
                             scope.launch {
-                                shouldAutoScroll = true
-                                listState.animateScrollToItem(chatState.chatList.size)
-
+                                shouldAutoScroll = true // Allow potential future auto-scrolls
+                                userScrolledAwayFromBottom = false // Reset flag immediately
+                                if (chatState.chatList.isNotEmpty()) {
+                                    // Use a slightly longer delay, consistent with chat switching
+                                    kotlinx.coroutines.delay(100) // Increased delay
+                                    // Scroll to the absolute bottom using Int.MAX_VALUE
+                                    listState.animateScrollToItem(Int.MAX_VALUE)
+                                }
                             }
                         },
                         modifier = Modifier
@@ -582,13 +660,14 @@ fun ChatScreen(
                         containerColor = if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFEAEAEA),
                         contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
                         elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = 0.dp, // Tăng giá trị defaultElevation
-                            pressedElevation = 12.dp, // Tăng giá trị pressedElevation (tùy chọn)
-                            focusedElevation = 12.dp // Tăng giá trị focusedElevation (tùy chọn)
+                            defaultElevation = 0.dp,
+                            pressedElevation = 12.dp,
+                            focusedElevation = 12.dp
                         )
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.ArrowDownward,
+                            painter = painterResource(id = R.drawable.ic_download),
+                            //imageVector = Icons.Filled.ArrowDownward,
                             contentDescription = "Scroll to Bottom"
                         )
                     }
@@ -610,7 +689,14 @@ fun ChatScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp),
+                            .padding(horizontal = 8.dp)
+                            // Thêm clickable vào LazyColumn để đóng bàn phím
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null // Không hiển thị hiệu ứng ripple
+                            ) {
+                                focusManager.clearFocus() // Đóng bàn phím
+                            },
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
                     ) {
@@ -847,7 +933,10 @@ fun ChatScreen(
                             ) {
                                 // --- Nút '+' (Thêm ảnh) ---
                                 IconButton(
-                                    onClick = { showSourceMenu = !showSourceMenu },
+                                    onClick = { showSourceMenu = !showSourceMenu
+                                        // Thêm phản hồi rung khi mở dropdown chọn ảnh
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    },
                                     modifier = Modifier
                                         .padding(bottom = 8.dp)
                                         .size(40.dp)
@@ -866,6 +955,7 @@ fun ChatScreen(
                                 DropdownMenu(
                                     expanded = showSourceMenu,
                                     onDismissRequest = { showSourceMenu = false },
+                                    properties = PopupProperties(focusable = false),
                                     modifier = Modifier
                                         .crop(vertical = 8.dp)
                                         .background(
@@ -892,6 +982,8 @@ fun ChatScreen(
                                                 takePictureLauncher.launch(it)
                                             }
                                             showSourceMenu = false
+                                            // Thêm phản hồi rung khi chọn chụp ảnh
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         },
                                         trailingIcon = {
                                             Icon(
@@ -920,6 +1012,8 @@ fun ChatScreen(
                                                 )
                                             )
                                             showSourceMenu = false
+                                            // Thêm phản hồi rung khi chọn thư viện ảnh
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         },
                                         trailingIcon = {
                                             Icon(
@@ -940,6 +1034,8 @@ fun ChatScreen(
                                             .clip(RoundedCornerShape(8.dp))
                                             .clickable {
                                                 chatViewModel.stopCurrentResponse()
+                                                // Thêm phản hồi rung khi dừng
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             },
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "Dừng",
@@ -965,10 +1061,13 @@ fun ChatScreen(
                                                                 chatState.imageUri
                                                             )
                                                         )
+                                                        // Thêm phản hồi rung khi gửi tin nhắn
+                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                     }
                                                 }
                                             ),
-                                        painter = painterResource(id = R.drawable.ic_send),
+                                            painter = painterResource(id = R.drawable.ic_send),
+                                            //imageVector = Icons.Filled.ArrowUpward,
                                         contentDescription = "Send Message",
                                         tint = textColor
                                     )

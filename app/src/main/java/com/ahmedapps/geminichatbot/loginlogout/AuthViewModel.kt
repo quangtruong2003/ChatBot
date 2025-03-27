@@ -19,6 +19,8 @@ import javax.inject.Inject
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
+import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.auth.FirebaseUser
 
 data class AuthState(
     val isLoading: Boolean = false,
@@ -27,7 +29,8 @@ data class AuthState(
     val isAuthenticated: Boolean = false,
     val userId: String = "",
     val emailCheckLoading: Boolean = false,
-    val emailExists: Boolean? = null
+    val emailExists: Boolean? = null,
+    val user: FirebaseUser? = null
 )
 
 @HiltViewModel
@@ -76,9 +79,8 @@ class AuthViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                auth.signInWithEmailAndPassword(email, password).await()
-                val user = auth.currentUser
-
+                val result = auth.signInWithEmailAndPassword(email, password).await()
+                val user = result.user
                 if (user != null) {
                     if (user.isEmailVerified) {
                         _authState.update {
@@ -90,9 +92,10 @@ class AuthViewModel @Inject constructor(
                             )
                         }
                     } else {
+                        auth.signOut()
                         _authState.update {
                             it.copy(
-                                errorMessage = "Vui lòng xác minh địa chỉ email của bạn trước khi đăng nhập",
+                                errorMessage = "Tài khoản chưa được xác minh. Vui lòng kiểm tra email của bạn để xác thực.",
                                 isLoading = false
                             )
                         }
@@ -100,20 +103,35 @@ class AuthViewModel @Inject constructor(
                 } else {
                     _authState.update {
                         it.copy(
-                            errorMessage = "Đăng nhập thất bại. Vui lòng kiểm tra thông tin đăng nhập của bạn",
+                            errorMessage = "Đã xảy ra lỗi không xác định.",
                             isLoading = false
                         )
                     }
                 }
-
-            } catch (e: Exception) {
+            } catch (e: FirebaseAuthInvalidUserException) {
                 _authState.update {
                     it.copy(
-                        errorMessage = e.message,
+                        errorMessage = "Tài khoản không tồn tại.",
                         isLoading = false
                     )
                 }
-                Log.e("AuthViewModel", "Login failed", e)
+                Log.e("AuthViewModel", "Login failed: User not found", e)
+            } catch (e: FirebaseAuthInvalidCredentialsException) {
+                _authState.update {
+                    it.copy(
+                        errorMessage = "Sai mật khẩu. Vui lòng thử lại.",
+                        isLoading = false
+                    )
+                }
+                Log.e("AuthViewModel", "Login failed: Invalid credentials", e)
+            } catch (e: Exception) {
+                _authState.update {
+                    it.copy(
+                        errorMessage = "Đăng nhập thất bại: ${e.localizedMessage ?: "Lỗi không xác định"}.",
+                        isLoading = false
+                    )
+                }
+                Log.e("AuthViewModel", "Login failed: General exception", e)
             }
         }
     }
@@ -218,7 +236,15 @@ class AuthViewModel @Inject constructor(
                 try {
                     userCredential.user?.sendEmailVerification()?.await()
                     Log.d("AuthViewModel", "Verification email sent to ${userCredential.user?.email}")
-                    // Cập nhật trạng thái thành công CUỐI CÙNG
+                    
+                    // Khởi động bộ đếm ngược khi gửi email xác thực thành công
+                    EmailVerificationTimer.startTimer()
+                    Log.d("AuthViewModel", "Timer started after registration")
+                    
+                    // Lưu email
+                    EmailDataHolder.setEmail(email)
+                    
+                    // Cập nhật trạng thái thành công
                     _authState.update { it.copy(isSuccess = true, isLoading = false) }
                 } catch (verificationError: Exception) {
                     Log.e("AuthViewModel", "Failed to send verification email", verificationError)
@@ -286,5 +312,86 @@ class AuthViewModel @Inject constructor(
         emailCheckJob?.cancel()
         _authState.value = AuthState()
         checkCurrentUser()
+    }
+
+    fun resendVerificationEmail(email: String) {
+        // Kiểm tra xem đếm ngược có đang chạy không
+        if (EmailVerificationTimer.isRunning.value) {
+            _authState.update {
+                it.copy(errorMessage = "Vui lòng đợi hết thời gian giới hạn để gửi lại email xác thực.")
+            }
+            return
+        }
+
+        if (email.isBlank() || !Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            _authState.update {
+                it.copy(errorMessage = "Địa chỉ email không hợp lệ.")
+            }
+            return
+        }
+
+        _authState.update { it.copy(isLoading = true, errorMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Kiểm tra email tồn tại trước
+                val signInMethods = auth.fetchSignInMethodsForEmail(email).await().signInMethods
+                if (signInMethods.isNullOrEmpty()) {
+                    _authState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "Tài khoản không tồn tại."
+                        )
+                    }
+                    return@launch
+                }
+
+                // Cố gắng đăng nhập để lấy user hiện tại
+                try {
+                    // Đây là cách giả định - trong thực tế bạn không thể đăng nhập mà không có mật khẩu
+                    // Tốt nhất là sử dụng Firebase Cloud Functions hoặc API riêng
+                    
+                    // Kiểm tra nếu user đã đăng nhập, chỉ gửi email xác thực nếu email trùng khớp
+                    val currentUser = auth.currentUser
+                    if (currentUser != null && currentUser.email == email) {
+                        // Gửi email xác thực
+                        currentUser.sendEmailVerification().await()
+                        
+                        // Bắt đầu đếm ngược
+                        EmailVerificationTimer.startTimer()
+                        Log.d("AuthViewModel", "Timer started after resend verification email")
+                        
+                        _authState.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = "Đã gửi lại email xác thực. Vui lòng kiểm tra hộp thư của bạn."
+                            )
+                        }
+                    } else {
+                        _authState.update {
+                            it.copy(
+                                isLoading = false,
+                                errorMessage = "Để gửi lại email xác thực, vui lòng đăng ký lại hoặc liên hệ hỗ trợ."
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("AuthViewModel", "Lỗi khi gửi lại email xác thực", e)
+                    _authState.update {
+                        it.copy(
+                            isLoading = false,
+                            errorMessage = "Không thể gửi lại email xác thực: ${e.localizedMessage ?: "Lỗi không xác định"}"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Lỗi khi kiểm tra email", e)
+                _authState.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = "Lỗi khi kiểm tra email: ${e.localizedMessage ?: "Lỗi không xác định"}"
+                    )
+                }
+            }
+        }
     }
 }
