@@ -11,6 +11,11 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -666,8 +671,8 @@ fun ChatScreen(
                         )
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.ic_download),
-                            //imageVector = Icons.Filled.ArrowDownward,
+                            //painter = painterResource(id = R.drawable.ic_download),
+                            imageVector = Icons.Filled.ArrowDownward,
                             contentDescription = "Scroll to Bottom"
                         )
                     }
@@ -1027,28 +1032,40 @@ fun ChatScreen(
 
                                 // --- Nút gửi tin nhắn ---
                                 if (chatState.isLoading) {
-                                    Icon(
-                                        modifier = Modifier
-                                            .padding(bottom = 8.dp)
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                chatViewModel.stopCurrentResponse()
-                                                // Thêm phản hồi rung khi dừng
-                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            },
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Dừng",
-                                        tint = textColor
+                                    // Tạo hiệu ứng nhấp nháy cho alpha
+                                    val infiniteTransition = rememberInfiniteTransition(label = "stop_icon_blink")
+                                    val blinkingAlpha by infiniteTransition.animateFloat(
+                                        initialValue = 0.5f, // Bắt đầu với 30% opacity
+                                        targetValue = 0.7f, // Nhấp nháy lên 70% opacity
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(durationMillis = 700, easing = LinearEasing),
+                                            repeatMode = RepeatMode.Reverse // Đảo ngược animation để tạo hiệu ứng nhấp nháy
+                                        ),
+                                        label = "blinkingAlpha"
                                     )
-                                } else {
 
                                     Icon(
                                         modifier = Modifier
                                             .padding(bottom = 8.dp)
                                             .size(40.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .alpha(if (canSend) 1f else 0.4f)
+                                            .alpha(blinkingAlpha) // Áp dụng alpha nhấp nháy
+                                            .clickable {
+                                                chatViewModel.stopCurrentResponse()
+                                                // Thêm phản hồi rung khi dừng
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            },
+                                        painter = painterResource(id = R.drawable.ic_stopresponse),
+                                        contentDescription = "Dừng",
+                                        tint = textColor
+                                    )
+                                } else {
+                                    Icon(
+                                        modifier = Modifier
+                                            .padding(bottom = 8.dp)
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .alpha(if (canSend) 1f else 0.4f) // Giữ nguyên logic alpha cho nút gửi
                                             .clickable(
                                                 enabled = canSend && !chatState.isLoading,
                                                 onClick = {
@@ -1066,8 +1083,7 @@ fun ChatScreen(
                                                     }
                                                 }
                                             ),
-                                            painter = painterResource(id = R.drawable.ic_send),
-                                            //imageVector = Icons.Filled.ArrowUpward,
+                                        painter = painterResource(id = R.drawable.ic_send),
                                         contentDescription = "Send Message",
                                         tint = textColor
                                     )
