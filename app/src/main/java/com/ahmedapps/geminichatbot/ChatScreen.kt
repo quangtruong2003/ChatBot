@@ -2,10 +2,13 @@
 package com.ahmedapps.geminichatbot
 
 import android.Manifest
+import android.content.ClipDescription
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Environment
 import android.provider.OpenableColumns
 import android.util.Base64
+import android.view.KeyEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -94,6 +97,70 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.window.PopupProperties
 import com.ahmedapps.geminichatbot.services.PDFProcessingService
 import com.ahmedapps.geminichatbot.UserChatItem
+import android.content.Context
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.nativeKeyCode
+import androidx.compose.ui.input.key.isCtrlPressed
+import android.util.Log
+import java.io.FileOutputStream
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.ScrollState
+import androidx.compose.ui.graphics.SolidColor
+import kotlinx.coroutines.CoroutineScope
+import androidx.appcompat.widget.AppCompatEditText
+import android.view.ViewGroup
+import android.view.Gravity
+import android.text.InputType
+import android.text.TextWatcher
+import android.text.Editable
+import android.view.View
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.platform.LocalDensity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.material.ripple.rememberRipple
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
     ExperimentalPermissionsApi::class
@@ -122,6 +189,49 @@ fun ChatScreen(
 
     // Lấy đối tượng HapticFeedback
     val hapticFeedback = LocalHapticFeedback.current
+    val context = LocalContext.current
+    
+    // Tạo một biến để lưu Uri tạm thời cho ảnh chụp
+    var photoUri by remember { mutableStateOf<Uri?>(null) }
+    
+    // Hàm tạo URI tạm thời cho ảnh
+    fun createImageUriInner(): Uri? {
+        val imageFile = File(
+            context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+            "IMG_${System.currentTimeMillis()}.jpg"
+        )
+        return FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.provider",
+            imageFile
+        )
+    }
+    
+    // Đăng ký launcher cho máy ảnh
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+        onResult = { success ->
+            if (success && photoUri != null) {
+                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(photoUri!!))
+            }
+        }
+    )
+    
+    // Hàm cấp cao hơn để xử lý chụp ảnh
+    fun handleTakePicture() {
+        val uri = createImageUriInner()
+        if (uri != null) {
+            photoUri = uri
+            takePictureLauncher.launch(uri)
+        }
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+    }
+    
+    // Hàm cấp cao hơn để mở ảnh toàn màn hình
+    fun navigateToFullScreenImage(uri: Uri) {
+        val encodedUrl = Base64.encodeToString(uri.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+        navController.navigate("fullscreen_image/$encodedUrl")
+    }
 
     val isDarkTheme = isSystemInDarkTheme()
     val backgroundColor = when {
@@ -293,7 +403,6 @@ fun ChatScreen(
     }
 
     // Image Picker đăng ký bên trong composable để tránh vấn đề ViewModel chưa được khởi tạo
-    val context = LocalContext.current
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
         onResult = { uri: Uri? ->
@@ -303,18 +412,35 @@ fun ChatScreen(
         }
     )
 
-    // Hàm tạo URI tạm thời cho ảnh
-    fun createImageUri(): Uri? {
-        val imageFile = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
-            "IMG_${System.currentTimeMillis()}.jpg"
-        )
-        return FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.provider",
-            imageFile
-        )
+    // Hàm tạo URI từ Bitmap
+    fun createImageUriFromBitmap(context: Context, bitmap: Bitmap): Uri? {
+        try {
+            // Tạo tệp tạm thời để lưu bitmap
+            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+            val imageFile = File(
+                context.getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+                "IMG_${timeStamp}.jpg"
+            )
+            
+            // Ghi bitmap vào file
+            FileOutputStream(imageFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            }
+            
+            // Tạo URI từ file sử dụng FileProvider
+            return FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.provider",
+                imageFile
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
     }
+
+    // Comment hàm này lại để tránh xung đột với hàm cùng tên trong SideDrawer.kt
+    /*
     fun Modifier.crop(
         horizontal: Dp = 0.dp,
         vertical: Dp = 0.dp,
@@ -329,18 +455,8 @@ fun ChatScreen(
             placeable.placeRelative(-horizontal.toPx().toInt(), -vertical.toPx().toInt())
         }
     }
-    // Tạo một biến để lưu Uri tạm thời cho ảnh chụp
-    var photoUri by remember { mutableStateOf<Uri?>(null) }
+    */
 
-    // Đăng ký launcher cho máy ảnh
-    val takePictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-        onResult = { success ->
-            if (success && photoUri != null) {
-                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(photoUri!!))
-            }
-        }
-    )
     val focusRequester = remember { FocusRequester() }
     val scrollState = rememberScrollState()
 
@@ -381,6 +497,197 @@ fun ChatScreen(
         uri?.let {
             chatViewModel.onEvent(ChatUiEvent.OnFileSelected(it))
         }
+    }
+
+    // Hàm xử lý paste từ clipboard
+    fun handlePasteFromClipboard() {
+        // Lấy ClipboardManager từ context
+        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        
+        try {
+            // Khởi tạo biến để theo dõi việc xử lý đã thành công chưa
+            var imageProcessed = false
+            
+            // Trường hợp 1: Kiểm tra xem clipboard có chứa hình ảnh không
+            if (clipboardManager.hasPrimaryClip()) {
+                val primaryClip = clipboardManager.primaryClip
+                
+                if (primaryClip != null) {
+                    val description = primaryClip.description
+                    
+                    // Ghi log để debug
+                    Log.d("ChatScreen", "Clipboard MIME types: ${description.mimeTypeCount} types")
+                    for (i in 0 until description.mimeTypeCount) {
+                        Log.d("ChatScreen", "MIME type ${i}: ${description.getMimeType(i)}")
+                    }
+                    
+                    // Trường hợp A: Direct URI khi description có MIMETYPE_TEXT_URILIST
+                    if (description.hasMimeType(ClipDescription.MIMETYPE_TEXT_URILIST)) {
+                        val item = primaryClip.getItemAt(0)
+                        val uri = item.uri
+                        
+                        if (uri != null) {
+                            try {
+                                // Kiểm tra xem URI có phải là hình ảnh không
+                                val mimeType = context.contentResolver.getType(uri)
+                                if (mimeType != null && mimeType.startsWith("image/")) {
+                                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Đã dán ảnh từ clipboard")
+                                    }
+                                    imageProcessed = true
+                                    return
+                                } else {
+                                    Log.d("ChatScreen", "URI không phải là hình ảnh: $mimeType")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("ChatScreen", "Lỗi khi kiểm tra URI: ${e.message}")
+                            }
+                        }
+                    }
+                    
+                    // Trường hợp B: Image MIME Types
+                    val imageMimeTypes = arrayOf(
+                        "image/*", "image/png", "image/jpeg", "image/gif", "image/webp",
+                        "image/", // Một số thiết bị có thể dùng prefix này
+                        "application/octet-stream" // Đôi khi ảnh được lưu dưới dạng này
+                    )
+                    
+                    for (mimeType in imageMimeTypes) {
+                        if (description.hasMimeType(mimeType)) {
+                            Log.d("ChatScreen", "Tìm thấy MIME type ảnh: $mimeType")
+                            val item = primaryClip.getItemAt(0)
+                            
+                            try {
+                                // Với Android 12+, có thể lấy URI trực tiếp
+                                val uri = item.uri
+                                
+                                if (uri != null) {
+                                    Log.d("ChatScreen", "Lấy được URI ảnh: $uri")
+                                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Đã dán ảnh từ clipboard")
+                                    }
+                                    imageProcessed = true
+                                    return
+                                }
+                            } catch (e: Exception) {
+                                Log.e("ChatScreen", "Lỗi khi lấy URI: ${e.message}")
+                            }
+                        }
+                    }
+
+                    // Trường hợp C: Các định dạng đặc biệt
+                    try {
+                        for (i in 0 until primaryClip.itemCount) {
+                            val item = primaryClip.getItemAt(i)
+                            
+                            // Kiểm tra MIME type đặc biệt
+                            if (item.uri != null && !imageProcessed) {
+                                val uri = item.uri
+                                try {
+                                    val mimeType = context.contentResolver.getType(uri)
+                                    if (mimeType != null && mimeType.startsWith("image/")) {
+                                        chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar("Đã dán ảnh từ clipboard")
+                                        }
+                                        imageProcessed = true
+                                        return
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("ChatScreen", "Lỗi khi kiểm tra MIME của URI: ${e.message}")
+                                }
+                            }
+                            
+                            // Kiểm tra nếu có text là đường dẫn
+                            if (item.text != null && !imageProcessed) {
+                                val text = item.text.toString()
+                                
+                                // Kiểm tra xem text có phải là URI hình ảnh không
+                                if (text.startsWith("content://") || text.startsWith("file://")) {
+                                    try {
+                                        val uri = Uri.parse(text)
+                                        val mimeType = context.contentResolver.getType(uri)
+                                        if (mimeType != null && mimeType.startsWith("image/")) {
+                                            chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Đã dán ảnh từ đường dẫn")
+                                            }
+                                            imageProcessed = true
+                                            return
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("ChatScreen", "Lỗi khi xử lý text URI: ${e.message}")
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ChatScreen", "Lỗi khi duyệt các item: ${e.message}")
+                    }
+                    
+                    // Trường hợp D: Ngăn chặn dán HTML image
+                    if (description.hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML) && !imageProcessed) {
+                        val htmlText = primaryClip.getItemAt(0).htmlText
+                        if (htmlText?.contains("<img") == true) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Không thể dán hình ảnh từ HTML. Hãy lưu ảnh và chọn từ thư viện.")
+                            }
+                            imageProcessed = true
+                            return
+                        }
+                    }
+                }
+            }
+            
+            // Không tìm thấy hình ảnh để dán, có thể đây là dán text thông thường
+            if (!imageProcessed) {
+                Log.d("ChatScreen", "Không phải nội dung hình ảnh, xử lý như dán văn bản thông thường")
+                // Không cần hiển thị thông báo lỗi vì có thể người dùng đang muốn dán text
+            }
+        } catch (e: Exception) {
+            // Xử lý lỗi tổng thể nếu có
+            Log.e("ChatScreen", "Paste error: ${e.message}", e)
+            scope.launch {
+                snackbarHostState.showSnackbar("Không thể dán: ${e.message}")
+            }
+        }
+    }
+
+    // Hàm để theo dõi sự kiện dán vào TextField
+    fun setupClipboardListener() {
+        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        
+        // Thêm listener để theo dõi sự kiện clipboard thay đổi
+        clipboardManager.addPrimaryClipChangedListener {
+            if (clipboardManager.hasPrimaryClip() && clipboardManager.primaryClip != null) {
+                val description = clipboardManager.primaryClip?.description
+                
+                // Log ra để debug
+                Log.d("ClipboardListener", "Clipboard changed. MIME types: ${description?.mimeTypeCount}")
+                
+                // Nếu có MIME type là hình ảnh, xử lý như dán ảnh
+                val hasImageType = (0 until (description?.mimeTypeCount ?: 0)).any { i ->
+                    val mimeType = description?.getMimeType(i) ?: ""
+                    mimeType.startsWith("image/") || mimeType == "image/*"
+                }
+                
+                if (hasImageType) {
+                    // Xử lý như dán ảnh bằng hàm đã có
+                    handlePasteFromClipboard()
+                }
+            }
+        }
+    }
+    
+    // Gọi hàm thiết lập listener
+    LaunchedEffect(Unit) {
+        setupClipboardListener()
     }
 
     ModalNavigationDrawer(
@@ -976,44 +1283,26 @@ fun ChatScreen(
                             LaunchedEffect(chatState.imageUri, chatState.chatList) {
                                 showWelcomeMessage = chatState.chatList.isEmpty()
                             }
-                            TextField(
-                                modifier = Modifier
-                                    .heightIn(min = 50.dp, max = 200.dp)
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .fillMaxWidth()
-                                    .verticalScroll(scrollState)
-                                    .focusRequester(focusRequester)
-                                    .onFocusChanged {
-                                        if (it.isFocused) {
-                                            scope.launch {
-                                                scrollState.animateScrollTo(scrollState.maxValue)
-                                            }
-                                        }
-                                    },
-                                value = chatState.prompt,
-                                onValueChange = { newValue ->
-                                    chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newValue))
-                                    scope.launch {
-                                        scrollState.animateScrollTo(scrollState.maxValue)
-                                    }
+                            
+                            // CustomTextField với các tham số cần thiết
+                            CustomTextField(
+                                chatViewModel = chatViewModel,
+                                chatState = chatState,
+                                focusRequester = focusRequester,
+                                scope = scope,
+                                snackbarHostState = snackbarHostState,
+                                imagePicker = imagePicker,
+                                documentPickerLauncher = documentPickerLauncher,
+                                photoUri = photoUri,
+                                takePictureLauncher = takePictureLauncher,
+                                navController = navController,
+                                createImageUriInner = { createImageUriInner() },
+                                onPhotoUriChange = { newUri -> 
+                                    photoUri = newUri 
                                 },
-                                placeholder = {
-                                    Text(
-                                        text = "Nhập tin nhắn cho ChatAI",
-                                        modifier = Modifier.fillMaxWidth(),
-                                        color = Color.Gray
-                                    )
-                                },
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    disabledContainerColor = MaterialTheme.colorScheme.surface,
-                                    errorContainerColor = MaterialTheme.colorScheme.surface,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    disabledIndicatorColor = Color.Transparent,
-                                    errorIndicatorColor = Color.Transparent
-                                )
+                                onImageReceived = { uri -> 
+                                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                                }
                             )
 
                             // --- Hàng chứa nút Icon ---
@@ -1094,7 +1383,7 @@ fun ChatScreen(
                                             )
                                         },
                                         onClick = {
-                                            photoUri = createImageUri()
+                                            photoUri = createImageUriInner()
                                             photoUri?.let {
                                                 takePictureLauncher.launch(it)
                                             }
@@ -1277,5 +1566,296 @@ fun sanitizeMessage(input: String): String {
         .filter { it.isNotBlank() } // Loại bỏ các dòng trống
         .joinToString("\n") // Ghép lại thành một chuỗi với dấu xuống dòng
         .trim() // Loại bỏ khoảng trắng ở đầu và cuối
+}
+
+@Composable
+fun CustomTextField(
+    chatViewModel: ChatViewModel,
+    chatState: ChatState,
+    focusRequester: FocusRequester,
+    scope: CoroutineScope,
+    snackbarHostState: SnackbarHostState,
+    imagePicker: ManagedActivityResultLauncher<PickVisualMediaRequest, Uri?>,
+    documentPickerLauncher: ManagedActivityResultLauncher<String, Uri?>,
+    photoUri: Uri?,
+    takePictureLauncher: ManagedActivityResultLauncher<Uri, Boolean>,
+    navController: NavController,
+    createImageUriInner: () -> Uri?,
+    onPhotoUriChange: (Uri?) -> Unit,
+    onImageReceived: (Uri) -> Unit
+) {
+    val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val isDarkTheme = isSystemInDarkTheme()
+    val textColor = if (isDarkTheme) Color.White else Color.Black
+    val focusManager = LocalFocusManager.current
+
+    // Trạng thái cho việc hiển thị BottomSheet mở rộng
+    var showExpandedInputSheet by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight(align = Alignment.Top)
+            .heightIn(min = 40.dp, max = 160.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface)
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                AppCompatEditText(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    )
+                    minHeight = with(density) { 40.dp.toPx() }.toInt()
+                    maxLines = 8
+                    setPadding(
+                        with(density) { 16.dp.toPx() }.toInt(),
+                        with(density) { 5.dp.toPx() }.toInt(),
+                        with(density) { 36.dp.toPx() }.toInt(),
+                        with(density) { 5.dp.toPx() }.toInt()
+                    )
+                    gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                    inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+                    isVerticalScrollBarEnabled = true
+                    setTextIsSelectable(true)
+                    isFocusable = true
+                    isFocusableInTouchMode = true
+                    background = null
+                    setHintTextColor(Color.Gray.toArgb())
+                    setTextColor(textColor.toArgb())
+                    hint = "Nhập tin nhắn cho ChatAI"
+                    textSize = 16f
+
+                    val mimeTypes = arrayOf("image/*")
+                    ViewCompat.setOnReceiveContentListener(this, mimeTypes) { _, payload ->
+                        val split = payload.partition { item -> item.uri != null }
+                        val uriContent = split.first
+                        val remaining = split.second
+
+                        if (uriContent != null) {
+                            val clip = uriContent.clip
+                            for (i in 0 until clip.itemCount) {
+                                val uri = clip.getItemAt(i).uri
+                                if (uri != null) {
+                                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Đã dán ảnh")
+                                    }
+                                    return@setOnReceiveContentListener null
+                                }
+                            }
+                        }
+                        remaining
+                    }
+                    
+                    addTextChangedListener(object : TextWatcher {
+                        @Volatile private var isUpdating = false
+                        
+                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                        override fun afterTextChanged(s: Editable?) {
+                            if (!isUpdating) {
+                                val newText = s?.toString() ?: ""
+                                if (chatState.prompt != newText) {
+                                    isUpdating = true
+                                    chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
+                                    post { isUpdating = false }
+                                }
+                            }
+                        }
+                    })
+                    
+                    setOnKeyListener { _, keyCode, event ->
+                        if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_V && event.isCtrlPressed) {
+                            val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            if (clipboardManager.hasPrimaryClip()) {
+                                val description = clipboardManager.primaryClip?.description
+                                if (description != null) {
+                                    val hasImageType = (0 until description.mimeTypeCount).any { i ->
+                                        val mimeType = description.getMimeType(i)
+                                        mimeType.startsWith("image/") || mimeType == "image/*"
+                                    }
+                                    
+                                    if (hasImageType) {
+                                        handleImageInClipboardForView(clipboardManager) { uri ->
+                                            chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar("Đã dán ảnh")
+                                            }
+                                        }
+                                        return@setOnKeyListener true
+                                    }
+                                }
+                            }
+                        }
+                        false
+                    }
+                }
+            },
+            update = { view ->
+                // Luôn cập nhật màu chữ dựa trên theme hiện tại
+                view.setTextColor(textColor.toArgb())
+
+                // Nếu nội dung trong EditText khác với state
+                if (view.text.toString() != chatState.prompt) {
+                    // Cập nhật EditText để phản ánh state
+                    view.setText(chatState.prompt)
+                    // Chỉ đặt lại con trỏ về cuối nếu EditText không có focus
+                    // để tránh xung đột với vị trí con trỏ do người dùng đặt.
+                    if (!view.hasFocus()) {
+                        view.setSelection(chatState.prompt.length)
+                    }
+                }
+                // Optional: Nếu text giống nhau nhưng selection sai khi không focus? (Tạm thời bỏ qua)
+            },
+            modifier = Modifier.fillMaxWidth()
+                               .focusRequester(focusRequester)
+                               .onFocusChanged { focusState ->
+                                   Log.d("FocusDebug", "CustomTextField EditText focus changed: ${focusState.isFocused}")
+                               }
+        )
+        
+        IconButton(
+            onClick = {
+                // 1. Xóa focus khỏi EditText chính
+                focusManager.clearFocus()
+                // 2. Mở BottomSheet (trong coroutine để đảm bảo focus đã được xử lý)
+                scope.launch {
+                    // delay(1) // Có thể thêm delay cực nhỏ nếu cần
+                    showExpandedInputSheet = true
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 5.dp, end = 4.dp)
+                .size(28.dp)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_extendchatinput),
+                contentDescription = "Mở rộng khung nhập tin nhắn",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+    
+    if (showExpandedInputSheet) {
+        val haptic = LocalHapticFeedback.current
+        val navCtrl = navController
+        val takePictureLaunch = takePictureLauncher
+        val createImgUri = createImageUriInner
+        val onPhotoChange = onPhotoUriChange
+
+        ExpandedChatInputBottomSheet(
+            onDismiss = { showExpandedInputSheet = false },
+            messageText = chatState.prompt, // Luôn đọc từ state
+            onMessageTextChange = { newText ->
+                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
+            },
+            onSendMessage = {
+                if (chatState.prompt.isNotBlank() || chatState.imageUri != null || chatState.fileUri != null) {
+                    val sanitizedPrompt = sanitizeMessage(chatState.prompt)
+                    chatViewModel.onEvent(
+                        ChatUiEvent.SendPrompt(
+                            sanitizedPrompt,
+                            chatState.imageUri
+                        )
+                    )
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showExpandedInputSheet = false
+                }
+            },
+            onAttachImage = {
+                imagePicker.launch(
+                    PickVisualMediaRequest(
+                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onAttachFile = {
+                documentPickerLauncher.launch("*/*")
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onTakePicture = {
+                val uri = createImgUri()
+                if (uri != null) {
+                    onPhotoChange(uri)
+                    takePictureLaunch.launch(uri)
+                }
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onImageReceived = { uri ->
+                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+            },
+            imageUri = chatState.imageUri,
+            fileUri = chatState.fileUri,
+            fileName = chatState.fileName,
+            isFileUploading = chatState.isFileUploading,
+            onRemoveImage = {
+                chatViewModel.onEvent(ChatUiEvent.RemoveImage)
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onRemoveFile = {
+                chatViewModel.onEvent(ChatUiEvent.RemoveFile)
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            },
+            onImageClick = { uri ->
+                val encodedUrl = Base64.encodeToString(uri.toString().toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                navCtrl.navigate("fullscreen_image/$encodedUrl")
+            }
+        )
+    }
+}
+
+private fun handleImageInClipboardForView(
+    clipboardManager: android.content.ClipboardManager, 
+    onReceiveContent: (Uri) -> Unit
+) {
+    if (clipboardManager.hasPrimaryClip()) {
+        val primaryClip = clipboardManager.primaryClip
+        
+        if (primaryClip != null) {
+            val description = primaryClip.description
+            
+            if (description.hasMimeType(ClipDescription.MIMETYPE_TEXT_URILIST)) {
+                val item = primaryClip.getItemAt(0)
+                val uri = item.uri
+                
+                if (uri != null) {
+                    val mimeType = clipboardManager.primaryClip?.description?.getMimeType(0)
+                    if (mimeType != null && mimeType.startsWith("image/")) {
+                        onReceiveContent(uri)
+                        return
+                    }
+                }
+            }
+            
+            val imageMimeTypes = arrayOf(
+                "image/*", "image/png", "image/jpeg", "image/gif", "image/webp",
+                "image/", "application/octet-stream"
+            )
+            
+            for (mimeType in imageMimeTypes) {
+                if (description.hasMimeType(mimeType)) {
+                    for (i in 0 until primaryClip.itemCount) {
+                        val item = primaryClip.getItemAt(i)
+                        val uri = item.uri
+                        
+                        if (uri != null) {
+                            onReceiveContent(uri)
+                            return
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
