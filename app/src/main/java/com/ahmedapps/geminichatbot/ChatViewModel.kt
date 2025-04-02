@@ -482,6 +482,12 @@ class ChatViewModel @Inject constructor(
             is ChatUiEvent.RemoveFile -> {
                 _chatState.update { it.copy(fileUri = null, fileName = null) }
             }
+            is ChatUiEvent.DeleteChat -> {
+                deleteChat(event.chatId)
+            }
+            is ChatUiEvent.RegenerateResponse -> {
+                regenerateResponse(event.userPrompt, event.responseId)
+            }
         }
     }
 
@@ -1101,6 +1107,72 @@ class ChatViewModel @Inject constructor(
                 insertModelChat("Đã xảy ra lỗi khi xử lý file: ${e.message}", true)
             } finally {
                 _chatState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    /**
+     * Xóa một tin nhắn cụ thể
+     */
+    fun deleteChat(chatId: String) {
+        viewModelScope.launch {
+            val segmentId = _chatState.value.selectedSegment?.id ?: return@launch
+            
+            // Xóa tin nhắn trong repository
+            repository.deleteChat(chatId, segmentId)
+            
+            // Cập nhật state bằng cách loại bỏ tin nhắn đã xóa
+            _chatState.update { state ->
+                state.copy(chatList = state.chatList.filter { it.id != chatId })
+            }
+            
+            // Xóa ID từ danh sách typedMessages nếu tồn tại
+            if (_typedMessagesIds.contains(chatId)) {
+                _typedMessagesIds.remove(chatId)
+                _chatState.update { it.copy(typedMessages = _typedMessagesIds.toSet()) }
+            }
+        }
+    }
+    
+    /**
+     * Tạo lại response cho một tin nhắn cũ bằng model mới được chọn
+     */
+    fun regenerateResponse(userPrompt: String, responseId: String) {
+        viewModelScope.launch {
+            // Xóa response cũ
+            val segmentId = _chatState.value.selectedSegment?.id ?: return@launch
+            repository.deleteChat(responseId, segmentId)
+            
+            // Cập nhật state bằng cách loại bỏ response cũ
+            _chatState.update { state ->
+                state.copy(
+                    chatList = state.chatList.filter { it.id != responseId },
+                    isLoading = true,
+                    isWaitingForResponse = true
+                )
+            }
+            
+            // Xóa ID từ danh sách typedMessages nếu tồn tại
+            if (_typedMessagesIds.contains(responseId)) {
+                _typedMessagesIds.remove(responseId)
+                _chatState.update { it.copy(typedMessages = _typedMessagesIds.toSet()) }
+            }
+            
+            // Gửi prompt lên model đã chọn để lấy response mới
+            try {
+                val chat = repository.getResponse(userPrompt, segmentId)
+                
+                _chatState.update {
+                    it.copy(
+                        chatList = it.chatList + chat,
+                        isLoading = false,
+                        isWaitingForResponse = false,
+                        typedMessages = _typedMessagesIds.toSet() - chat.id
+                    )
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
             }
         }
     }

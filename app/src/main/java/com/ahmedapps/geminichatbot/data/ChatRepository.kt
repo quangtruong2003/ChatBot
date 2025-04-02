@@ -492,4 +492,18 @@ class ChatRepository @Inject constructor(
         generativeModelProvider.updateGenerativeModel(modelName)
         Log.d("ChatRepository", "Updated Generative Model to: $modelName")
     }
+
+    /**
+     * Xóa một tin nhắn cụ thể dựa vào chatId và segmentId
+     */
+    suspend fun deleteChat(chatId: String, segmentId: String) = withContext(Dispatchers.IO) {
+        try {
+            val segmentRef = segmentsCollection.document(segmentId)
+            val messageRef = segmentRef.collection("messages").document(chatId)
+            messageRef.delete().await()
+            Log.d("ChatRepository", "Deleted chat with ID: $chatId from segment: $segmentId")
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error deleting chat", e)
+        }
+    }
 }

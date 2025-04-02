@@ -5,11 +5,16 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -19,8 +24,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ahmedapps.geminichatbot.R
@@ -30,6 +38,10 @@ import fomatText.TypingConfig
 import androidx.compose.runtime.*
 import com.ahmedapps.geminichatbot.data.Chat
 import kotlinx.coroutines.delay
+import android.widget.Toast
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.window.PopupProperties
 
 
 
@@ -46,7 +58,14 @@ fun ModelChatItem(
     typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
     onAnimationComplete: () -> Unit = {},
     isWaitingForResponse: Boolean = false,
-    isMessageTyped: Boolean = false
+    isMessageTyped: Boolean = false,
+    onDeleteClick: (String) -> Unit = {},
+    onRegenerateClick: (String, String) -> Unit = { _, _ -> },
+    currentUserPrompt: String = "",
+    availableModels: List<String> = emptyList(),
+    modelDisplayNameMap: Map<String, String> = emptyMap(),
+    modelIconMap: Map<String, Int> = emptyMap(),
+    selectedModel: String = ""
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -55,6 +74,12 @@ fun ModelChatItem(
         isSystemInDarkTheme() -> MaterialTheme.colorScheme.surface
         else -> MaterialTheme.colorScheme.surface
     }
+    
+    // Context for Toast
+    val context = LocalContext.current
+    
+    // Clipboard manager for copy function
+    val clipboardManager = LocalClipboardManager.current
 
     // Sử dụng toàn màn hình thay vì 0.9f
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -63,6 +88,9 @@ fun ModelChatItem(
     // Theo dõi trạng thái suy nghĩ dựa vào trạng thái isWaitingForResponse 
     // thay vì chỉ dựa vào response.isEmpty()
     var isThinking by remember(isWaitingForResponse) { mutableStateOf(isWaitingForResponse) }
+    
+    // Dropdown cho model selection
+    var showModelSelection by remember { mutableStateOf(false) }
     
     // Xác định xem tin nhắn này có phải là tin nhắn mới chưa hiển thị hiệu ứng không
     // Đảm bảo chỉ hiển thị hiệu ứng khi:
@@ -120,20 +148,134 @@ fun ModelChatItem(
             } else {
                 val formattedResponse = parseFormattedText(response)
                 
-                FormattedTextDisplay(
-                    annotatedString = formattedResponse,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(15.dp))
-                        .background(backgroundColor)
-                        .padding(start = 12.dp, top = 12.dp, end = 0.dp, bottom = 12.dp),
-                    snackbarHostState = snackbarHostState,
-                    isNewMessage = showTypingEffect,
-                    typingSpeed = typingSpeed,
-                    onAnimationComplete = {
-                        isAnimationCompleted = true
+                Column {
+                    // Message content
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(15.dp))
+                            .background(backgroundColor)
+                            .padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
+                    ) {
+                        FormattedTextDisplay(
+                            annotatedString = formattedResponse,
+                            modifier = Modifier.fillMaxWidth(),
+                            snackbarHostState = snackbarHostState,
+                            isNewMessage = showTypingEffect,
+                            typingSpeed = typingSpeed,
+                            onAnimationComplete = {
+                                isAnimationCompleted = true
+                            }
+                        )
                     }
-                )
+                    
+                    // Action buttons - Di chuyển ra khỏi Box và đặt ở dưới
+                    if (chatId != null && !isThinking) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp, start = 12.dp),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Regenerate button
+                            Box {
+                                IconButton(
+                                    onClick = { 
+                                        showModelSelection = true
+                                    },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_callback),
+                                        contentDescription = "Tạo lại",
+                                        tint = textColor.copy(alpha = 0.7f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                
+                                // Model selection dropdown
+                                DropdownMenu(
+                                    expanded = showModelSelection,
+                                    onDismissRequest = { showModelSelection = false },
+                                    properties = PopupProperties(focusable = false),
+                                    modifier = Modifier
+                                        .crop(vertical = 8.dp)
+                                        .background(
+                                            MaterialTheme.colorScheme.surface,
+                                            shape = RoundedCornerShape(15.dp)
+                                        )
+                                ) {
+                                    availableModels.forEach { model ->
+                                        val displayName = modelDisplayNameMap[model] ?: model
+                                        val iconResourceId = modelIconMap[displayName] ?: R.drawable.ic_bot
+                                        
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(id = iconResourceId),
+                                                        contentDescription = "Model Icon",
+                                                        tint = textColor,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text(
+                                                        text = displayName,
+                                                        color = textColor,
+                                                        fontWeight = if (model == selectedModel) FontWeight.Bold else FontWeight.Normal
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                // Call regenerate function with the selected model
+                                                if (currentUserPrompt.isNotEmpty()) {
+                                                    onRegenerateClick(currentUserPrompt, chatId)
+                                                    showModelSelection = false
+                                                } else {
+                                                    Toast.makeText(context, "Không thể tạo lại vì không tìm thấy prompt gốc", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Copy button
+                            IconButton(
+                                onClick = { 
+                                    clipboardManager.setText(AnnotatedString(response))
+                                    Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_copy),
+                                    contentDescription = "Sao chép",
+                                    tint = textColor.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            
+                            // Delete button
+                            IconButton(
+                                onClick = { 
+                                    onDeleteClick(chatId)
+                                },
+                                modifier = Modifier.size(30.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_bin),
+                                    contentDescription = "Xóa",
+                                    tint = textColor.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }

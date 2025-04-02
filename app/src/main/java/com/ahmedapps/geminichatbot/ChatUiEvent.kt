@@ -18,6 +18,8 @@ sealed class ChatUiEvent {
     object StopResponse : ChatUiEvent()
     data class OnFileSelected(val uri: Uri) : ChatUiEvent()
     object RemoveFile : ChatUiEvent()
+    data class DeleteChat(val chatId: String) : ChatUiEvent()
+    data class RegenerateResponse(val userPrompt: String, val responseId: String) : ChatUiEvent()
 }
 
 
