@@ -470,11 +470,11 @@ fun ChatSegmentItem(
 
     val scale by animateFloatAsState(
         targetValue = if (isExpanded) 1.05f else 1f,
-        animationSpec = tween(durationMillis = 200)
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
     )
     val elevation by animateFloatAsState(
         targetValue = if (isExpanded) 8f else 0f,
-        animationSpec = tween(durationMillis = 200)
+        animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
     )
     
     val alpha = if (expandedSegmentId != null && !isExpanded) {

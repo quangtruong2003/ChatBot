@@ -19,6 +19,10 @@ data class Chat(
     var timestamp: Long = System.currentTimeMillis(),
     @get:PropertyName("userId")
     var userId: String = "",
+    @get:PropertyName("isFileMessage")
+    var isFileMessage: Boolean = false,
+    @get:PropertyName("fileName")
+    var fileName: String? = null
 ) {
     companion object {
         fun fromPrompt(
@@ -26,7 +30,9 @@ data class Chat(
             imageUrl: String? = null,
             isFromUser: Boolean = true,
             isError: Boolean = false,
-            userId: String
+            userId: String,
+            isFileMessage: Boolean = false,
+            fileName: String? = null
         ): Chat {
             val timestamp = System.currentTimeMillis()
             // Đảm bảo ID không bao giờ rỗng
@@ -43,7 +49,9 @@ data class Chat(
                 isFromUser = isFromUser,
                 isError = isError,
                 userId = userId,
-                timestamp = timestamp
+                timestamp = timestamp,
+                isFileMessage = isFileMessage,
+                fileName = fileName
             )
         }
     }

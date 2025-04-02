@@ -1,11 +1,11 @@
 // ChatScreen.kt
-package com.ahmedapps.geminichatbot.ui.screens
+package com.ahmedapps.geminichatbot
 
 import android.Manifest
 import android.net.Uri
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.util.Base64
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,8 +36,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -71,19 +73,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import com.ahmedapps.geminichatbot.ChatUiEvent
-import com.ahmedapps.geminichatbot.ChatViewModel
-import com.ahmedapps.geminichatbot.R
-import com.ahmedapps.geminichatbot.SideDrawer
-import com.ahmedapps.geminichatbot.ui.components.ModelChatItem
-import com.ahmedapps.geminichatbot.ui.components.ThinkingAnimation
-import com.ahmedapps.geminichatbot.ui.components.ModelWaitingIndicator
-import com.ahmedapps.geminichatbot.ui.components.UserChatItem
 import com.ahmedapps.geminichatbot.ui.components.WelcomeMessage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
@@ -95,12 +88,12 @@ import com.google.firebase.auth.FirebaseAuth
 import fomatText.parseFormattedText
 import fomatText.TypingConfig
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
-import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.window.PopupProperties
+import com.ahmedapps.geminichatbot.services.PDFProcessingService
+import com.ahmedapps.geminichatbot.UserChatItem
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
     ExperimentalPermissionsApi::class
@@ -234,7 +227,7 @@ fun ChatScreen(
         }
     }
 
-    val canSend = chatState.prompt.isNotEmpty() || chatState.imageUri != null
+    val isTextNotEmpty = chatState.prompt.isNotEmpty() || chatState.imageUri != null || chatState.fileUri != null
 
     var shouldAutoScroll by remember { mutableStateOf(true) }
     // Thêm biến để phát hiện khi danh sách đang hiển thị do LazyColumn được khởi tạo lại
@@ -360,6 +353,34 @@ fun ChatScreen(
     val localView = LocalView.current
     val windowInsetsController = remember(localView) {
         ViewCompat.getWindowInsetsController(localView)
+    }
+
+    // Cập nhật launcher cho document picker để loại trừ file ảnh
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            val mimeType = context.contentResolver.getType(it)
+            // Kiểm tra xem có phải file ảnh không
+            if (mimeType?.startsWith("image/") == true) {
+                // Hiển thị thông báo lỗi nếu là file ảnh
+                scope.launch {
+                    snackbarHostState.showSnackbar("Không hỗ trợ upload file ảnh qua tính năng này.")
+                }
+            } else {
+                // Nếu không phải file ảnh, xử lý file
+                chatViewModel.onEvent(ChatUiEvent.OnFileSelected(it))
+            }
+        }
+    }
+
+    // Định nghĩa launcher để chọn file
+    val fileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            chatViewModel.onEvent(ChatUiEvent.OnFileSelected(it))
+        }
     }
 
     ModalNavigationDrawer(
@@ -714,17 +735,19 @@ fun ChatScreen(
                             if (chat.isFromUser) {
                                 UserChatItem(
                                     prompt = chat.prompt,
-                                    isError = chat.isError,
                                     imageUrl = chat.imageUrl,
-                                    onLongPress = { textToCopy ->
+                                    isError = chat.isError,
+                                    isFileMessage = chat.isFileMessage,
+                                    fileName = chat.fileName,
+                                    onLongPress = { message ->
                                         scope.launch {
-                                            val plainText = parseFormattedText(textToCopy).text
+                                            val plainText = parseFormattedText(message).text
                                             clipboardManager.setText(AnnotatedString(plainText))
                                             snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
                                         }
                                     },
-                                    onImageClick = { imageUrl ->
-                                        val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                                    onImageClick = { url ->
+                                        val encodedUrl = Base64.encodeToString(url.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
                                         navController.navigate("fullscreen_image/$encodedUrl")
                                     },
                                     snackbarHostState = snackbarHostState
@@ -870,6 +893,67 @@ fun ChatScreen(
                                     }
                                 }
                             }
+
+                            // Thêm phần hiển thị file vào đây
+                            chatState.fileUri?.let { uri ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.5f)
+                                        .padding(vertical = 4.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Icon file
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .padding(start = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(
+                                                id = if (chatState.isFileUploading) R.drawable.ic_fileuploaderror else R.drawable.ic_fileuploaded
+                                            ),
+                                            contentDescription = "File đã chọn",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    
+                                    // Tên file nằm bên phải icon
+                                    Text(
+                                        text = chatState.fileName ?: "File không xác định",
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = 8.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    
+                                    // Nút 'X' để xóa file (Đã sửa lại)
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(end = 8.dp)
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFAAAAAA))
+                                            .clickable {
+                                                chatViewModel.onEvent(ChatUiEvent.RemoveFile)
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Xóa file",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     Box(
@@ -973,6 +1057,32 @@ fun ChatScreen(
                                     DropdownMenuItem(
                                         text = {
                                             Text(
+                                                text = "Gửi tệp tài liệu",
+                                                style = TextStyle(
+                                                    color = textColor,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                        },
+                                        onClick = {
+                                            // Tạm thời quay lại dùng "*/*" để kiểm tra
+                                            documentPickerLauncher.launch("*/*")
+                                            showSourceMenu = false
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        },
+                                        trailingIcon = {
+                                            Icon(
+                                                painter = painterResource(id = R.drawable.ic_chosefile),
+                                                contentDescription = "Gửi tệp tài liệu",
+                                                tint = textColor
+                                            )
+                                        }
+                                    )
+                                    Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp)
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
                                                 text = "Chụp ảnh",
                                                 style = TextStyle(
                                                     color = textColor,
@@ -987,7 +1097,6 @@ fun ChatScreen(
                                                 takePictureLauncher.launch(it)
                                             }
                                             showSourceMenu = false
-                                            // Thêm phản hồi rung khi chọn chụp ảnh
                                             hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         },
                                         trailingIcon = {
@@ -1017,7 +1126,6 @@ fun ChatScreen(
                                                 )
                                             )
                                             showSourceMenu = false
-                                            // Thêm phản hồi rung khi chọn thư viện ảnh
                                             hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         },
                                         trailingIcon = {
@@ -1060,33 +1168,32 @@ fun ChatScreen(
                                         tint = textColor
                                     )
                                 } else {
-                                    Icon(
+                                    IconButton(
+                                        onClick = {
+                                            if (isTextNotEmpty) {
+                                                val sanitizedPrompt = sanitizeMessage(chatState.prompt)
+                                                chatViewModel.onEvent(
+                                                    ChatUiEvent.SendPrompt(
+                                                        sanitizedPrompt,
+                                                        chatState.imageUri
+                                                    )
+                                                )
+                                                // Thêm phản hồi rung khi gửi tin nhắn
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }
+                                        },
                                         modifier = Modifier
                                             .padding(bottom = 8.dp)
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .alpha(if (canSend) 1f else 0.4f) // Giữ nguyên logic alpha cho nút gửi
-                                            .clickable(
-                                                enabled = canSend && !chatState.isLoading,
-                                                onClick = {
-                                                    if (canSend) {
-                                                        val sanitizedPrompt =
-                                                            sanitizeMessage(chatState.prompt)
-                                                        chatViewModel.onEvent(
-                                                            ChatUiEvent.SendPrompt(
-                                                                sanitizedPrompt,
-                                                                chatState.imageUri
-                                                            )
-                                                        )
-                                                        // Thêm phản hồi rung khi gửi tin nhắn
-                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    }
-                                                }
-                                            ),
-                                        painter = painterResource(id = R.drawable.ic_send),
-                                        contentDescription = "Send Message",
-                                        tint = textColor
-                                    )
+                                            .size(48.dp),
+                                        enabled = isTextNotEmpty && !chatState.isLoading
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_send),
+                                            contentDescription = "Send Message",
+                                            tint = if (isTextNotEmpty && !chatState.isLoading) textColor else textColor.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(40.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1112,6 +1219,28 @@ fun ChatScreen(
                 LaunchedEffect(chatState.chatList.isEmpty()) {
                     if (chatState.chatList.isEmpty()) {
                         showWelcomeMessage = true
+                    }
+                }
+
+                // Thêm hiệu ứng loading khi đang xử lý file PDF
+                if (chatViewModel.isProcessingFile.value) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.5f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Đang xử lý file PDF...",
+                                color = Color.White
+                            )
+                        }
                     }
                 }
             }

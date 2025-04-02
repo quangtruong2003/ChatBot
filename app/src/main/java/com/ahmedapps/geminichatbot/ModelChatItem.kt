@@ -1,5 +1,5 @@
 // ModelChatItem.kt
-package com.ahmedapps.geminichatbot.ui.components
+package com.ahmedapps.geminichatbot
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -56,8 +56,7 @@ fun ModelChatItem(
         else -> MaterialTheme.colorScheme.surface
     }
 
-
-    val maxWidth = LocalConfiguration.current.screenWidthDp.dp * 0.9f
+    // Sử dụng toàn màn hình thay vì 0.9f
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
     val scope = rememberCoroutineScope()
 
@@ -101,26 +100,20 @@ fun ModelChatItem(
             .padding(bottom = 16.dp),
         horizontalArrangement = Arrangement.Start
     ) {
-        // Icon (Avatar)
-        Image(
-            painter = painterResource(id = R.drawable.ic_bot),
-            contentDescription = "Chatbot Avatar",
-            modifier = Modifier
-                .padding(top = 7.dp)
-                .size(30.dp)
-                .clip(CircleShape)
-                .align(Alignment.Top)
-        )
-
-        Column(horizontalAlignment = Alignment.Start) {
+        // Đã ẩn Icon (Avatar)
+        
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start
+        ) {
             // Hiển thị "Thinking..." hoặc nội dung tin nhắn
             if (isThinking) {
                 Box(
                     modifier = Modifier
-                        .widthIn(max = maxWidth)
+                        .fillMaxWidth()
                         .clip(RoundedCornerShape(15.dp))
                         .background(backgroundColor)
-                        .padding(12.dp)
+                        .padding(start = 12.dp, top = 12.dp, end = 0.dp, bottom = 12.dp)
                 ) {
                     ThinkingAnimation()
                 }
@@ -130,10 +123,10 @@ fun ModelChatItem(
                 FormattedTextDisplay(
                     annotatedString = formattedResponse,
                     modifier = Modifier
-                        .widthIn(max = maxWidth)
+                        .fillMaxWidth()
                         .clip(RoundedCornerShape(15.dp))
                         .background(backgroundColor)
-                        .padding(12.dp),
+                        .padding(start = 12.dp, top = 12.dp, end = 0.dp, bottom = 12.dp),
                     snackbarHostState = snackbarHostState,
                     isNewMessage = showTypingEffect,
                     typingSpeed = typingSpeed,

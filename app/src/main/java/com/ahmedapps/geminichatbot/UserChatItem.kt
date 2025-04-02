@@ -1,5 +1,5 @@
 // UserChatItem.kt
-package com.ahmedapps.geminichatbot.ui.components
+package com.ahmedapps.geminichatbot
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -28,8 +28,11 @@ import fomatText.FormattedTextDisplay
 import fomatText.parseFormattedText
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
-
-
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.ui.text.style.TextOverflow
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -37,6 +40,8 @@ fun UserChatItem(
     prompt: String,
     imageUrl: String?,
     isError: Boolean,
+    isFileMessage: Boolean = false,
+    fileName: String? = null,
     onLongPress: (String) -> Unit,
     onImageClick: (String) -> Unit,
     snackbarHostState: SnackbarHostState
@@ -55,7 +60,6 @@ fun UserChatItem(
     val formattedPrompt = parseFormattedText(prompt)
     val scope = rememberCoroutineScope()
 
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -64,7 +68,7 @@ fun UserChatItem(
     ) {
         Column(horizontalAlignment = Alignment.End) {
             imageUrl?.let { url ->
-                AsyncImage( // Giữ combinedClickable ở đây
+                AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(url)
                         .crossfade(true)
@@ -82,22 +86,44 @@ fun UserChatItem(
                         )
                 )
             }
+            
+            if (isFileMessage && fileName != null) {
+                Row(
+                    modifier = Modifier
+                        .widthIn(max = maxWidth)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(backgroundColor)
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.InsertDriveFile,
+                        contentDescription = "File",
+                        tint = textColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = fileName,
+                        color = textColor,
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            
             Spacer(modifier = Modifier.height(8.dp))
 
-
             if (prompt.isNotEmpty()) {
-                SelectionContainer { // Giữ SelectionContainer
+                SelectionContainer {
                     FormattedTextDisplay(
                         annotatedString = formattedPrompt,
-                        modifier = Modifier  // Loại bỏ combinedClickable
+                        modifier = Modifier
                             .widthIn(max = maxWidth)
                             .clip(RoundedCornerShape(17.dp))
                             .background(backgroundColor)
                             .padding(12.dp),
-//                            .combinedClickable(
-//                                onClick = {},
-//                                onLongClick = { onLongPress(prompt) }
-//                            ),
                         snackbarHostState = snackbarHostState
                     )
                 }

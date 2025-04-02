@@ -5,22 +5,22 @@ package fomatText
  */
 object TypingConfig {
     /** Tốc độ typing mặc định (milliseconds giữa các ký tự) */
-    const val DEFAULT_TYPING_SPEED = 5L
+    const val DEFAULT_TYPING_SPEED = 1L
     
     /** Tốc độ typing tối thiểu (cho tin nhắn dài) */
-    const val MIN_TYPING_SPEED = 2L
+    const val MIN_TYPING_SPEED = 1L
     
     /** Tốc độ typing tối đa */
-    const val MAX_TYPING_SPEED = 15L
+    const val MAX_TYPING_SPEED = 2L
     
     /** Có sử dụng tốc độ typing thông minh không? */
     const val USE_SMART_TYPING = true
     
     /** Ngưỡng độ dài tin nhắn để giảm tốc độ */
-    const val LONG_MESSAGE_THRESHOLD = 500
+    const val LONG_MESSAGE_THRESHOLD = 50
     
     /** Ngưỡng độ dài tin nhắn để giảm nhiều tốc độ */
-    const val VERY_LONG_MESSAGE_THRESHOLD = 1000
+    const val VERY_LONG_MESSAGE_THRESHOLD = 100
     
     /** Hệ số tốc độ cho dấu câu */
     const val PUNCTUATION_SPEED_FACTOR = 3L

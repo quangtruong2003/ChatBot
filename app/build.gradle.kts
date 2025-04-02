@@ -41,6 +41,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -55,6 +56,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/DEPENDENCIES"
         }
     }
 }
@@ -142,5 +144,18 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.3.1")
     implementation("androidx.compose.material3:material3-window-size-class:1.3.1")
     implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1.4.0-alpha10")
+
+    // Dùng iText để xử lý PDF
+    implementation("com.itextpdf:itextg:5.5.10")
+    
+    // Thư viện đọc file TXT sẵn có trong Android
+    
+    // Dùng Document4J cho DOC/DOCX nếu cần
+    implementation("org.docx4j:docx4j:6.1.2") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+
+    // Thêm thư viện desugaring
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 

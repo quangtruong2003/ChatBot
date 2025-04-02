@@ -7,6 +7,7 @@ import com.google.firebase.appcheck.FirebaseAppCheck
 
 import dagger.hilt.android.HiltAndroidApp
 import android.util.Log
+import com.ahmedapps.geminichatbot.services.PDFProcessingService
 
 
 @HiltAndroidApp
@@ -27,5 +28,8 @@ class GeminiChatBotApplication : Application() {
 //                PlayIntegrityAppCheckProviderFactory.getInstance()
 //            )
 //        }
+
+        // Khởi tạo PDFProcessingService
+        PDFProcessingService.init(this)
     }
 }
