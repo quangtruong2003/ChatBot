@@ -19,7 +19,6 @@ import androidx.navigation.navArgument
 import com.ahmedapps.geminichatbot.loginlogout.LoginScreen
 import com.ahmedapps.geminichatbot.loginlogout.ForgotPasswordScreen
 import com.ahmedapps.geminichatbot.loginlogout.RegistrationScreen
-import com.ahmedapps.geminichatbot.ui.screens.ChatScreen
 import com.ahmedapps.geminichatbot.ui.screens.FullScreenImageScreen
 import com.ahmedapps.geminichatbot.ui.theme.GeminiChatBotTheme
 import com.google.firebase.auth.FirebaseAuth

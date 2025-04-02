@@ -15,10 +15,17 @@ import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.Job
+import android.content.Context
+import com.ahmedapps.geminichatbot.services.PDFProcessingService
+import android.util.Log
+import com.ahmedapps.geminichatbot.data.Participant
+import android.provider.OpenableColumns
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val repository: ChatRepository
+    private val repository: ChatRepository,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     // Set để lưu trữ ID của các tin nhắn đã hiển thị hiệu ứng typing
@@ -119,6 +126,12 @@ class ChatViewModel @Inject constructor(
     // Thêm trạng thái theo dõi việc xử lý hình ảnh
     private val _isImageProcessing = MutableStateFlow(false)
     val isImageProcessing = _isImageProcessing.asStateFlow()
+
+    private val _isProcessingFile = MutableStateFlow(false)
+    val isProcessingFile: StateFlow<Boolean> = _isProcessingFile
+
+    private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -341,24 +354,52 @@ class ChatViewModel @Inject constructor(
     fun onEvent(event: ChatUiEvent) {
         when (event) {
             is ChatUiEvent.SendPrompt -> {
-                if (event.prompt.isNotEmpty() || event.imageUri != null) {
+                if (event.prompt.isNotEmpty() || event.imageUri != null || _chatState.value.fileUri != null) {
                     currentResponseJob?.cancel()
-                    // Không cần markAllMessagesAsTyped() ở đây nữa
 
                     currentResponseJob = viewModelScope.launch {
                         deleteEmptyNewSegment()
-                        _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) } // Bắt đầu loading
-                        addPrompt(event.prompt, event.imageUri)
+                        _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) }
+                        
+                        // Xác định loại tin nhắn và xử lý
+                        when {
+                            // Xử lý khi có file được chọn
+                            _chatState.value.fileUri != null -> {
+                                val fileUri = _chatState.value.fileUri!!
+                                val fileName = _chatState.value.fileName ?: "File"
+                                
+                                // Thêm prompt của người dùng với metadata file
+                                addPrompt(
+                                    prompt = event.prompt, 
+                                    imageUri = null,
+                                    isFileMessage = true,
+                                    fileName = fileName
+                                )
+                                
+                                // Reset prompt và file sau khi đã xử lý
+                                _chatState.update { it.copy(prompt = "", fileUri = null, fileName = null) }
+                                
+                                // Xử lý tệp và gửi đến API
                         val selectedSegmentId = _chatState.value.selectedSegment?.id
+                                processAndSendWithFile(event.prompt, fileUri, fileName, selectedSegmentId)
+                            }
 
-                        // Quan trọng: Reset prompt và imageUri *sau khi* addPrompt
+                            // Xử lý khi có hình ảnh
+                            event.imageUri != null -> {
+                                addPrompt(event.prompt, event.imageUri, false, null)
+                                val selectedSegmentId = _chatState.value.selectedSegment?.id
                          _chatState.update { it.copy(prompt = "", imageUri = null) }
-
-                        if (event.imageUri != null) {
                             _isImageProcessing.value = true
                             getResponseWithImage(event.prompt, event.imageUri, selectedSegmentId)
-                        } else {
+                            }
+                            
+                            // Xử lý tin nhắn văn bản thông thường
+                            else -> {
+                                addPrompt(event.prompt, null, false, null)
+                                val selectedSegmentId = _chatState.value.selectedSegment?.id
+                                _chatState.update { it.copy(prompt = "") }
                             getResponse(event.prompt, selectedSegmentId)
+                            }
                         }
                     }
                 }
@@ -428,6 +469,19 @@ class ChatViewModel @Inject constructor(
             is ChatUiEvent.StopResponse -> {
                 stopCurrentResponse()
             }
+            is ChatUiEvent.OnFileSelected -> {
+                val uri = event.uri
+                _chatState.update { 
+                    it.copy(
+                        fileUri = uri,
+                        fileName = getFileNameFromUri(context, uri) ?: "File không xác định",
+                        isFileUploading = false
+                    )
+                }
+            }
+            is ChatUiEvent.RemoveFile -> {
+                _chatState.update { it.copy(fileUri = null, fileName = null) }
+            }
         }
     }
 
@@ -435,7 +489,7 @@ class ChatViewModel @Inject constructor(
     /**
      * Adds a user prompt and handles segment creation if necessary.
      */
-    private suspend fun addPrompt(prompt: String, imageUri: Uri?) {
+    private suspend fun addPrompt(prompt: String, imageUri: Uri?, isFileMessage: Boolean = false, fileName: String? = null) {
         val currentUserId = repository.userId
         if (currentUserId.isEmpty()) {
             _chatState.update { it.copy(isLoading = false) }
@@ -446,25 +500,38 @@ class ChatViewModel @Inject constructor(
             repository.uploadImage(it)
         }
 
+        // Nếu là tin nhắn file và không có nội dung, sử dụng chuỗi rỗng thay vì "Tôi đã gửi tệp..."
+        val messageText = if (isFileMessage && prompt.isEmpty()) {
+            "" // Tin nhắn trống, file sẽ hiển thị riêng
+        } else {
+            prompt // Sử dụng tin nhắn người dùng nhập
+        }
+
+        // Tạo một đối tượng Chat với metadata là file nếu cần
         val chat = Chat.fromPrompt(
-            prompt = prompt,
+            prompt = messageText,
             imageUrl = imageUrl,
             isFromUser = true,
             isError = false,
-            userId = currentUserId
+            userId = currentUserId,
+            isFileMessage = isFileMessage,
+            fileName = fileName
         )
+        
         val segmentId = _chatState.value.selectedSegment?.id
         repository.insertChat(chat, segmentId)
         _chatState.update {
             it.copy(
                 chatList = it.chatList + chat,
                 prompt = "",
-                imageUri = null
+                imageUri = null,
+                fileUri = null,
+                fileName = null
             )
         }
     }
 
-    fun insertLocalUserChat(prompt: String) {
+    fun insertLocalUserChat(prompt: String, isFileMessage: Boolean = false, fileName: String? = null) {
         viewModelScope.launch {
             val userId = repository.userId
             val chat = Chat.fromPrompt(
@@ -472,7 +539,9 @@ class ChatViewModel @Inject constructor(
                 imageUrl = null,
                 isFromUser = true,
                 isError = false,
-                userId = userId
+                userId = userId,
+                isFileMessage = isFileMessage,
+                fileName = fileName
             )
             // Chỉ chèn vào Firestore, không gọi API
             repository.insertChat(chat, chatState.value.selectedSegment?.id)
@@ -889,4 +958,152 @@ class ChatViewModel @Inject constructor(
             }
         }
     }
+
+    fun insertModelChat(prompt: String, isError: Boolean = false) {
+        viewModelScope.launch {
+            val userId = repository.userId
+            val chat = Chat.fromPrompt(
+                prompt = prompt,
+                imageUrl = null,
+                isFromUser = false,
+                isError = isError,
+                userId = userId
+            )
+            // Chèn vào Firestore
+            repository.insertChat(chat, chatState.value.selectedSegment?.id)
+            // Cập nhật lại UI
+            _chatState.update {
+                it.copy(chatList = it.chatList + chat, isLoading = false)
+            }
+        }
+    }
+
+    fun processAndSendDocument(context: Context, documentUri: Uri) {
+        viewModelScope.launch {
+            try {
+                _chatState.update { it.copy(isLoading = true) }
+                val fileName = getFileNameFromUri(context, documentUri) ?: "Tài liệu"
+                val mimeType = context.contentResolver.getType(documentUri)
+                
+                val extractedText = when {
+                    mimeType?.contains("pdf") == true -> {
+                        // Xử lý PDF bằng PDFBox (nếu có)
+                        PDFProcessingService.extractTextFromPDF(context, documentUri)
+                    }
+                    mimeType?.contains("text/plain") == true -> {
+                        // Xử lý TXT - đọc trực tiếp từ InputSream
+                        val inputStream = context.contentResolver.openInputStream(documentUri)
+                        inputStream?.bufferedReader()?.use { it.readText() } ?: ""
+                    }
+                    mimeType?.contains("msword") == true || 
+                    mimeType?.contains("vnd.openxmlformats-officedocument.wordprocessingml.document") == true -> {
+                        // Đọc DOC/DOCX đơn giản
+                        "Đã nhận tệp Word, nhưng không thể trích xuất nội dung. Vui lòng chuyển đổi sang PDF."
+                    }
+                    else -> {
+                        "Loại tệp không được hỗ trợ: $mimeType"
+                    }
+                }
+                
+                // Thêm tin nhắn người dùng với metadata file
+                insertLocalUserChat("", true, fileName)
+                
+                if (extractedText.isNotBlank()) {
+                    val prompt = "Đây là nội dung từ tệp '$fileName'. Vui lòng tóm tắt thông tin chính: $extractedText"
+                    getResponse(prompt, _chatState.value.selectedSegment?.id)
+                } else {
+                    insertModelChat("Không thể trích xuất văn bản từ tệp này.", true)
+                }
+            } catch (e: Exception) {
+                insertModelChat("Đã xảy ra lỗi khi xử lý tệp: ${e.message}", true)
+            } finally {
+                _chatState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+    
+    private fun getFileNameFromUri(context: Context, uri: Uri): String? {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1) {
+                        result = it.getString(nameIndex)
+                    }
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/')
+            if (cut != -1) {
+                result = result?.substring(cut!! + 1)
+            }
+        }
+        return result
+    }
+    
+    data class ChatMessage(
+        val text: String,
+        val participant: Participant,
+        val timestamp: Long = System.currentTimeMillis(),
+        val isPdf: Boolean = false,
+        val pdfUri: String? = null,
+        val isPdfPrompt: Boolean = false
+    )
+
+    
+
+    // Hàm xử lý và gửi file
+    private fun processAndSendWithFile(prompt: String, fileUri: Uri, fileName: String, selectedSegmentId: String?) {
+        viewModelScope.launch {
+            try {
+                _chatState.update { it.copy(isLoading = true) }
+                
+                // Tùy thuộc vào loại file, có thể xử lý khác nhau
+                val mimeType = context.contentResolver.getType(fileUri)
+                
+                // Xử lý file và gửi lên API
+                val fileContent = when {
+                    mimeType?.contains("pdf") == true -> {
+                        PDFProcessingService.extractTextFromPDF(context, fileUri)
+                    }
+                    mimeType?.contains("text/plain") == true -> {
+                        val inputStream = context.contentResolver.openInputStream(fileUri)
+                        inputStream?.bufferedReader()?.use { reader -> reader.readText() } ?: ""
+                    }
+                    else -> {
+                        "File không hỗ trợ trích xuất nội dung"
+                    }
+                }
+                
+                // Chuẩn bị prompt gửi đến model
+                val promptWithFile = if (fileContent.isNotBlank()) {
+                    if (prompt.isEmpty()) {
+                        "Đây là nội dung từ file $fileName, hãy tóm tắt thông tin chính:\n$fileContent"
+                    } else {
+                        "$prompt\n\nNội dung từ file $fileName:\n$fileContent"
+                    }
+                } else {
+                    if (prompt.isEmpty()) {
+                        "Đã nhận file $fileName nhưng không thể trích xuất nội dung."
+                    } else {
+                        prompt
+                    }
+                }
+                
+                // Gửi đến model
+                getResponse(promptWithFile, selectedSegmentId)
+                
+            } catch (e: Exception) {
+                insertModelChat("Đã xảy ra lỗi khi xử lý file: ${e.message}", true)
+            } finally {
+                _chatState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
 }
+
+
