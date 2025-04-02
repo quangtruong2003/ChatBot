@@ -1140,32 +1140,21 @@ fun ChatScreen(
 
                                 // --- Nút gửi tin nhắn ---
                                 if (chatState.isLoading) {
-                                    // Tạo hiệu ứng nhấp nháy cho alpha
-                                    val infiniteTransition = rememberInfiniteTransition(label = "stop_icon_blink")
-                                    val blinkingAlpha by infiniteTransition.animateFloat(
-                                        initialValue = 0.5f, // Bắt đầu với 30% opacity
-                                        targetValue = 0.7f, // Nhấp nháy lên 70% opacity
-                                        animationSpec = infiniteRepeatable(
-                                            animation = tween(durationMillis = 700, easing = LinearEasing),
-                                            repeatMode = RepeatMode.Reverse // Đảo ngược animation để tạo hiệu ứng nhấp nháy
-                                        ),
-                                        label = "blinkingAlpha"
-                                    )
-
+                                    // Bỏ hiệu ứng nhấp nháy
+                                    val isDarkTheme = isSystemInDarkTheme()
                                     Icon(
                                         modifier = Modifier
                                             .padding(bottom = 8.dp)
                                             .size(40.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .alpha(blinkingAlpha) // Áp dụng alpha nhấp nháy
                                             .clickable {
                                                 chatViewModel.stopCurrentResponse()
                                                 // Thêm phản hồi rung khi dừng
                                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             },
-                                        painter = painterResource(id = R.drawable.ic_stopresponse),
+                                        painter = painterResource(id = if (isDarkTheme) R.drawable.ic_stopresponse_dark else R.drawable.ic_stopresponse_light),
                                         contentDescription = "Dừng",
-                                        tint = textColor
+                                        tint = Color.Unspecified
                                     )
                                 } else {
                                     IconButton(

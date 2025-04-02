@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="800dp"
+    android:height="800dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Nền cho hình tròn (Đen khi sáng) -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M21,12C21,16.971 16.971,21 12,21C7.029,21 3,16.971 3,12C3,7.029 7.029,3 12,3C16.971,3 21,7.029 21,12Z" />
+
+    <!-- Nền cho hình vuông (Trắng khi sáng) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9,10.6C9,10.04 9,9.76 9.109,9.546C9.205,9.358 9.358,9.205 9.546,9.109C9.76,9 10.04,9 10.6,9H13.4C13.96,9 14.24,9 14.454,9.109C14.642,9.205 14.795,9.358 14.891,9.546C15,9.76 15,10.04 15,10.6V13.4C15,13.96 15,14.24 14.891,14.454C14.795,14.642 14.642,14.795 14.454,14.891C14.24,15 13.96,15 13.4,15H10.6C10.04,15 9.76,15 9.546,14.891C9.358,14.795 9.205,14.642 9.109,14.454C9,14.24 9,13.96 9,13.4V10.6Z" />
+
+    <!-- Viền cho hình tròn -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M21,12C21,16.971 16.971,21 12,21C7.029,21 3,16.971 3,12C3,7.029 7.029,3 12,3C16.971,3 21,7.029 21,12Z" />
+
+    <!-- Viền cho hình vuông -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9,10.6C9,10.04 9,9.76 9.109,9.546C9.205,9.358 9.358,9.205 9.546,9.109C9.76,9 10.04,9 10.6,9H13.4C13.96,9 14.24,9 14.454,9.109C14.642,9.205 14.795,9.358 14.891,9.546C15,9.76 15,10.04 15,10.6V13.4C15,13.96 15,14.24 14.891,14.454C14.795,14.642 14.642,14.795 14.454,14.891C14.24,15 13.96,15 13.4,15H10.6C10.04,15 9.76,15 9.546,14.891C9.358,14.795 9.205,14.642 9.109,14.454C9,14.24 9,13.96 9,13.4V10.6Z" />
+
+</vector> 
