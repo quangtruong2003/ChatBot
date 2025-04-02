@@ -753,28 +753,19 @@ fun ChatScreen(
                                     snackbarHostState = snackbarHostState
                                 )
                             } else {
-                                // Đơn giản hóa logic kiểm tra hiệu ứng typing
-
-                                // Một tin nhắn chỉ được hiển thị hiệu ứng typing nếu:
-                                // 1. Là tin nhắn mới nhất từ bot
-                                // 2. Chưa từng hiển thị hiệu ứng typing
-                                val isLatestBotMessage = chatState.chatList
-                                    .filter { !it.isFromUser }
-                                    .lastOrNull()?.id == chat.id
-
+                                // Cần kiểm tra xem tin nhắn đã được hiển thị hiệu ứng typing chưa
                                 val isMessageAlreadyTyped = chatViewModel.isMessageTyped(chat.id)
-
-                                val shouldShowTypingEffect = isLatestBotMessage && !isMessageAlreadyTyped
-
-                                // Dùng LaunchedEffect để kiểm soát việc đánh dấu tin nhắn cũ
-                                LaunchedEffect(chat.id) {
-                                    // Đánh dấu các tin nhắn cũ không cần hiệu ứng là đã typed
-                                    if (!isLatestBotMessage && !isMessageAlreadyTyped) {
-                                        delay(50) // Delay nhỏ để tránh race condition
-                                        chatViewModel.markMessageAsTyped(chat.id)
-                                    }
-                                }
-
+                                val shouldShowTypingEffect = !isMessageAlreadyTyped
+                                
+                                // Tìm prompt của user trước response này để sử dụng cho regenerate
+                                val userPromptForThisResponse = if (!chat.isFromUser) {
+                                    val chatList = chatState.chatList
+                                    val chatIndex = chatList.indexOf(chat)
+                                    if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
+                                        chatList[chatIndex - 1].prompt
+                                    } else ""
+                                } else ""
+                                
                                 ModelChatItem(
                                     response = chat.prompt,
                                     isError = chat.isError,
@@ -796,7 +787,18 @@ fun ChatScreen(
                                     onAnimationComplete = {
                                         chatViewModel.markMessageAsTyped(chat.id)
                                     },
-                                    isMessageTyped = isMessageAlreadyTyped
+                                    isMessageTyped = isMessageAlreadyTyped,
+                                    onDeleteClick = { chatId ->
+                                        chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
+                                    },
+                                    onRegenerateClick = { prompt, responseId ->
+                                        chatViewModel.onEvent(ChatUiEvent.RegenerateResponse(prompt, responseId))
+                                    },
+                                    currentUserPrompt = userPromptForThisResponse,
+                                    availableModels = chatViewModel.availableModels,
+                                    modelDisplayNameMap = chatViewModel.modelDisplayNameMap,
+                                    modelIconMap = chatViewModel.modelIconMap,
+                                    selectedModel = selectedModel
                                 )
                             }
                         }
