@@ -54,11 +54,13 @@ fun UserChatItem(
     snackbarHostState: SnackbarHostState,
     chatId: String? = null,
     onDeleteClick: (String) -> Unit = {},
-    onEditClick: (String) -> Unit = {}
+    onEditClick: (String) -> Unit = {},
+    isBeingEdited: Boolean = false
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val backgroundColor = when {
         isError -> MaterialTheme.colorScheme.error
+        isBeingEdited -> MaterialTheme.colorScheme.primaryContainer
         isDarkTheme -> Color(0x43FFFFFF)
         else -> Color(0x97FFFFFF)
     }
@@ -75,9 +77,6 @@ fun UserChatItem(
     
     // Clipboard manager để copy văn bản
     val clipboardManager = LocalClipboardManager.current
-    
-    // Focus manager để đóng bàn phím khi click vào màn hình
-    val focusManager = LocalFocusManager.current
 
     Row(
         modifier = Modifier
@@ -152,53 +151,54 @@ fun UserChatItem(
             if (chatId != null && prompt.isNotEmpty()) {
                 Row(
                     modifier = Modifier
-                        .padding(top = 8.dp, end = 12.dp),
+                        .fillMaxWidth()
+                        .padding(top = 0.dp, end = 0.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Nút copy
-                    IconButton(
-                        onClick = { 
-                            clipboardManager.setText(formattedPrompt)
-                            Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
-                            contentDescription = "Sao chép",
-                            tint = textColor.copy(alpha = 0.7f),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                    
-                    // Nút edit
+                    // Nút edit (đã chuyển ra bên trái)
                     IconButton(
                         onClick = { 
                             onEditClick(chatId)
                         },
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_editrequest),
                             contentDescription = "Chỉnh sửa",
                             tint = textColor.copy(alpha = 0.7f),
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                     
-                    // Nút xóa
+                    // Nút copy (ở giữa)
+                    IconButton(
+                        onClick = { 
+                            clipboardManager.setText(formattedPrompt)
+                            Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_copy),
+                            contentDescription = "Sao chép",
+                            tint = textColor.copy(alpha = 0.7f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    
+                    // Nút xóa (bên phải)
                     IconButton(
                         onClick = { 
                             onDeleteClick(chatId)
                         },
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
                             painter = painterResource(id = R.drawable.ic_bin),
                             contentDescription = "Xóa",
                             tint = textColor.copy(alpha = 0.7f),
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }

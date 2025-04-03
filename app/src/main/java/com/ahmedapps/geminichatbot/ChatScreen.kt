@@ -23,6 +23,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -164,6 +166,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.text
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
@@ -183,6 +186,9 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
+    // Thêm state để kích hoạt hiển thị bàn phím sau khi edit
+    var showKeyboardAfterEdit by remember { mutableStateOf(false) }
+    
     // Khởi tạo LazyListState để quản lý cuộn danh sách
     val listState = rememberLazyListState()
     val textFieldHeight = remember { mutableStateOf(0.dp) }
@@ -730,7 +736,6 @@ fun ChatScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth(),
-
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
@@ -968,7 +973,7 @@ fun ChatScreen(
 
             ) {
                 AnimatedVisibility(
-                    visible = showScrollToBottomButton,
+                    visible = (showScrollToBottomButton && !chatState.isEditing) || (chatState.isEditing),
                     enter = fadeIn(),
                     exit = fadeOut(),
                     modifier = Modifier
@@ -978,14 +983,19 @@ fun ChatScreen(
                 ) {
                     FloatingActionButton(
                         onClick = {
-                            scope.launch {
-                                shouldAutoScroll = true // Allow potential future auto-scrolls
-                                userScrolledAwayFromBottom = false // Reset flag immediately
-                                if (chatState.chatList.isNotEmpty()) {
-                                    // Use a slightly longer delay, consistent with chat switching
-                                    kotlinx.coroutines.delay(100) // Increased delay
-                                    // Scroll to the absolute bottom using Int.MAX_VALUE
-                                    listState.animateScrollToItem(Int.MAX_VALUE)
+                            if (chatState.isEditing) {
+                                // Nếu đang ở chế độ chỉnh sửa, hủy chỉnh sửa
+                                chatViewModel.onEvent(ChatUiEvent.CancelEdit)
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            } else {
+                                // Ngược lại thực hiện cuộn xuống dưới bình thường
+                                scope.launch {
+                                    shouldAutoScroll = true
+                                    userScrolledAwayFromBottom = false
+                                    if (chatState.chatList.isNotEmpty()) {
+                                        kotlinx.coroutines.delay(100)
+                                        listState.animateScrollToItem(Int.MAX_VALUE)
+                                    }
                                 }
                             }
                         },
@@ -998,8 +1008,18 @@ fun ChatScreen(
                                 clip = false
                             ),
                         shape = CircleShape,
-                        containerColor = if (isSystemInDarkTheme()) Color(0xFF1E1F22) else Color(0xFFEAEAEA),
-                        contentColor = if (isSystemInDarkTheme()) Color.White else Color.Black,
+                        containerColor = if (chatState.isEditing) 
+                            MaterialTheme.colorScheme.error 
+                        else if (isSystemInDarkTheme()) 
+                            Color(0xFF1E1F22) 
+                        else 
+                            Color(0xFFEAEAEA),
+                        contentColor = if (chatState.isEditing) 
+                            Color.White 
+                        else if (isSystemInDarkTheme()) 
+                            Color.White 
+                        else 
+                            Color.Black,
                         elevation = FloatingActionButtonDefaults.elevation(
                             defaultElevation = 0.dp,
                             pressedElevation = 12.dp,
@@ -1007,9 +1027,14 @@ fun ChatScreen(
                         )
                     ) {
                         Icon(
-                            //painter = painterResource(id = R.drawable.ic_download),
-                            imageVector = Icons.Filled.ArrowDownward,
-                            contentDescription = "Scroll to Bottom"
+                            imageVector = if (chatState.isEditing)
+                                Icons.Filled.Close
+                            else
+                                Icons.Filled.ArrowDownward,
+                            contentDescription = if (chatState.isEditing)
+                                "Hủy chỉnh sửa"
+                            else
+                                "Cuộn xuống dưới"
                         )
                     }
                 }
@@ -1074,9 +1099,16 @@ fun ChatScreen(
                                             chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
                                         },
                                         onEditClick = { chatId ->
-                                            // TODO: Xử lý sự kiện edit chat tại đây
-                                            // chatViewModel.onEvent(ChatUiEvent.EditChat(chatId))
-                                        }
+                                            // Gọi sự kiện EditChat với chatId, nội dung tin nhắn và timestamp
+                                            chatViewModel.onEvent(ChatUiEvent.EditChat(
+                                                chatId = chatId,
+                                                message = chat.prompt,
+                                                timestamp = chat.timestamp
+                                            ))
+                                            // Kích hoạt hiển thị bàn phím
+                                            showKeyboardAfterEdit = true
+                                        },
+                                        isBeingEdited = chatState.isEditing && chatState.editingChatId == chat.id
                                     )
                                 } else {
                                     // Cần kiểm tra xem tin nhắn đã được hiển thị hiệu ứng typing chưa
@@ -1192,6 +1224,16 @@ fun ChatScreen(
                                 }
                             }
                         }
+
+                        // Hiển thị lớp mờ khi đang ở chế độ chỉnh sửa
+                        // if (chatState.isEditing) {
+                        //     Box(
+                        //         modifier = Modifier
+                        //             .fillMaxSize()
+                        //             .background(Color.Black.copy(alpha = 0.5f))
+                        //             .clickable(enabled = false) { /* Vô hiệu hóa click */ }
+                        //     )
+                        // }
 
                         // Hiển thị WelcomeMessage như một lớp phủ nếu không có tin nhắn
                         androidx.compose.animation.AnimatedVisibility(
@@ -1393,7 +1435,9 @@ fun ChatScreen(
                                 },
                                 onImageReceived = { uri -> 
                                     chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
-                                }
+                                },
+                                showKeyboardAfterEdit = showKeyboardAfterEdit,
+                                onKeyboardShown = { showKeyboardAfterEdit = false }
                             )
 
                             // --- Hàng chứa nút Icon ---
@@ -1598,6 +1642,59 @@ fun ChatScreen(
                         }
                     }
                 }
+
+                AnimatedVisibility(
+                    visible = userScrolledAwayFromBottom && !chatState.isEditing,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 180.dp)
+                        .zIndex(1f)
+                ) {
+                    FloatingActionButton(
+                        onClick = {
+                            // Thực hiện cuộn xuống dưới
+                            scope.launch {
+                                shouldAutoScroll = true // Allow potential future auto-scrolls
+                                userScrolledAwayFromBottom = false // Reset flag immediately
+                                if (chatState.chatList.isNotEmpty()) {
+                                    // Use a slightly longer delay, consistent with chat switching
+                                    kotlinx.coroutines.delay(100) // Increased delay
+                                    // Scroll to the absolute bottom using Int.MAX_VALUE
+                                    listState.animateScrollToItem(Int.MAX_VALUE)
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = CircleShape,
+                                clip = false
+                            ),
+                        shape = CircleShape,
+                        containerColor = if (isSystemInDarkTheme()) 
+                            Color(0xFF1E1F22) 
+                        else 
+                            Color(0xFFEAEAEA),
+                        contentColor = if (isSystemInDarkTheme()) 
+                            Color.White 
+                        else 
+                            Color.Black,
+                        elevation = FloatingActionButtonDefaults.elevation(
+                            defaultElevation = 0.dp,
+                            pressedElevation = 12.dp,
+                            focusedElevation = 12.dp
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDownward,
+                            contentDescription = "Cuộn xuống dưới"
+                        )
+                    }
+                }
             }
             if (showLogoutDialog) {
                 AlertDialog(
@@ -1657,7 +1754,9 @@ fun CustomTextField(
     navController: NavController,
     createImageUriInner: () -> Uri?,
     onPhotoUriChange: (Uri?) -> Unit,
-    onImageReceived: (Uri) -> Unit
+    onImageReceived: (Uri) -> Unit,
+    showKeyboardAfterEdit: Boolean = false,
+    onKeyboardShown: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
@@ -1672,6 +1771,38 @@ fun CustomTextField(
     var shouldShowExpandButton by remember { mutableStateOf(false) }
     // Lưu trữ reference đến view để kiểm tra trạng thái cuộn
     var editTextRef by remember { mutableStateOf<AppCompatEditText?>(null) }
+    
+    // Effect để xử lý việc hiển thị bàn phím khi state showKeyboardAfterEdit thay đổi
+    LaunchedEffect(showKeyboardAfterEdit) {
+        if (showKeyboardAfterEdit) {
+            delay(150) // Đợi một chút để đảm bảo focus đã được thiết lập
+            editTextRef?.let { editText ->
+                editText.requestFocus()
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(editText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                onKeyboardShown() // Báo lại đã hiển thị bàn phím
+            }
+        }
+    }
+    
+    // Effect để tự động focus và cập nhật text khi chuyển sang chế độ chỉnh sửa
+    LaunchedEffect(chatState.isEditing) {
+        if (chatState.isEditing) {
+            // Yêu cầu focus vào ô nhập liệu
+            focusRequester.requestFocus()
+            // Đảm bảo text được cập nhật trong EditText
+            editTextRef?.let { view ->
+                view.setText(chatState.prompt)
+                view.setSelection(chatState.prompt.length) // Di chuyển con trỏ đến cuối văn bản
+            }
+        } else {
+            // Khi thoát khỏi chế độ chỉnh sửa, đảm bảo xóa nội dung prompt
+            editTextRef?.let { view ->
+                view.setText("")
+                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(""))
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -1710,6 +1841,21 @@ fun CustomTextField(
 
                     // Cấu hình tối ưu cho IME tiếng Việt
                     imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                    
+                    // Thêm sự kiện click để hiển thị bàn phím và đặt con trỏ ở cuối
+                    setOnClickListener {
+                        // Đảm bảo input có focus
+                        requestFocus()
+                        // Đặt con trỏ ở cuối văn bản
+                        text?.length?.let { length ->
+                            setSelection(length)
+                        }
+                        // Hiển thị bàn phím
+                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                        imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                        // Phản hồi xúc giác nhẹ
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
                     
                     // Lưu trữ reference
                     editTextRef = this
@@ -1769,9 +1915,9 @@ fun CustomTextField(
                                 if (uri != null) {
                                     chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Đã dán ảnh")
-                                    }
+                                    // scope.launch {
+                                    //     snackbarHostState.showSnackbar("Đã dán ảnh")
+                                    // }
                                     return@setOnReceiveContentListener null
                                 }
                             }
