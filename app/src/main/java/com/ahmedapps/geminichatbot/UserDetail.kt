@@ -31,6 +31,11 @@ import androidx.compose.material.icons.filled.ChevronRight
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Color
+import com.ahmedapps.geminichatbot.data.ChatRepository
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.viewModelScope
+import com.ahmedapps.geminichatbot.ChatViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +49,8 @@ fun UserDetailBottomSheet(
     val email = currentUser?.email ?: "Không có email"
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    val chatViewModel = hiltViewModel<ChatViewModel>()
+    val chatRepository = chatViewModel.getChatRepository()
 
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showRulesDialog by remember { mutableStateOf(false) }
@@ -53,6 +60,11 @@ fun UserDetailBottomSheet(
     var showFirstDeleteAccountDialog by remember { mutableStateOf(false) }
     var showSecondDeleteAccountDialog by remember { mutableStateOf(false) }
     
+    // Tải rules hiện tại từ ChatRepository
+    LaunchedEffect(key1 = Unit) {
+        currentRules = chatRepository.rulesAI
+    }
+
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
     )
@@ -438,6 +450,8 @@ fun RulesAIDialog(
 ) {
     var rulesText by remember { mutableStateOf(initialRules) }
     val context = LocalContext.current
+    val chatViewModel = hiltViewModel<ChatViewModel>()
+    val chatRepository = chatViewModel.getChatRepository()
     
     val sheetState = rememberModalBottomSheetState(
         skipPartiallyExpanded = true
@@ -533,7 +547,11 @@ fun RulesAIDialog(
                 Spacer(modifier = Modifier.width(12.dp))
                 Button(
                     onClick = {
-                        onSave(rulesText)
+                        // Cập nhật rules vào ChatRepository
+                        chatViewModel.viewModelScope.launch {
+                            chatRepository.updateRulesAI(rulesText)
+                            onSave(rulesText)
+                        }
                     },
                     shape = RoundedCornerShape(8.dp)
                 ) {

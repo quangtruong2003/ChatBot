@@ -703,6 +703,7 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxWidth(0.9f)
                     .fillMaxHeight()
+
             ) {
                 SideDrawer(
                     onClose = {
@@ -727,7 +728,9 @@ fun ChatScreen(
                 CenterAlignedTopAppBar(
                     title = {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth(),
+
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
@@ -962,6 +965,7 @@ fun ChatScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = paddingValues.calculateTopPadding())
+
             ) {
                 AnimatedVisibility(
                     visible = showScrollToBottomButton,
@@ -1016,7 +1020,7 @@ fun ChatScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .navigationBarsPadding(),
+                        .navigationBarsPadding()
 
                     ){
 
@@ -1025,19 +1029,18 @@ fun ChatScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
+//                            .clickable(
+//                                interactionSource = remember { MutableInteractionSource() },
+//                                indication = null // Không hiển thị hiệu ứng ripple
+//                            ) {
+//                                focusManager.clearFocus() // Đóng bàn phím
+//                            },
                     ) {
                         // Danh sách chat chính - luôn hiển thị vì đã đặt trong Box riêng biệt
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .padding(horizontal = 8.dp)
-                                // Thêm clickable vào LazyColumn để đóng bàn phím
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null // Không hiển thị hiệu ứng ripple
-                                ) {
-                                    focusManager.clearFocus() // Đóng bàn phím
-                                },
+                                .padding(horizontal = 8.dp),
                             state = listState,
                             verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
                         ) {
@@ -1065,7 +1068,15 @@ fun ChatScreen(
                                             val encodedUrl = Base64.encodeToString(url.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
                                             navController.navigate("fullscreen_image/$encodedUrl")
                                         },
-                                        snackbarHostState = snackbarHostState
+                                        snackbarHostState = snackbarHostState,
+                                        chatId = chat.id,
+                                        onDeleteClick = { chatId ->
+                                            chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
+                                        },
+                                        onEditClick = { chatId ->
+                                            // TODO: Xử lý sự kiện edit chat tại đây
+                                            // chatViewModel.onEvent(ChatUiEvent.EditChat(chatId))
+                                        }
                                     )
                                 } else {
                                     // Cần kiểm tra xem tin nhắn đã được hiển thị hiệu ứng typing chưa
@@ -1076,10 +1087,21 @@ fun ChatScreen(
                                     val userPromptForThisResponse = if (!chat.isFromUser) {
                                         val chatList = chatState.chatList
                                         val chatIndex = chatList.indexOf(chat)
+                                        
+                                        // Tìm tin nhắn người dùng trước response này
                                         if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
                                             chatList[chatIndex - 1].prompt
                                         } else ""
                                     } else ""
+                                    
+                                    // Tìm tin nhắn user đầy đủ (không chỉ prompt)
+                                    val userMessage = if (!chat.isFromUser) {
+                                        val chatList = chatState.chatList
+                                        val chatIndex = chatList.indexOf(chat)
+                                        if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
+                                            chatList[chatIndex - 1]
+                                        } else null
+                                    } else null
                                     
                                     ModelChatItem(
                                         response = chat.prompt,
@@ -1106,14 +1128,51 @@ fun ChatScreen(
                                         onDeleteClick = { chatId ->
                                             chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
                                         },
-                                        onRegenerateClick = { prompt, responseId ->
-                                            chatViewModel.onEvent(ChatUiEvent.RegenerateResponse(prompt, responseId))
+                                        onRegenerateClick = { prompt, responseId, _ ->
+                                            // Kiểm tra nếu userMessage null
+                                            if (userMessage != null) {
+                                                // Xác định prompt thích hợp dựa trên loại tin nhắn
+                                                val finalPrompt = when {
+                                                    // Nếu có prompt do người dùng nhập, ưu tiên sử dụng
+                                                    prompt.isNotEmpty() -> prompt
+                                                    // Nếu có hình ảnh, tạo prompt mặc định cho hình ảnh
+                                                    userMessage.imageUrl != null -> "Hãy mô tả hình ảnh này"
+                                                    // Nếu có file, tạo prompt mặc định cho file
+                                                    userMessage.isFileMessage && userMessage.fileName != null -> "Hãy tóm tắt nội dung file ${userMessage.fileName}"
+                                                    // Trường hợp khác (hiếm gặp), để prompt rỗng
+                                                    else -> ""
+                                                }
+                                                
+                                                // Nếu có prompt hoặc là tin nhắn file/hình ảnh -> regenerate
+                                                if (finalPrompt.isNotEmpty() || userMessage.isFileMessage || userMessage.imageUrl != null) {
+                                                    chatViewModel.onEvent(
+                                                        ChatUiEvent.RegenerateResponse(
+                                                            userPrompt = finalPrompt, // Prompt đã xử lý
+                                                            responseId = responseId,
+                                                            imageUrl = userMessage.imageUrl, // URL hình ảnh nếu có
+                                                            fileName = userMessage.fileName, // Tên file nếu có
+                                                            timestamp = userMessage.timestamp // Timestamp để xóa tin nhắn mới hơn
+                                                        )
+                                                    )
+                                                } else {
+                                                    // Hiếm khi xảy ra trường hợp này, nhưng vẫn giữ để phòng ngừa
+                                                    scope.launch {
+                                                        snackbarHostState.showSnackbar("Không thể tạo lại cho tin nhắn này.")
+                                                    }
+                                                }
+                                            } else {
+                                                // Không tìm thấy tin nhắn user gốc
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar("Không tìm thấy tin nhắn gốc của người dùng.")
+                                                }
+                                            }
                                         },
                                         currentUserPrompt = userPromptForThisResponse,
                                         availableModels = chatViewModel.availableModels,
                                         modelDisplayNameMap = chatViewModel.modelDisplayNameMap,
                                         modelIconMap = chatViewModel.modelIconMap,
-                                        selectedModel = selectedModel
+                                        selectedModel = selectedModel,
+                                        chat = userMessage // Truyền tin nhắn user làm tham số
                                     )
                                 }
                             }
@@ -1649,6 +1708,9 @@ fun CustomTextField(
                     hint = "Nhập tin nhắn cho ChatAI"
                     textSize = 16f
 
+                    // Cấu hình tối ưu cho IME tiếng Việt
+                    imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                    
                     // Lưu trữ reference
                     editTextRef = this
 
@@ -1667,14 +1729,25 @@ fun CustomTextField(
                         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                         override fun afterTextChanged(s: Editable?) {
+                            // Kiểm tra flag tạm dừng từ tag
+                            if (tag == true) {
+                                return
+                            }
+                            
                             if (!isUpdating) {
                                 val newText = s?.toString() ?: ""
                                 if (chatState.prompt != newText) {
                                     isUpdating = true
+                                    
+                                    // Thay đổi: Không lưu vị trí con trỏ ở đây vì không cần thiết
+                                    // và có thể gây lỗi với IME tiếng Việt
                                     chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
-                                    post { 
-                                        isUpdating = false 
-                                        // Cập nhật trạng thái nút mở rộng
+                                    
+                                    // Kết thúc cập nhật luôn, không cần phải post
+                                    isUpdating = false
+                                    
+                                    // Cập nhật trạng thái nút mở rộng (chỉ kiểm tra một lần khi text thay đổi)
+                                    post {
                                         shouldShowExpandButton = canScrollVertically(1) || canScrollVertically(-1)
                                     }
                                 }
@@ -1738,22 +1811,33 @@ fun CustomTextField(
                 // Luôn cập nhật màu chữ dựa trên theme hiện tại
                 view.setTextColor(textColor.toArgb())
 
-                // Nếu nội dung trong EditText khác với state
-                if (view.text.toString() != chatState.prompt) {
-                    // Cập nhật EditText để phản ánh state
+                // Chỉ cập nhật text khi không có focus hoặc text khác biệt hoàn toàn
+                // Tránh can thiệp khi đang nhập liệu tiếng Việt
+                if (!view.hasFocus() && view.text.toString() != chatState.prompt) {
+                    val cursorPosition = view.selectionStart
+                    val hasSelection = view.hasSelection()
+                    
+                    // Đặt cờ để tạm dừng TextWatcher
+                    (view.tag as? Boolean) ?: view.setTag(true)
+                    
+                    // Cập nhật text
                     view.setText(chatState.prompt)
-                    // Chỉ đặt lại con trỏ về cuối nếu EditText không có focus
-                    // để tránh xung đột với vị trí con trỏ do người dùng đặt.
-                    if (!view.hasFocus()) {
+                    
+                    // Khôi phục vị trí con trỏ phù hợp
+                    if (cursorPosition > -1 && cursorPosition <= chatState.prompt.length) {
+                        view.setSelection(cursorPosition)
+                    } else {
                         view.setSelection(chatState.prompt.length)
                     }
                     
-                    // Cập nhật trạng thái nút mở rộng khi text thay đổi
+                    // Xóa cờ TextWatcher
+                    view.setTag(null)
+                    
+                    // Cập nhật trạng thái nút mở rộng
                     view.post {
                         shouldShowExpandButton = view.canScrollVertically(1) || view.canScrollVertically(-1)
                     }
                 }
-                // Optional: Nếu text giống nhau nhưng selection sai khi không focus? (Tạm thời bỏ qua)
             },
             modifier = Modifier.fillMaxWidth()
                                .focusRequester(focusRequester)

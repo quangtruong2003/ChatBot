@@ -2,6 +2,7 @@ package com.ahmedapps.geminichatbot.data
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
@@ -15,6 +16,7 @@ import com.google.ai.client.generativeai.type.content
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -24,6 +26,7 @@ import kotlinx.coroutines.withContext
 import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
+import android.content.SharedPreferences
 
 class ChatRepository @Inject constructor(
     private val context: Context,
@@ -38,8 +41,18 @@ class ChatRepository @Inject constructor(
     val userId: String
         get() = auth.currentUser?.uid.orEmpty()
 
+    // Thêm biến để lưu trữ rules
+    private var _rulesAI: String = ""
+    val rulesAI: String get() = _rulesAI
+
+    // SharedPreferences để lưu trữ rules
+    private val sharedPreferences: SharedPreferences by lazy {
+        context.getSharedPreferences("gemini_chat_preferences", Context.MODE_PRIVATE)
+    }
+
     init {
         Log.d("ChatRepository", "Initialized with User ID: $userId")
+        loadRulesFromSharedPreferences() // Tải rules từ SharedPreferences thay vì Firestore
     }
 
     private val segmentsCollection
@@ -83,7 +96,12 @@ class ChatRepository @Inject constructor(
         if (hasImage) {
             // Khi có hình ảnh
             buildString {
-                append("")
+                // Thêm rules vào đầu prompt nếu có
+                if (_rulesAI.isNotEmpty()) {
+                    append(_rulesAI)
+                    append("\n\n")
+                }
+                
                 if (currentPrompt.isEmpty()) {
                     // Tìm tin nhắn đầu tiên của người dùng
                     val reversedChatHistory = chatHistory.reversed()
@@ -107,11 +125,31 @@ class ChatRepository @Inject constructor(
                 }
             }
         } else {
-            chatHistory.filterNot { it.isError }
+            // Trường hợp tin nhắn văn bản
+            val historyText = chatHistory.filterNot { it.isFromUser }
                 .joinToString(separator = "\n") { chat ->
-                    val sender = if (chat.isFromUser) "User" else ""
-                    "$sender ${chat.prompt}"
-                } + "\nUser: $currentPrompt"
+                    // Chỉ giữ lại tin nhắn từ bot để request tiếp theo
+                    chat.prompt
+                }
+            
+            // LUÔN thêm rules vào tin nhắn nếu có rules
+            if (_rulesAI.isNotEmpty()) {
+                Log.d("ChatRepository", "Adding rules to request. Rules: ${_rulesAI.take(50)}...")
+                if (historyText.isEmpty()) {
+                    // Nếu không có lịch sử chat từ bot, chỉ thêm rules và tin nhắn người dùng
+                    "${_rulesAI}\n\nUser: $currentPrompt"
+                } else {
+                    // Nếu có lịch sử chat, thêm cả rules, lịch sử và tin nhắn hiện tại
+                    "${_rulesAI}\n\n$historyText\nUser: $currentPrompt"
+                }
+            } else {
+                // Không có rules, chỉ gửi tin nhắn thông thường
+                if (historyText.isEmpty()) {
+                    "User: $currentPrompt"
+                } else {
+                    "$historyText\nUser: $currentPrompt"
+                }
+            }
         }
     }
 
@@ -151,8 +189,13 @@ class ChatRepository @Inject constructor(
             val chatHistory = getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
             val fullPrompt = getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
 
-            // Thêm log hiển thị prompt gửi lên API
+            // Thêm log hiển thị prompt gửi lên API chi tiết hơn
             Log.d("ChatRepository", "Sending prompt (no image): $fullPrompt")
+            Log.d("ChatRepository", "Rules status: ${if (_rulesAI.isNotEmpty()) "Rules present (${_rulesAI.length} chars)" else "No rules found"}")
+            Log.d("ChatRepository", "Chat history size: ${chatHistory.size}")
+            if (chatHistory.isNotEmpty()) {
+                Log.d("ChatRepository", "Chat history: ${chatHistory.size} messages, ${chatHistory.count { it.isFromUser }} from user")
+            }
 
             val response = generativeModel.generateContent(fullPrompt)
             Log.d("ChatRepository", "API Response: ${response.text}")
@@ -272,6 +315,87 @@ class ChatRepository @Inject constructor(
             )
             insertChat(chat, selectedSegmentId)
             chat
+        }
+    }
+
+    /**
+     * Tải hình ảnh từ URL và trả về Bitmap.
+     */
+    private suspend fun downloadImageAsBitmap(imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
+        try {
+            // Sử dụng StorageReference để lấy download URL nếu cần (giả sử imageUrl là path)
+            // Hoặc nếu imageUrl đã là download URL thì dùng trực tiếp
+            val imageRef = storage.getReferenceFromUrl(imageUrl)
+            val maxDownloadSizeBytes: Long = 10 * 1024 * 1024 // Giới hạn 10MB
+            val bytes = imageRef.getBytes(maxDownloadSizeBytes).await()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error downloading image from URL: $imageUrl", e)
+            null
+        }
+    }
+
+    /**
+     * Lấy phản hồi từ GenerativeModel cho việc regenerate với imageUrl.
+     */
+    suspend fun regenerateResponseWithImage(prompt: String, imageUrl: String, selectedSegmentId: String?): Chat = coroutineScope {
+        try {
+            // Song song: lấy lịch sử chat và tải Bitmap từ URL
+            val chatHistoryDeferred = async(Dispatchers.IO) {
+                getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
+            }
+            val bitmapDeferred = async(Dispatchers.IO) { downloadImageAsBitmap(imageUrl) }
+
+            val chatHistory = chatHistoryDeferred.await()
+            val bitmap = bitmapDeferred.await()
+
+            if (bitmap == null) {
+                val errorChat = Chat.fromPrompt(
+                    prompt = "Error: Unable to download image for regeneration",
+                    isFromUser = false,
+                    isError = true,
+                    userId = userId
+                )
+                insertChat(errorChat, selectedSegmentId)
+                return@coroutineScope errorChat
+            }
+
+            val fullPrompt = getFullPrompt(prompt, hasImage = true, chatHistory = chatHistory)
+            Log.d("ChatRepository", "Regenerating prompt (with image URL): $fullPrompt")
+
+            val content = content {
+                image(bitmap)
+                text(fullPrompt)
+            }
+
+            val response = generativeModel.generateContent(content)
+            Log.d("ChatRepository", "API Response (Regen Image): ${response.text}")
+
+            val responseText = response.text
+            val chat = Chat(
+                prompt = "",
+                imageUrl = imageUrl, // Giữ lại imageUrl gốc
+                isFromUser = false,
+                isError = false,
+                userId = userId
+            )
+            handleResponse(response, chat, selectedSegmentId)
+            chat.copy(
+                prompt = responseText ?: "Error: Empty response",
+                isError = responseText == null,
+                imageUrl = imageUrl
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            val errorChat = Chat(
+                prompt = "Error: ${e.localizedMessage}",
+                imageUrl = imageUrl, // Giữ lại imageUrl gốc khi lỗi
+                isFromUser = false,
+                isError = true,
+                userId = userId
+            )
+            insertChat(errorChat, selectedSegmentId)
+            errorChat
         }
     }
 
@@ -504,6 +628,63 @@ class ChatRepository @Inject constructor(
             Log.d("ChatRepository", "Deleted chat with ID: $chatId from segment: $segmentId")
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error deleting chat", e)
+        }
+    }
+
+    /**
+     * Cập nhật rules AI từ UserDetail và lưu vào SharedPreferences
+     */
+    suspend fun updateRulesAI(rules: String) = withContext(Dispatchers.IO) {
+        try {
+            _rulesAI = rules
+            // Lưu rules vào SharedPreferences
+            sharedPreferences.edit()
+                .putString("${userId}_rules_ai", rules)
+                .apply()
+            Log.d("ChatRepository", "Rules AI updated: $rules")
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error updating Rules AI", e)
+        }
+    }
+    
+    /**
+     * Tải rules từ SharedPreferences khi khởi tạo ứng dụng
+     */
+    private fun loadRulesFromSharedPreferences() {
+        try {
+            if (userId.isNotEmpty()) {
+                _rulesAI = sharedPreferences.getString("${userId}_rules_ai", "") ?: ""
+                Log.d("ChatRepository", "Loaded Rules AI from SharedPreferences: $_rulesAI")
+            }
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error loading Rules AI from SharedPreferences", e)
+        }
+    }
+
+    /**
+     * Xóa tất cả các tin nhắn trong một segment sau một timestamp nhất định.
+     */
+    suspend fun deleteMessagesAfterTimestamp(segmentId: String, timestamp: Long) = withContext(Dispatchers.IO) {
+        if (timestamp <= 0) return@withContext // Không làm gì nếu timestamp không hợp lệ
+        try {
+            val messagesCollection = getMessagesCollection(segmentId)
+            val querySnapshot = messagesCollection
+                .whereGreaterThan("timestamp", timestamp)
+                .get()
+                .await()
+            
+            if (!querySnapshot.isEmpty) {
+                val batch = db.batch()
+                querySnapshot.documents.forEach { doc ->
+                    batch.delete(doc.reference)
+                }
+                batch.commit().await()
+                Log.d("ChatRepository", "Deleted ${querySnapshot.size()} messages after timestamp $timestamp in segment $segmentId")
+            } else {
+                Log.d("ChatRepository", "No messages found after timestamp $timestamp to delete in segment $segmentId")
+            }
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error deleting messages after timestamp $timestamp in segment $segmentId", e)
         }
     }
 }

@@ -33,6 +33,13 @@ import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
+import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalFocusManager
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -44,7 +51,10 @@ fun UserChatItem(
     fileName: String? = null,
     onLongPress: (String) -> Unit,
     onImageClick: (String) -> Unit,
-    snackbarHostState: SnackbarHostState
+    snackbarHostState: SnackbarHostState,
+    chatId: String? = null,
+    onDeleteClick: (String) -> Unit = {},
+    onEditClick: (String) -> Unit = {}
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val backgroundColor = when {
@@ -59,6 +69,15 @@ fun UserChatItem(
 
     val formattedPrompt = parseFormattedText(prompt)
     val scope = rememberCoroutineScope()
+    
+    // Context để hiển thị Toast
+    val context = LocalContext.current
+    
+    // Clipboard manager để copy văn bản
+    val clipboardManager = LocalClipboardManager.current
+    
+    // Focus manager để đóng bàn phím khi click vào màn hình
+    val focusManager = LocalFocusManager.current
 
     Row(
         modifier = Modifier
@@ -126,6 +145,62 @@ fun UserChatItem(
                             .padding(12.dp),
                         snackbarHostState = snackbarHostState
                     )
+                }
+            }
+            
+            // Thêm các nút hành động (chỉ hiển thị khi có chatId)
+            if (chatId != null && prompt.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .padding(top = 8.dp, end = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Nút copy
+                    IconButton(
+                        onClick = { 
+                            clipboardManager.setText(formattedPrompt)
+                            Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_copy),
+                            contentDescription = "Sao chép",
+                            tint = textColor.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    
+                    // Nút edit
+                    IconButton(
+                        onClick = { 
+                            onEditClick(chatId)
+                        },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_editrequest),
+                            contentDescription = "Chỉnh sửa",
+                            tint = textColor.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    
+                    // Nút xóa
+                    IconButton(
+                        onClick = { 
+                            onDeleteClick(chatId)
+                        },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_bin),
+                            contentDescription = "Xóa",
+                            tint = textColor.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
         }

@@ -21,12 +21,18 @@ import android.util.Log
 import com.ahmedapps.geminichatbot.data.Participant
 import android.provider.OpenableColumns
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.tasks.await
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val repository: ChatRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    // Thêm hàm để lấy repository từ bên ngoài
+    fun getChatRepository(): ChatRepository {
+        return repository
+    }
 
     // Set để lưu trữ ID của các tin nhắn đã hiển thị hiệu ứng typing
     private val _typedMessagesIds = mutableSetOf<String>()
@@ -132,6 +138,9 @@ class ChatViewModel @Inject constructor(
 
     private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
+
+    // Cache để lưu fileUri theo fileName
+    private val fileUriCache = mutableMapOf<String, Uri>()
 
     init {
         viewModelScope.launch {
@@ -471,10 +480,13 @@ class ChatViewModel @Inject constructor(
             }
             is ChatUiEvent.OnFileSelected -> {
                 val uri = event.uri
+                val fileName = getFileNameFromUri(context, uri) ?: "File không xác định"
+                // Lưu vào cache
+                fileUriCache[fileName] = uri
                 _chatState.update { 
                     it.copy(
                         fileUri = uri,
-                        fileName = getFileNameFromUri(context, uri) ?: "File không xác định",
+                        fileName = fileName,
                         isFileUploading = false
                     )
                 }
@@ -486,7 +498,7 @@ class ChatViewModel @Inject constructor(
                 deleteChat(event.chatId)
             }
             is ChatUiEvent.RegenerateResponse -> {
-                regenerateResponse(event.userPrompt, event.responseId)
+                regenerateResponse(event.userPrompt, event.responseId, event.imageUrl, event.fileUri, event.fileName, event.timestamp)
             }
         }
     }
@@ -1137,39 +1149,108 @@ class ChatViewModel @Inject constructor(
     /**
      * Tạo lại response cho một tin nhắn cũ bằng model mới được chọn
      */
-    fun regenerateResponse(userPrompt: String, responseId: String) {
+    fun regenerateResponse(userPrompt: String, responseId: String, imageUrl: String? = null, fileUri: Uri? = null, fileName: String? = null, timestamp: Long = -1) {
         viewModelScope.launch {
-            // Xóa response cũ
             val segmentId = _chatState.value.selectedSegment?.id ?: return@launch
-            repository.deleteChat(responseId, segmentId)
             
-            // Cập nhật state bằng cách loại bỏ response cũ
+            // Xử lý việc xóa tất cả các chat mới hơn thời điểm của tin nhắn được regenerate
+            var chatsToKeep: List<Chat> = emptyList()
+            val originalUserChatIndex = _chatState.value.chatList.indexOfFirst { it.timestamp == timestamp && it.isFromUser }
+            
+            if (originalUserChatIndex != -1) {
+                // Lọc ra danh sách chat cần giữ lại (bao gồm cả tin nhắn user gốc)
+                chatsToKeep = _chatState.value.chatList.subList(0, originalUserChatIndex + 1)
+                
+                // Lấy timestamp của tin nhắn user gốc để xóa các tin nhắn sau đó
+                val userMessageTimestamp = _chatState.value.chatList[originalUserChatIndex].timestamp
+                
+                // Gọi hàm mới trong repository để xóa các tin nhắn sau timestamp của user
+                repository.deleteMessagesAfterTimestamp(segmentId, userMessageTimestamp)
+                
+            } else {
+                // Fallback nếu không tìm thấy timestamp (chỉ xóa response cũ)
+                repository.deleteChat(responseId, segmentId)
+                chatsToKeep = _chatState.value.chatList.filter { it.id != responseId }
+            }
+            
+            // Cập nhật state với danh sách tin nhắn đã lọc
             _chatState.update { state ->
                 state.copy(
-                    chatList = state.chatList.filter { it.id != responseId },
+                    chatList = chatsToKeep,
                     isLoading = true,
                     isWaitingForResponse = true
                 )
             }
             
-            // Xóa ID từ danh sách typedMessages nếu tồn tại
-            if (_typedMessagesIds.contains(responseId)) {
-                _typedMessagesIds.remove(responseId)
-                _chatState.update { it.copy(typedMessages = _typedMessagesIds.toSet()) }
-            }
+            // Cập nhật typedMessagesIds
+            _typedMessagesIds.retainAll { id -> chatsToKeep.any { it.id == id } } // Giữ lại những ID có trong chatsToKeep
+            _chatState.update { it.copy(typedMessages = _typedMessagesIds.toSet()) }
             
-            // Gửi prompt lên model đã chọn để lấy response mới
             try {
-                val chat = repository.getResponse(userPrompt, segmentId)
+                val chat: Chat = when {
+                    imageUrl != null -> {
+                        // Trường hợp có hình ảnh
+                        repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId)
+                    }
+                    fileName != null -> {
+                        // Trường hợp có file
+                        // Kiểm tra xem có Uri trong cache cho file này không
+                        val cachedUri = fileUriCache[fileName]
+                        
+                        if (cachedUri != null) {
+                            // Có Uri trong cache, xử lý file như ban đầu
+                            Log.d("ChatViewModel", "Found cached Uri for file: $fileName")
+                            
+                            // Trích xuất nội dung file như ban đầu
+                            val mimeType = context.contentResolver.getType(cachedUri)
+                            val fileContent = when {
+                                mimeType?.contains("pdf") == true -> {
+                                    PDFProcessingService.extractTextFromPDF(context, cachedUri)
+                                }
+                                mimeType?.contains("text/plain") == true -> {
+                                    val inputStream = context.contentResolver.openInputStream(cachedUri)
+                                    inputStream?.bufferedReader()?.use { reader -> reader.readText() } ?: ""
+                                }
+                                else -> {
+                                    "File không hỗ trợ trích xuất nội dung"
+                                }
+                            }
+                            
+                            // Chuẩn bị prompt gửi đến model
+                            val promptWithFile = if (userPrompt.isEmpty()) {
+                                "Đây là nội dung từ file $fileName, hãy tóm tắt thông tin chính:\n$fileContent"
+                            } else {
+                                "$userPrompt\n\nNội dung từ file $fileName:\n$fileContent"
+                            }
+                            
+                            repository.getResponse(promptWithFile, segmentId)
+                        } else {
+                            // Không có Uri trong cache, gửi prompt với tên file
+                            Log.d("ChatViewModel", "No cached Uri found for file: $fileName")
+                            val promptWithFileName = if (userPrompt.isEmpty()) {
+                                "Hãy tóm tắt nội dung file $fileName"
+                            } else {
+                                "$userPrompt\n\n(Thông tin file: $fileName)"
+                            }
+                            repository.getResponse(promptWithFileName, segmentId)
+                        }
+                    }
+                    else -> {
+                        // Gọi API thông thường nếu không có hình ảnh hoặc file
+                        repository.getResponse(userPrompt, segmentId)
+                    }
+                }
                 
+                // Thêm response mới vào cuối danh sách đã lọc
                 _chatState.update {
                     it.copy(
-                        chatList = it.chatList + chat,
+                        chatList = chatsToKeep + chat,
                         isLoading = false,
                         isWaitingForResponse = false,
-                        typedMessages = _typedMessagesIds.toSet() - chat.id
+                        typedMessages = _typedMessagesIds.toSet() - chat.id // Đảm bảo response mới không bị coi là đã typed
                     )
                 }
+                
             } catch (e: Exception) {
                 e.printStackTrace()
                 _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }

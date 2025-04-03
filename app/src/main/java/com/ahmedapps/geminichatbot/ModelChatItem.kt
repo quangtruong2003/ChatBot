@@ -60,12 +60,13 @@ fun ModelChatItem(
     isWaitingForResponse: Boolean = false,
     isMessageTyped: Boolean = false,
     onDeleteClick: (String) -> Unit = {},
-    onRegenerateClick: (String, String) -> Unit = { _, _ -> },
+    onRegenerateClick: (String, String, String?) -> Unit = { _, _, _ -> },
     currentUserPrompt: String = "",
     availableModels: List<String> = emptyList(),
     modelDisplayNameMap: Map<String, String> = emptyMap(),
     modelIconMap: Map<String, Int> = emptyMap(),
-    selectedModel: String = ""
+    selectedModel: String = "",
+    chat: Chat? = null
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -230,12 +231,45 @@ fun ModelChatItem(
                                                 }
                                             },
                                             onClick = {
-                                                // Call regenerate function with the selected model
+                                                // Kiểm tra và tạo prompt phù hợp để regenerate
+                                                var canRegenerate = false
+                                                var effectivePrompt = ""
+                                                
+                                                // Option 1: Sử dụng currentUserPrompt được truyền vào từ tham số
                                                 if (currentUserPrompt.isNotEmpty()) {
-                                                    onRegenerateClick(currentUserPrompt, chatId)
+                                                    canRegenerate = true
+                                                    effectivePrompt = currentUserPrompt
+                                                } 
+                                                // Option 2: Kiểm tra thông tin từ đối tượng Chat (tin nhắn người dùng) được truyền vào
+                                                else if (chat != null) {
+                                                    // Nếu là tin nhắn chứa hình ảnh
+                                                    if (chat.imageUrl != null) {
+                                                        canRegenerate = true
+                                                        effectivePrompt = "Hãy mô tả hình ảnh này"
+                                                    } 
+                                                    // Nếu là tin nhắn chứa file
+                                                    else if (chat.isFileMessage) {
+                                                        canRegenerate = true
+                                                        val fileName = chat.fileName ?: "không rõ tên"
+                                                        effectivePrompt = "Hãy tóm tắt nội dung file $fileName"
+                                                    }
+                                                }
+                                                
+                                                if (canRegenerate) {
+                                                    // Xử lý regenerate với thông tin phù hợp
+                                                    onRegenerateClick(
+                                                        effectivePrompt,
+                                                        chatId,
+                                                        chat?.imageUrl // Truyền URL hình ảnh nếu có
+                                                    )
                                                     showModelSelection = false
                                                 } else {
-                                                    Toast.makeText(context, "Không thể tạo lại vì không tìm thấy prompt gốc", Toast.LENGTH_SHORT).show()
+                                                    // Thông báo khi không thể regenerate
+                                                    Toast.makeText(
+                                                        context, 
+                                                        "Không thể tạo lại vì không tìm thấy prompt gốc", 
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
                                                 }
                                             }
                                         )
@@ -246,7 +280,7 @@ fun ModelChatItem(
                             // Copy button
                             IconButton(
                                 onClick = { 
-                                    clipboardManager.setText(AnnotatedString(response))
+                                    clipboardManager.setText(formattedResponse)
                                     Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier.size(30.dp)

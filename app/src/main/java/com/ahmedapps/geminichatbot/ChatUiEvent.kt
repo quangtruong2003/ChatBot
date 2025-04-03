@@ -19,7 +19,14 @@ sealed class ChatUiEvent {
     data class OnFileSelected(val uri: Uri) : ChatUiEvent()
     object RemoveFile : ChatUiEvent()
     data class DeleteChat(val chatId: String) : ChatUiEvent()
-    data class RegenerateResponse(val userPrompt: String, val responseId: String) : ChatUiEvent()
+    data class RegenerateResponse(
+        val userPrompt: String,
+        val responseId: String,
+        val imageUrl: String? = null,
+        val fileUri: Uri? = null,
+        val fileName: String? = null,
+        val timestamp: Long = -1
+    ) : ChatUiEvent()
 }
 
 
