@@ -1099,11 +1099,15 @@ fun ChatScreen(
                                             chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
                                         },
                                         onEditClick = { chatId ->
-                                            // Gọi sự kiện EditChat với chatId, nội dung tin nhắn và timestamp
+                                            // Gọi sự kiện EditChat với chatId, nội dung tin nhắn, timestamp,
+                                            // và quan trọng là imageUrl và fileName của tin nhắn gốc
                                             chatViewModel.onEvent(ChatUiEvent.EditChat(
                                                 chatId = chatId,
                                                 message = chat.prompt,
-                                                timestamp = chat.timestamp
+                                                timestamp = chat.timestamp,
+                                                imageUrl = chat.imageUrl, // Truyền imageUrl
+                                                // fileUri = chat.fileUri,   // <-- XÓA DÒNG NÀY
+                                                fileName = chat.fileName  // Chỉ truyền fileName
                                             ))
                                             // Kích hoạt hiển thị bàn phím
                                             showKeyboardAfterEdit = true

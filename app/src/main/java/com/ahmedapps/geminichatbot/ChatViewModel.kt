@@ -363,7 +363,7 @@ class ChatViewModel @Inject constructor(
     fun onEvent(event: ChatUiEvent) {
         when (event) {
             is ChatUiEvent.SendPrompt -> {
-                if (event.prompt.isNotEmpty() || event.imageUri != null || _chatState.value.fileUri != null) {
+                if (event.prompt.isNotEmpty() || event.imageUri != null || _chatState.value.fileUri != null || _chatState.value.isEditing) {
                     currentResponseJob?.cancel()
 
                     currentResponseJob = viewModelScope.launch {
@@ -372,97 +372,138 @@ class ChatViewModel @Inject constructor(
                         
                         // Nếu đang chỉnh sửa, xử lý khác so với việc gửi tin nhắn mới
                         if (_chatState.value.isEditing && _chatState.value.editingChatId != null) {
+                            _chatState.update { it.copy(isLoading = true) }
+
                             val editingChatId = _chatState.value.editingChatId!!
                             val timestamp = _chatState.value.editingChatTimestamp
-                            
+                            val segmentId = _chatState.value.selectedSegment?.id
+
+                            // Lấy thông tin ảnh/file đã lưu từ state
+                            val editingImageUrl = _chatState.value.editingImageUrl
+                            val editingFileUri = _chatState.value.editingFileUri
+                            val editingFileName = _chatState.value.editingFileName
+
                             // Xóa các tin nhắn sau điểm chỉnh sửa
-                            if (timestamp > 0) {
-                                val segmentId = _chatState.value.selectedSegment?.id
-                                
-                                // Tìm tin nhắn được chỉnh sửa trong danh sách hiện tại 
+                            if (timestamp > 0 && segmentId != null) {
                                 val editedChat = _chatState.value.chatList.find { it.id == editingChatId }
-                                if (editedChat != null && segmentId != null) {
-                                    // Cập nhật tin nhắn trong repository
+                                if (editedChat != null) {
+                                    // Cập nhật tin nhắn trong repository (chỉ cập nhật prompt)
+                                    // Thông tin ảnh/file không đổi khi edit text
                                     val updatedChat = editedChat.copy(prompt = event.prompt)
                                     repository.updateChat(updatedChat, segmentId)
-                                    
+
                                     // Xóa các tin nhắn sau điểm chỉnh sửa trong repository
                                     repository.deleteMessagesAfterTimestamp(segmentId, timestamp)
-                                
+
                                     // Cập nhật danh sách tin nhắn trong state
                                     val updatedChatList = _chatState.value.chatList.map { chat ->
                                         if (chat.id == editingChatId) {
-                                            chat.copy(prompt = event.prompt)
+                                            chat.copy(prompt = event.prompt) // Chỉ cập nhật prompt ở đây
                                         } else {
                                             chat
                                         }
-                                    }.filter { chat -> 
-                                        chat.timestamp <= timestamp 
+                                    }.filter { chat ->
+                                        chat.timestamp <= timestamp
                                     }
-                                    
+
+                                    // Reset trạng thái edit và cập nhật list
                                     _chatState.update { it.copy(
                                         chatList = updatedChatList,
                                         isEditing = false,
                                         editingChatId = null,
                                         editingChatTimestamp = -1,
-                                        isWaitingForResponse = true
+                                        editingImageUrl = null, // Reset thông tin edit
+                                        editingFileUri = null,
+                                        editingFileName = null,
+                                        prompt = "", // Xóa prompt sau khi gửi edit
+                                        isWaitingForResponse = true // Bắt đầu chờ response
                                     )}
-                                    
-                                    // Gửi tin nhắn đã chỉnh sửa lên API
-                                    getResponse(event.prompt, segmentId)
+
+                                    // Gửi yêu cầu lên API dựa trên loại nội dung gốc
+                                    try {
+                                        val chatResponse: Chat = when {
+                                            editingImageUrl != null -> {
+                                                Log.d("ChatViewModelEdit", "Sending edited prompt with original image URL.")
+                                                repository.regenerateResponseWithImage(event.prompt, editingImageUrl, segmentId)
+                                            }
+                                            editingFileName != null -> {
+                                                val cachedUri = fileUriCache[editingFileName]
+                                                if (cachedUri != null) {
+                                                    Log.d("ChatViewModelEdit", "Found cached Uri for edited file: $editingFileName")
+                                                    val fileContent = getFileContent(cachedUri, editingFileName)
+                                                    val promptWithFile = preparePromptWithFileContent(event.prompt, fileContent, editingFileName)
+                                                    repository.getResponse(promptWithFile, segmentId)
+                                                } else {
+                                                    Log.w("ChatViewModelEdit", "No cached Uri for edited file: $editingFileName. Sending prompt with filename info.")
+                                                    val promptWithFileNameInfo = "${event.prompt}\n\n(File đính kèm: $editingFileName)"
+                                                    repository.getResponse(promptWithFileNameInfo, segmentId)
+                                                }
+                                            }
+                                            else -> {
+                                                Log.d("ChatViewModelEdit", "Sending edited text prompt.")
+                                                repository.getResponse(event.prompt, segmentId)
+                                            }
+                                        }
+
+                                        // Thêm response mới vào cuối danh sách đã lọc
+                                        _chatState.update {
+                                            it.copy(
+                                                chatList = updatedChatList + chatResponse,
+                                                isLoading = false,
+                                                isWaitingForResponse = false,
+                                                typedMessages = _typedMessagesIds.toSet() - chatResponse.id
+                                            )
+                                        }
+
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
+                                    }
+
+                                } else {
+                                     _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
                                 }
+                            } else {
+                                 _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
                             }
                         } else {
-                            // Xử lý gửi tin nhắn thông thường
-                            // Xác định loại tin nhắn và xử lý
-                            when {
-                                // Xử lý khi có file được chọn
+                             // Xử lý gửi tin nhắn thông thường (không phải edit) - giữ nguyên logic cũ
+                             _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) }
+                             deleteEmptyNewSegment()
+                             when {
                                 _chatState.value.fileUri != null -> {
                                     val fileUri = _chatState.value.fileUri!!
                                     val fileName = _chatState.value.fileName ?: "File"
-                                    
-                                    // Thêm prompt của người dùng với metadata file
-                                    addPrompt(
-                                        prompt = event.prompt, 
-                                        imageUri = null,
-                                        isFileMessage = true,
-                                        fileName = fileName
-                                    )
-                                    
-                                    // Reset prompt và file sau khi đã xử lý
+                                    addPrompt(event.prompt, null, true, fileName)
                                     _chatState.update { it.copy(prompt = "", fileUri = null, fileName = null) }
-                                    
-                                    // Xử lý tệp và gửi đến API
-                            val selectedSegmentId = _chatState.value.selectedSegment?.id
+                                    val selectedSegmentId = _chatState.value.selectedSegment?.id
                                     processAndSendWithFile(event.prompt, fileUri, fileName, selectedSegmentId)
                                 }
-
-                                // Xử lý khi có hình ảnh
                                 event.imageUri != null -> {
                                     addPrompt(event.prompt, event.imageUri, false, null)
                                     val selectedSegmentId = _chatState.value.selectedSegment?.id
-                             _chatState.update { it.copy(prompt = "", imageUri = null) }
-                                _isImageProcessing.value = true
-                                getResponseWithImage(event.prompt, event.imageUri, selectedSegmentId)
+                                     _chatState.update { it.copy(prompt = "", imageUri = null) }
+                                    _isImageProcessing.value = true
+                                    getResponseWithImage(event.prompt, event.imageUri, selectedSegmentId)
                                 }
-                                
-                                // Xử lý tin nhắn văn bản thông thường
                                 else -> {
                                     addPrompt(event.prompt, null, false, null)
                                     val selectedSegmentId = _chatState.value.selectedSegment?.id
                                     _chatState.update { it.copy(prompt = "") }
-                                getResponse(event.prompt, selectedSegmentId)
+                                    getResponse(event.prompt, selectedSegmentId)
                                 }
-                            }
+                             }
                         }
                     }
                 } else if (_chatState.value.isEditing) {
-                    // Nếu đang ở chế độ chỉnh sửa nhưng người dùng gửi prompt rỗng
-                    // thì hủy chế độ chỉnh sửa
+                     // Hủy edit nếu gửi prompt rỗng
                     _chatState.update { it.copy(
                         isEditing = false,
                         editingChatId = null,
                         editingChatTimestamp = -1,
+                        editingImageUrl = null,
+                        editingFileUri = null,
+                        editingFileName = null,
                         prompt = ""
                     )}
                 }
@@ -556,27 +597,32 @@ class ChatViewModel @Inject constructor(
                 val chatToEdit = _chatState.value.chatList.find { it.id == event.chatId }
                 if (chatToEdit != null) {
                     // Cập nhật trạng thái để hiển thị giao diện chỉnh sửa
+                    // Lưu thông tin ảnh/file vào state
                     _chatState.update {
                         it.copy(
                             isEditing = true,
                             editingChatId = event.chatId,
                             editingChatTimestamp = event.timestamp,
-                            prompt = event.message
+                            prompt = event.message, // Đặt prompt hiện tại là nội dung đang edit
+                            editingImageUrl = event.imageUrl, // Lưu imageUrl
+                            editingFileUri = event.fileUri,   // Lưu fileUri
+                            editingFileName = event.fileName  // Lưu fileName
                         )
                     }
-                    
-                    // Yêu cầu focus vào ô nhập liệu
-                    // Không cần thêm code ở đây vì đã được xử lý trong ChatScreen.kt
+                    // Focus đã được xử lý ở ChatScreen
                 }
             }
             is ChatUiEvent.CancelEdit -> {
-                // Hủy chế độ chỉnh sửa
+                // Hủy chế độ chỉnh sửa và xóa thông tin edit đã lưu
                 _chatState.update {
                     it.copy(
                         isEditing = false,
                         editingChatId = null,
                         editingChatTimestamp = -1,
-                        prompt = ""
+                        editingImageUrl = null,
+                        editingFileUri = null,
+                        editingFileName = null,
+                        prompt = "" // Xóa prompt khi hủy
                     )
                 }
             }
@@ -1159,14 +1205,12 @@ class ChatViewModel @Inject constructor(
 
     // Hàm xử lý và gửi file
     private fun processAndSendWithFile(prompt: String, fileUri: Uri, fileName: String, selectedSegmentId: String?) {
-        viewModelScope.launch {
+         viewModelScope.launch {
+            _isProcessingFile.value = true // Bắt đầu xử lý file
+            _chatState.update { it.copy(isLoading = true) } // Có thể gộp loading
             try {
-                _chatState.update { it.copy(isLoading = true) }
-                
-                // Tùy thuộc vào loại file, có thể xử lý khác nhau
-                val mimeType = context.contentResolver.getType(fileUri)
-                
-                // Xử lý file và gửi lên API
+                // ... (logic trích xuất nội dung file như cũ) ...
+                 val mimeType = context.contentResolver.getType(fileUri)
                 val fileContent = when {
                     mimeType?.contains("pdf") == true -> {
                         PDFProcessingService.extractTextFromPDF(context, fileUri)
@@ -1179,8 +1223,7 @@ class ChatViewModel @Inject constructor(
                         "File không hỗ trợ trích xuất nội dung"
                     }
                 }
-                
-                // Chuẩn bị prompt gửi đến model
+
                 val promptWithFile = if (fileContent.isNotBlank()) {
                     if (prompt.isEmpty()) {
                         "Đây là nội dung từ file $fileName, hãy tóm tắt thông tin chính:\n$fileContent"
@@ -1191,17 +1234,19 @@ class ChatViewModel @Inject constructor(
                     if (prompt.isEmpty()) {
                         "Đã nhận file $fileName nhưng không thể trích xuất nội dung."
                     } else {
-                        prompt
+                         "$prompt\n\n(File đính kèm: $fileName - không thể đọc nội dung)" // Thêm thông báo không đọc được nội dung
                     }
                 }
-                
+
                 // Gửi đến model
                 getResponse(promptWithFile, selectedSegmentId)
-                
+
             } catch (e: Exception) {
                 insertModelChat("Đã xảy ra lỗi khi xử lý file: ${e.message}", true)
+                 _chatState.update { it.copy(isLoading = false) } // Dừng loading khi lỗi
             } finally {
-                _chatState.update { it.copy(isLoading = false) }
+                 _isProcessingFile.value = false // Kết thúc xử lý file
+                 // isLoading sẽ được reset trong getResponse hoặc khối catch
             }
         }
     }
@@ -1310,12 +1355,8 @@ class ChatViewModel @Inject constructor(
                         } else {
                             // Không có Uri trong cache, gửi prompt với tên file
                             Log.d("ChatViewModel", "No cached Uri found for file: $fileName")
-                            val promptWithFileName = if (userPrompt.isEmpty()) {
-                                "Hãy tóm tắt nội dung file $fileName"
-                            } else {
-                                "$userPrompt\n\n(Thông tin file: $fileName)"
-                            }
-                            repository.getResponse(promptWithFileName, segmentId)
+                            val promptWithFileNameInfo = "$userPrompt\n\n(Thông tin file: $fileName)"
+                            repository.getResponse(promptWithFileNameInfo, segmentId)
                         }
                     }
                     else -> {
@@ -1337,6 +1378,43 @@ class ChatViewModel @Inject constructor(
             } catch (e: Exception) {
                 e.printStackTrace()
                 _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
+            }
+        }
+    }
+
+    private fun getFileContent(uri: Uri, fileName: String): String {
+         return try {
+            val mimeType = context.contentResolver.getType(uri)
+            when {
+                mimeType?.contains("pdf") == true -> {
+                    PDFProcessingService.extractTextFromPDF(context, uri)
+                }
+                mimeType?.contains("text/plain") == true -> {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    inputStream?.bufferedReader()?.use { reader -> reader.readText() } ?: ""
+                }
+                else -> {
+                    "" // Trả về chuỗi rỗng nếu không đọc được
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ChatViewModelHelper", "Error getting file content for $fileName: ${e.message}")
+            "" // Trả về chuỗi rỗng nếu lỗi
+        }
+    }
+
+    private fun preparePromptWithFileContent(prompt: String, fileContent: String, fileName: String): String {
+        return if (fileContent.isNotBlank()) {
+            if (prompt.isEmpty()) {
+                "Đây là nội dung từ file $fileName, hãy tóm tắt thông tin chính:\n$fileContent"
+            } else {
+                "$prompt\n\nNội dung từ file $fileName:\n$fileContent"
+            }
+        } else {
+            if (prompt.isEmpty()) {
+                "Đã nhận file $fileName nhưng không thể trích xuất nội dung."
+            } else {
+                 "$prompt\n\n(File đính kèm: $fileName - không thể đọc nội dung)"
             }
         }
     }
