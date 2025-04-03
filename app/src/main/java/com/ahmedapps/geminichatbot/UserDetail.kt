@@ -30,6 +30,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.ChevronRight
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.Color
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -428,6 +429,7 @@ fun LogoutConfirmationDialog(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RulesAIDialog(
     initialRules: String,
@@ -436,66 +438,106 @@ fun RulesAIDialog(
 ) {
     var rulesText by remember { mutableStateOf(initialRules) }
     val context = LocalContext.current
+    
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true
+    )
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        dragHandle = { 
+            // Custom drag handle cho BottomSheet
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 40.dp)
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                Divider(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Rule,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "Thiết lập Rules AI",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                )
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(bottom = 24.dp), // Thêm padding bổ sung ở phía dưới cho cử chỉ điều hướng
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Rule,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Thiết lập Rules AI",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold
+                )
+            }
 
+            // Text input area với khả năng cuộn
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(bottom = 8.dp),
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 2.dp
+            ) {
                 OutlinedTextField(
                     value = rulesText,
                     onValueChange = { rulesText = it },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 150.dp, max = 400.dp),
+                        .heightIn(min = 180.dp, max = 400.dp)
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
                     placeholder = { Text("Ví dụ: Luôn trả lời bằng tiếng Việt, đóng vai trò là một trợ lý...") },
-                    label = { Text("Nội dung Rules") },
-                    shape = RoundedCornerShape(12.dp)
+                    label = null,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    )
                 )
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+            // Hàng nút
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text("Hủy")
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Button(
+                    onClick = {
+                        onSave(rulesText)
+                    },
+                    shape = RoundedCornerShape(8.dp)
                 ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Hủy")
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Button(
-                        onClick = {
-                            onSave(rulesText)
-                        },
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("Lưu")
-                    }
+                    Text("Lưu")
                 }
             }
         }

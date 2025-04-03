@@ -128,6 +128,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -792,8 +796,8 @@ fun ChatScreen(
                                     AnimatedContent(
                                         targetState = showModelSelection,
                                         transitionSpec = {
-                                            fadeIn(animationSpec = tween(durationMillis = 300)) togetherWith
-                                                    fadeOut(animationSpec = tween(durationMillis = 300))
+                                            fadeIn(animationSpec = tween(300)) togetherWith
+                                                    fadeOut(animationSpec = tween(300))
                                         },
                                         label = "DropdownToggleIcon"
                                     ) { targetState ->
@@ -1016,117 +1020,145 @@ fun ChatScreen(
 
                     ){
 
-
-
-                    LazyColumn(
+                    // Thêm Box weight 1f cho phần hiển thị nội dung conversation
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp)
-                            // Thêm clickable vào LazyColumn để đóng bàn phím
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null // Không hiển thị hiệu ứng ripple
-                            ) {
-                                focusManager.clearFocus() // Đóng bàn phím
-                            },
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
+                            .weight(1f)
                     ) {
-                        items(
-                            items = chatState.chatList,
-                            key = { chat -> 
-                                if (chat.id.isEmpty()) "chat_${chat.hashCode()}" else chat.id 
-                            }
-                        ) { chat ->
-                            if (chat.isFromUser) {
-                                UserChatItem(
-                                    prompt = chat.prompt,
-                                    imageUrl = chat.imageUrl,
-                                    isError = chat.isError,
-                                    isFileMessage = chat.isFileMessage,
-                                    fileName = chat.fileName,
-                                    onLongPress = { message ->
-                                        scope.launch {
-                                            val plainText = parseFormattedText(message).text
-                                            clipboardManager.setText(AnnotatedString(plainText))
-                                            snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
-                                        }
-                                    },
-                                    onImageClick = { url ->
-                                        val encodedUrl = Base64.encodeToString(url.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
-                                        navController.navigate("fullscreen_image/$encodedUrl")
-                                    },
-                                    snackbarHostState = snackbarHostState
-                                )
-                            } else {
-                                // Cần kiểm tra xem tin nhắn đã được hiển thị hiệu ứng typing chưa
-                                val isMessageAlreadyTyped = chatViewModel.isMessageTyped(chat.id)
-                                val shouldShowTypingEffect = !isMessageAlreadyTyped
-                                
-                                // Tìm prompt của user trước response này để sử dụng cho regenerate
-                                val userPromptForThisResponse = if (!chat.isFromUser) {
-                                    val chatList = chatState.chatList
-                                    val chatIndex = chatList.indexOf(chat)
-                                    if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
-                                        chatList[chatIndex - 1].prompt
+                        // Danh sách chat chính - luôn hiển thị vì đã đặt trong Box riêng biệt
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp)
+                                // Thêm clickable vào LazyColumn để đóng bàn phím
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null // Không hiển thị hiệu ứng ripple
+                                ) {
+                                    focusManager.clearFocus() // Đóng bàn phím
+                                },
+                            state = listState,
+                            verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
+                        ) {
+                            items(
+                                items = chatState.chatList,
+                                key = { chat -> 
+                                    if (chat.id.isEmpty()) "chat_${chat.hashCode()}" else chat.id 
+                                }
+                            ) { chat ->
+                                if (chat.isFromUser) {
+                                    UserChatItem(
+                                        prompt = chat.prompt,
+                                        imageUrl = chat.imageUrl,
+                                        isError = chat.isError,
+                                        isFileMessage = chat.isFileMessage,
+                                        fileName = chat.fileName,
+                                        onLongPress = { message ->
+                                            scope.launch {
+                                                val plainText = parseFormattedText(message).text
+                                                clipboardManager.setText(AnnotatedString(plainText))
+                                                snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
+                                            }
+                                        },
+                                        onImageClick = { url ->
+                                            val encodedUrl = Base64.encodeToString(url.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                                            navController.navigate("fullscreen_image/$encodedUrl")
+                                        },
+                                        snackbarHostState = snackbarHostState
+                                    )
+                                } else {
+                                    // Cần kiểm tra xem tin nhắn đã được hiển thị hiệu ứng typing chưa
+                                    val isMessageAlreadyTyped = chatViewModel.isMessageTyped(chat.id)
+                                    val shouldShowTypingEffect = !isMessageAlreadyTyped
+                                    
+                                    // Tìm prompt của user trước response này để sử dụng cho regenerate
+                                    val userPromptForThisResponse = if (!chat.isFromUser) {
+                                        val chatList = chatState.chatList
+                                        val chatIndex = chatList.indexOf(chat)
+                                        if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
+                                            chatList[chatIndex - 1].prompt
+                                        } else ""
                                     } else ""
-                                } else ""
-                                
-                                ModelChatItem(
-                                    response = chat.prompt,
-                                    isError = chat.isError,
-                                    onLongPress = { textToCopy ->
-                                        scope.launch {
-                                            val plainText = parseFormattedText(textToCopy).text
-                                            clipboardManager.setText(AnnotatedString(plainText))
-                                            snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
-                                        }
-                                    },
-                                    onImageClick = { imageUrl ->
-                                        val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
-                                        navController.navigate("fullscreen_image/$encodedUrl")
-                                    },
-                                    snackbarHostState = snackbarHostState,
-                                    chatId = chat.id,
-                                    isNewChat = shouldShowTypingEffect,
-                                    typingSpeed = TypingConfig.DEFAULT_TYPING_SPEED,
-                                    onAnimationComplete = {
-                                        chatViewModel.markMessageAsTyped(chat.id)
-                                    },
-                                    isMessageTyped = isMessageAlreadyTyped,
-                                    onDeleteClick = { chatId ->
-                                        chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
-                                    },
-                                    onRegenerateClick = { prompt, responseId ->
-                                        chatViewModel.onEvent(ChatUiEvent.RegenerateResponse(prompt, responseId))
-                                    },
-                                    currentUserPrompt = userPromptForThisResponse,
-                                    availableModels = chatViewModel.availableModels,
-                                    modelDisplayNameMap = chatViewModel.modelDisplayNameMap,
-                                    modelIconMap = chatViewModel.modelIconMap,
-                                    selectedModel = selectedModel
-                                )
+                                    
+                                    ModelChatItem(
+                                        response = chat.prompt,
+                                        isError = chat.isError,
+                                        onLongPress = { textToCopy ->
+                                            scope.launch {
+                                                val plainText = parseFormattedText(textToCopy).text
+                                                clipboardManager.setText(AnnotatedString(plainText))
+                                                snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
+                                            }
+                                        },
+                                        onImageClick = { imageUrl ->
+                                            val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                                            navController.navigate("fullscreen_image/$encodedUrl")
+                                        },
+                                        snackbarHostState = snackbarHostState,
+                                        chatId = chat.id,
+                                        isNewChat = shouldShowTypingEffect,
+                                        typingSpeed = TypingConfig.DEFAULT_TYPING_SPEED,
+                                        onAnimationComplete = {
+                                            chatViewModel.markMessageAsTyped(chat.id)
+                                        },
+                                        isMessageTyped = isMessageAlreadyTyped,
+                                        onDeleteClick = { chatId ->
+                                            chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
+                                        },
+                                        onRegenerateClick = { prompt, responseId ->
+                                            chatViewModel.onEvent(ChatUiEvent.RegenerateResponse(prompt, responseId))
+                                        },
+                                        currentUserPrompt = userPromptForThisResponse,
+                                        availableModels = chatViewModel.availableModels,
+                                        modelDisplayNameMap = chatViewModel.modelDisplayNameMap,
+                                        modelIconMap = chatViewModel.modelIconMap,
+                                        selectedModel = selectedModel
+                                    )
+                                }
+                            }
+
+                            // Chỉ báo "Đang suy nghĩ..." với key duy nhất và rõ ràng
+                            item(key = "waiting_indicator_unique") {
+                                if (chatState.isWaitingForResponse && chatState.imageUri == null) {
+                                    ModelChatItem(
+                                        response = "",
+                                        isError = false,
+                                        onLongPress = { },
+                                        onImageClick = { },
+                                        snackbarHostState = snackbarHostState,
+                                        isWaitingForResponse = true,
+                                        isMessageTyped = true
+                                    )
+                                }
                             }
                         }
 
-                        // Chỉ báo "Đang suy nghĩ..." với key duy nhất và rõ ràng
-                        item(key = "waiting_indicator_unique") {
-                            if (chatState.isWaitingForResponse && chatState.imageUri == null) {
-                                ModelChatItem(
-                                    response = "",
-                                    isError = false,
-                                    onLongPress = { },
-                                    onImageClick = { },
-                                    snackbarHostState = snackbarHostState,
-                                    isWaitingForResponse = true,
-                                    isMessageTyped = true
-                                )
+                        // Hiển thị WelcomeMessage như một lớp phủ nếu không có tin nhắn
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = showWelcomeMessage && chatState.chatList.isEmpty(),
+                            enter = fadeIn(animationSpec = tween(300)) + expandVertically(
+                                animationSpec = tween(300),
+                                expandFrom = Alignment.Top
+                            ),
+                            exit = fadeOut(animationSpec = tween(200)) + shrinkVertically(
+                                animationSpec = tween(200),
+                                shrinkTowards = Alignment.Top
+                            ),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            WelcomeMessage { displayText, apiPrompt ->
+                                // 1) Hiển thị tin nhắn user "Bạn sẽ là XXX" (KHÔNG gọi API)
+                                val localUserPrompt = "Bạn sẽ là $displayText"
+                                chatViewModel.insertLocalUserChat(localUserPrompt)
+
+                                // 2) Gọi API với apiPrompt
+                                scope.launch {
+                                    chatViewModel.getResponse(apiPrompt, chatState.selectedSegment?.id)
+                                }
                             }
                         }
                     }
-
-
 
                     Box(
                         modifier = Modifier
@@ -1241,7 +1273,7 @@ fun ChatScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     
-                                    // Nút 'X' để xóa file (Đã sửa lại)
+                                    // Nút 'X' để xóa file 
                                     Box(
                                         modifier = Modifier
                                             .padding(end = 8.dp)
@@ -1478,22 +1510,6 @@ fun ChatScreen(
                             }
                         }
                     }
-
-
-                }
-
-                if (showWelcomeMessage && chatState.chatList.isEmpty()) {
-                    userScrolled = false
-                    WelcomeMessage { displayText, apiPrompt ->
-                        // 1) Hiển thị tin nhắn user "Bạn sẽ là XXX" (KHÔNG gọi API)
-                        val localUserPrompt = "Bạn sẽ là $displayText"
-                        chatViewModel.insertLocalUserChat(localUserPrompt)
-
-                        // 2) Gọi API với apiPrompt
-                        scope.launch {
-                            chatViewModel.getResponse(apiPrompt, chatState.selectedSegment?.id)
-                        }
-                    }
                 }
 
                 LaunchedEffect(chatState.chatList.isEmpty()) {
@@ -1593,6 +1609,10 @@ fun CustomTextField(
 
     // Trạng thái cho việc hiển thị BottomSheet mở rộng
     var showExpandedInputSheet by remember { mutableStateOf(false) }
+    // Thêm biến để theo dõi khi nào nên hiển thị nút mở rộng
+    var shouldShowExpandButton by remember { mutableStateOf(false) }
+    // Lưu trữ reference đến view để kiểm tra trạng thái cuộn
+    var editTextRef by remember { mutableStateOf<AppCompatEditText?>(null) }
 
     Box(
         modifier = Modifier
@@ -1629,6 +1649,40 @@ fun CustomTextField(
                     hint = "Nhập tin nhắn cho ChatAI"
                     textSize = 16f
 
+                    // Lưu trữ reference
+                    editTextRef = this
+
+                    // Theo dõi sự kiện scroll để xác định khi nào hiển thị nút mở rộng
+                    viewTreeObserver.addOnScrollChangedListener {
+                        val canScrollVertically = canScrollVertically(1) || canScrollVertically(-1)
+                        if (shouldShowExpandButton != canScrollVertically) {
+                            shouldShowExpandButton = canScrollVertically
+                        }
+                    }
+
+                    // Theo dõi sự kiện text thay đổi để kiểm tra scrollable
+                    addTextChangedListener(object : TextWatcher {
+                        @Volatile private var isUpdating = false
+                        
+                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                        override fun afterTextChanged(s: Editable?) {
+                            if (!isUpdating) {
+                                val newText = s?.toString() ?: ""
+                                if (chatState.prompt != newText) {
+                                    isUpdating = true
+                                    chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
+                                    post { 
+                                        isUpdating = false 
+                                        // Cập nhật trạng thái nút mở rộng
+                                        shouldShowExpandButton = canScrollVertically(1) || canScrollVertically(-1)
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    
+                    // ... existing code for OnKeyListener ...
                     val mimeTypes = arrayOf("image/*")
                     ViewCompat.setOnReceiveContentListener(this, mimeTypes) { _, payload ->
                         val split = payload.partition { item -> item.uri != null }
@@ -1651,23 +1705,6 @@ fun CustomTextField(
                         }
                         remaining
                     }
-                    
-                    addTextChangedListener(object : TextWatcher {
-                        @Volatile private var isUpdating = false
-                        
-                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                        override fun afterTextChanged(s: Editable?) {
-                            if (!isUpdating) {
-                                val newText = s?.toString() ?: ""
-                                if (chatState.prompt != newText) {
-                                    isUpdating = true
-                                    chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
-                                    post { isUpdating = false }
-                                }
-                            }
-                        }
-                    })
                     
                     setOnKeyListener { _, keyCode, event ->
                         if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_V && event.isCtrlPressed) {
@@ -1710,6 +1747,11 @@ fun CustomTextField(
                     if (!view.hasFocus()) {
                         view.setSelection(chatState.prompt.length)
                     }
+                    
+                    // Cập nhật trạng thái nút mở rộng khi text thay đổi
+                    view.post {
+                        shouldShowExpandButton = view.canScrollVertically(1) || view.canScrollVertically(-1)
+                    }
                 }
                 // Optional: Nếu text giống nhau nhưng selection sai khi không focus? (Tạm thời bỏ qua)
             },
@@ -1720,28 +1762,35 @@ fun CustomTextField(
                                }
         )
         
-        IconButton(
-            onClick = {
-                // 1. Xóa focus khỏi EditText chính
-                focusManager.clearFocus()
-                // 2. Mở BottomSheet (trong coroutine để đảm bảo focus đã được xử lý)
-                scope.launch {
-                    // delay(1) // Có thể thêm delay cực nhỏ nếu cần
-                    showExpandedInputSheet = true
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 5.dp, end = 4.dp)
-                .size(28.dp)
+        // Chỉ hiển thị nút mở rộng khi có thể cuộn hoặc văn bản dài
+        AnimatedVisibility(
+            visible = shouldShowExpandButton || chatState.prompt.length > 50,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(Alignment.CenterEnd)
         ) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_extendchatinput),
-                contentDescription = "Mở rộng khung nhập tin nhắn",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
+            IconButton(
+                onClick = {
+                    // 1. Xóa focus khỏi EditText chính
+                    focusManager.clearFocus()
+                    // 2. Mở BottomSheet (trong coroutine để đảm bảo focus đã được xử lý)
+                    scope.launch {
+                        // delay(1) // Có thể thêm delay cực nhỏ nếu cần
+                        showExpandedInputSheet = true
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                },
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(28.dp)
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_extendchatinput),
+                    contentDescription = "Mở rộng khung nhập tin nhắn",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
     
