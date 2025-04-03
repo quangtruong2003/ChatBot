@@ -169,13 +169,12 @@ fun ModelChatItem(
                             }
                         )
                     }
-                    
-                    // Action buttons - Di chuyển ra khỏi Box và đặt ở dưới
+
                     if (chatId != null && !isThinking) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp, start = 12.dp),
+                                .padding(top = 0.dp, start = 12.dp),
                             horizontalArrangement = Arrangement.Start,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -191,7 +190,7 @@ fun ModelChatItem(
                                         painter = painterResource(id = R.drawable.ic_callback),
                                         contentDescription = "Tạo lại",
                                         tint = textColor.copy(alpha = 0.7f),
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                                 
@@ -289,7 +288,7 @@ fun ModelChatItem(
                                     painter = painterResource(id = R.drawable.ic_copy),
                                     contentDescription = "Sao chép",
                                     tint = textColor.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                             
@@ -304,7 +303,7 @@ fun ModelChatItem(
                                     painter = painterResource(id = R.drawable.ic_bin),
                                     contentDescription = "Xóa",
                                     tint = textColor.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }

@@ -687,4 +687,23 @@ class ChatRepository @Inject constructor(
             Log.e("ChatRepository", "Error deleting messages after timestamp $timestamp in segment $segmentId", e)
         }
     }
+
+    /**
+     * Cập nhật một tin nhắn đã tồn tại.
+     */
+    suspend fun updateChat(chat: Chat, segmentId: String) = withContext(Dispatchers.IO) {
+        try {
+            val messageRef = segmentsCollection.document(segmentId)
+                .collection("messages")
+                .document(chat.id)
+            
+            // Sử dụng SetOptions.merge() để chỉ cập nhật các trường được chỉ định
+            // mà không ghi đè toàn bộ document
+            messageRef.set(chat, SetOptions.merge()).await()
+            
+            Log.d("ChatRepository", "Updated chat message with ID: ${chat.id}")
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error updating chat message: ${e.message}", e)
+        }
+    }
 }

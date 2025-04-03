@@ -18,5 +18,8 @@ data class ChatState(
         val isLoading: Boolean = false,
         val isWaitingForResponse: Boolean = false,
         val isImageProcessing: Boolean = false,
-        val typedMessages: Set<String> = emptySet()
+        val typedMessages: Set<String> = emptySet(),
+        val isEditing: Boolean = false,
+        val editingChatId: String? = null,
+        val editingChatTimestamp: Long = -1
     )
