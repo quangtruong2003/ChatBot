@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="tag_is_scrolling" type="id" />
+    <item name="tag_touch_start_y" type="id" />
+    <item type="id" name="text_watcher_tag_key" />
+</resources> 

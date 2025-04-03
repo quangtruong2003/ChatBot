@@ -1593,6 +1593,8 @@ fun ChatScreen(
                                                         chatState.imageUri
                                                     )
                                                 )
+                                                // Thêm dòng này để xóa nội dung ô nhập liệu
+                                                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(""))
                                                 // Thêm phản hồi rung khi gửi tin nhắn
                                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             }
@@ -1771,7 +1773,9 @@ fun CustomTextField(
     var shouldShowExpandButton by remember { mutableStateOf(false) }
     // Lưu trữ reference đến view để kiểm tra trạng thái cuộn
     var editTextRef by remember { mutableStateOf<AppCompatEditText?>(null) }
-    
+    // Sử dụng ID tài nguyên đã định nghĩa làm key
+    val textWatcherTagKey = R.id.text_watcher_tag_key
+
     // Effect để xử lý việc hiển thị bàn phím khi state showKeyboardAfterEdit thay đổi
     LaunchedEffect(showKeyboardAfterEdit) {
         if (showKeyboardAfterEdit) {
@@ -1784,25 +1788,12 @@ fun CustomTextField(
             }
         }
     }
-    
-    // Effect để tự động focus và cập nhật text khi chuyển sang chế độ chỉnh sửa
     LaunchedEffect(chatState.isEditing) {
         if (chatState.isEditing) {
-            // Yêu cầu focus vào ô nhập liệu
             focusRequester.requestFocus()
-            // Đảm bảo text được cập nhật trong EditText
-            editTextRef?.let { view ->
-                view.setText(chatState.prompt)
-                view.setSelection(chatState.prompt.length) // Di chuyển con trỏ đến cuối văn bản
-            }
-        } else {
-            // Khi thoát khỏi chế độ chỉnh sửa, đảm bảo xóa nội dung prompt
-            editTextRef?.let { view ->
-                view.setText("")
-                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(""))
-            }
         }
     }
+
 
     Box(
         modifier = Modifier
@@ -1815,6 +1806,7 @@ fun CustomTextField(
         AndroidView(
             factory = { ctx ->
                 AppCompatEditText(ctx).apply {
+                    // ... (các cài đặt layoutParams, minHeight, maxLines, padding, gravity, inputType không đổi) ...
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT
@@ -1829,7 +1821,52 @@ fun CustomTextField(
                     )
                     gravity = Gravity.CENTER_VERTICAL or Gravity.START
                     inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+
                     isVerticalScrollBarEnabled = true
+                    setVerticalScrollBarEnabled(true)
+                    isSingleLine = false
+                    setHorizontallyScrolling(false)
+                    overScrollMode = android.view.View.OVER_SCROLL_ALWAYS
+
+                    // ... (setOnTouchListener không đổi) ...
+                    var startY = 0f
+                    var isScrolling = false
+                    setOnTouchListener { v, event ->
+                        when (event.action) {
+                            android.view.MotionEvent.ACTION_DOWN -> {
+                                startY = event.y
+                                isScrolling = false
+                                v.parent.requestDisallowInterceptTouchEvent(true)
+                                if (!v.hasFocus()) {
+                                    v.requestFocus()
+                                }
+                                false
+                            }
+                            android.view.MotionEvent.ACTION_MOVE -> {
+                                val moveDistance = Math.abs(event.y - startY)
+                                if (moveDistance > 10f) {
+                                    isScrolling = true
+                                }
+                                if ((v as AppCompatEditText).canScrollVertically(1) || (v as AppCompatEditText).canScrollVertically(-1)) {
+                                    v.parent.requestDisallowInterceptTouchEvent(true)
+                                } else {
+                                    v.parent.requestDisallowInterceptTouchEvent(false)
+                                }
+                                false
+                            }
+                            android.view.MotionEvent.ACTION_UP -> {
+                                if (!isScrolling) {
+                                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                                    imm.showSoftInput(v, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                v.parent.requestDisallowInterceptTouchEvent(false)
+                                false
+                            }
+                            else -> false
+                        }
+                    }
+
                     setTextIsSelectable(true)
                     isFocusable = true
                     isFocusableInTouchMode = true
@@ -1838,29 +1875,9 @@ fun CustomTextField(
                     setTextColor(textColor.toArgb())
                     hint = "Nhập tin nhắn cho ChatAI"
                     textSize = 16f
-
-                    // Cấu hình tối ưu cho IME tiếng Việt
                     imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI
-                    
-                    // Thêm sự kiện click để hiển thị bàn phím và đặt con trỏ ở cuối
-                    setOnClickListener {
-                        // Đảm bảo input có focus
-                        requestFocus()
-                        // Đặt con trỏ ở cuối văn bản
-                        text?.length?.let { length ->
-                            setSelection(length)
-                        }
-                        // Hiển thị bàn phím
-                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                        imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
-                        // Phản hồi xúc giác nhẹ
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-                    
-                    // Lưu trữ reference
                     editTextRef = this
 
-                    // Theo dõi sự kiện scroll để xác định khi nào hiển thị nút mở rộng
                     viewTreeObserver.addOnScrollChangedListener {
                         val canScrollVertically = canScrollVertically(1) || canScrollVertically(-1)
                         if (shouldShowExpandButton != canScrollVertically) {
@@ -1868,40 +1885,34 @@ fun CustomTextField(
                         }
                     }
 
-                    // Theo dõi sự kiện text thay đổi để kiểm tra scrollable
-                    addTextChangedListener(object : TextWatcher {
+                    // Tạo TextWatcher
+                    val textWatcher = object : TextWatcher {
                         @Volatile private var isUpdating = false
-                        
                         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
                         override fun afterTextChanged(s: Editable?) {
-                            // Kiểm tra flag tạm dừng từ tag
-                            if (tag == true) {
-                                return
-                            }
-                            
-                            if (!isUpdating) {
-                                val newText = s?.toString() ?: ""
-                                if (chatState.prompt != newText) {
-                                    isUpdating = true
-                                    
-                                    // Thay đổi: Không lưu vị trí con trỏ ở đây vì không cần thiết
-                                    // và có thể gây lỗi với IME tiếng Việt
-                                    chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
-                                    
-                                    // Kết thúc cập nhật luôn, không cần phải post
-                                    isUpdating = false
-                                    
-                                    // Cập nhật trạng thái nút mở rộng (chỉ kiểm tra một lần khi text thay đổi)
+                            // Chỉ cập nhật ViewModel nếu text thực sự thay đổi bởi người dùng (không phải từ khối update)
+                            // Sử dụng R.id.text_watcher_tag_key
+                            if (getTag(textWatcherTagKey) != "UPDATE_IN_PROGRESS") {
+                                if (!isUpdating) {
+                                    val newText = s?.toString() ?: ""
+                                    if (newText != chatState.prompt) {
+                                        isUpdating = true
+                                        chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
+                                        isUpdating = false
+                                    }
                                     post {
                                         shouldShowExpandButton = canScrollVertically(1) || canScrollVertically(-1)
                                     }
                                 }
                             }
                         }
-                    })
-                    
-                    // ... existing code for OnKeyListener ...
+                    }
+                    addTextChangedListener(textWatcher)
+                    // Lưu trữ TextWatcher vào tag của View, sử dụng R.id.text_watcher_tag_key
+                    setTag(textWatcherTagKey, textWatcher)
+
+                    // ... (setOnReceiveContentListener và setOnKeyListener không đổi) ...
                     val mimeTypes = arrayOf("image/*")
                     ViewCompat.setOnReceiveContentListener(this, mimeTypes) { _, payload ->
                         val split = payload.partition { item -> item.uri != null }
@@ -1915,16 +1926,13 @@ fun CustomTextField(
                                 if (uri != null) {
                                     chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    // scope.launch {
-                                    //     snackbarHostState.showSnackbar("Đã dán ảnh")
-                                    // }
                                     return@setOnReceiveContentListener null
                                 }
                             }
                         }
                         remaining
                     }
-                    
+
                     setOnKeyListener { _, keyCode, event ->
                         if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_V && event.isCtrlPressed) {
                             val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -1935,14 +1943,11 @@ fun CustomTextField(
                                         val mimeType = description.getMimeType(i)
                                         mimeType.startsWith("image/") || mimeType == "image/*"
                                     }
-                                    
                                     if (hasImageType) {
                                         handleImageInClipboardForView(clipboardManager) { uri ->
                                             chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
                                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar("Đã dán ảnh")
-                                            }
+                                            scope.launch { snackbarHostState.showSnackbar("Đã dán ảnh") }
                                         }
                                         return@setOnKeyListener true
                                     }
@@ -1954,45 +1959,57 @@ fun CustomTextField(
                 }
             },
             update = { view ->
-                // Luôn cập nhật màu chữ dựa trên theme hiện tại
                 view.setTextColor(textColor.toArgb())
 
-                // Chỉ cập nhật text khi không có focus hoặc text khác biệt hoàn toàn
-                // Tránh can thiệp khi đang nhập liệu tiếng Việt
-                if (!view.hasFocus() && view.text.toString() != chatState.prompt) {
-                    val cursorPosition = view.selectionStart
-                    val hasSelection = view.hasSelection()
-                    
-                    // Đặt cờ để tạm dừng TextWatcher
-                    (view.tag as? Boolean) ?: view.setTag(true)
-                    
-                    // Cập nhật text
-                    view.setText(chatState.prompt)
-                    
-                    // Khôi phục vị trí con trỏ phù hợp
-                    if (cursorPosition > -1 && cursorPosition <= chatState.prompt.length) {
-                        view.setSelection(cursorPosition)
-                    } else {
-                        view.setSelection(chatState.prompt.length)
+                if (view.text.toString() != chatState.prompt) {
+                    // Lấy TextWatcher từ tag, sử dụng R.id.text_watcher_tag_key
+                    val listener = view.getTag(textWatcherTagKey) as? TextWatcher
+
+                    if (listener != null) {
+                        // Đặt cờ, sử dụng R.id.text_watcher_tag_key
+                        view.setTag(textWatcherTagKey, "UPDATE_IN_PROGRESS")
+                        view.removeTextChangedListener(listener)
                     }
-                    
-                    // Xóa cờ TextWatcher
-                    view.setTag(null)
-                    
-                    // Cập nhật trạng thái nút mở rộng
+
+                    val currentSelectionStart = view.selectionStart
+                    val currentSelectionEnd = view.selectionEnd
+
+                    view.setText(chatState.prompt)
+
+                    val newLength = chatState.prompt.length
+                    try {
+                        view.setSelection(
+                            currentSelectionStart.coerceAtMost(newLength),
+                            currentSelectionEnd.coerceAtMost(newLength)
+                        )
+                    } catch (e: Exception) {
+                        Log.e("ChatScreenUpdate", "Error setting selection: ${e.message}")
+                        view.setSelection(newLength)
+                    }
+
+                    if (listener != null) {
+                        view.addTextChangedListener(listener)
+                        // Đặt lại listener vào tag, sử dụng R.id.text_watcher_tag_key
+                        view.setTag(textWatcherTagKey, listener)
+                    }
+
                     view.post {
                         shouldShowExpandButton = view.canScrollVertically(1) || view.canScrollVertically(-1)
                     }
                 }
+                 if (chatState.isEditing && !view.hasFocus()) {
+                     view.requestFocus()
+                 }
             },
-            modifier = Modifier.fillMaxWidth()
-                               .focusRequester(focusRequester)
-                               .onFocusChanged { focusState ->
-                                   Log.d("FocusDebug", "CustomTextField EditText focus changed: ${focusState.isFocused}")
-                               }
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester)
+                .onFocusChanged { focusState ->
+                    Log.d("FocusDebug", "CustomTextField EditText focus changed: ${focusState.isFocused}")
+                }
         )
         
-        // Chỉ hiển thị nút mở rộng khi có thể cuộn hoặc văn bản dài
+        // ... (AnimatedVisibility và ExpandedChatInputBottomSheet không đổi) ...
         AnimatedVisibility(
             visible = shouldShowExpandButton || chatState.prompt.length > 50,
             enter = fadeIn() + scaleIn(),
@@ -2001,11 +2018,8 @@ fun CustomTextField(
         ) {
             IconButton(
                 onClick = {
-                    // 1. Xóa focus khỏi EditText chính
                     focusManager.clearFocus()
-                    // 2. Mở BottomSheet (trong coroutine để đảm bảo focus đã được xử lý)
                     scope.launch {
-                        // delay(1) // Có thể thêm delay cực nhỏ nếu cần
                         showExpandedInputSheet = true
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     }
@@ -2033,29 +2047,19 @@ fun CustomTextField(
 
         ExpandedChatInputBottomSheet(
             onDismiss = { showExpandedInputSheet = false },
-            messageText = chatState.prompt, // Luôn đọc từ state
-            onMessageTextChange = { newText ->
-                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText))
-            },
+            messageText = chatState.prompt,
+            onMessageTextChange = { newText -> chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText)) },
             onSendMessage = {
                 if (chatState.prompt.isNotBlank() || chatState.imageUri != null || chatState.fileUri != null) {
                     val sanitizedPrompt = sanitizeMessage(chatState.prompt)
-                    chatViewModel.onEvent(
-                        ChatUiEvent.SendPrompt(
-                            sanitizedPrompt,
-                            chatState.imageUri
-                        )
-                    )
+                    chatViewModel.onEvent(ChatUiEvent.SendPrompt(sanitizedPrompt, chatState.imageUri))
+                    chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(""))
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     showExpandedInputSheet = false
                 }
             },
             onAttachImage = {
-                imagePicker.launch(
-                    PickVisualMediaRequest(
-                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                    )
-                )
+                imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             },
             onAttachFile = {
@@ -2070,9 +2074,7 @@ fun CustomTextField(
                 }
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             },
-            onImageReceived = { uri ->
-                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
-            },
+            onImageReceived = { uri -> chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri)) },
             imageUri = chatState.imageUri,
             fileUri = chatState.fileUri,
             fileName = chatState.fileName,
