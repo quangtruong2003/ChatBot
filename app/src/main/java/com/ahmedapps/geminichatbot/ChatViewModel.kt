@@ -245,6 +245,9 @@ class ChatViewModel @Inject constructor(
     private val _chatMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<ChatMessage>> = _chatMessages.asStateFlow()
 
+    // Thêm biến lưu trữ URL hình ảnh tạm thời ngoài class
+    private val imageUrlCache = mutableMapOf<String, String>()
+
     init {
         viewModelScope.launch {
             searchQueryFlow
@@ -682,8 +685,38 @@ class ChatViewModel @Inject constructor(
                  _chatState.update { it.copy(prompt = event.newPrompt) }
             }
             is ChatUiEvent.OnImageSelected -> {
-                 _chatState.update { it.copy(imageUri = event.uri) }
-                 // Không cần markAllMessagesAsTyped() ở đây
+                // Lấy Uri ảnh cũ để xóa nếu cần
+                val oldImageUri = _chatState.value.imageUri
+                
+                // Cập nhật state với Uri mới và đánh dấu là đang xử lý ảnh
+                _chatState.update { it.copy(
+                    imageUri = event.uri,
+                    isImageProcessing = true
+                )}
+                
+                // Xử lý upload ảnh mới trong coroutine riêng biệt
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        // Upload ảnh mới và lấy URL
+                        val imageUrl = repository.uploadImage(event.uri)
+                        
+                        // Lưu URL vào bộ nhớ tạm
+                        imageUrl?.let {
+                            imageUrlCache[event.uri.toString()] = it
+                        }
+                        
+                        // Cập nhật state sau khi xử lý xong
+                        withContext(Dispatchers.Main) {
+                            _chatState.update { it.copy(isImageProcessing = false) }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ChatViewModel", "Lỗi khi tải ảnh lên: ${e.message}")
+                        // Cập nhật state khi có lỗi xảy ra
+                        withContext(Dispatchers.Main) {
+                            _chatState.update { it.copy(isImageProcessing = false) }
+                        }
+                    }
+                }
             }
             is ChatUiEvent.SearchSegments -> {
                 _chatState.update { it.copy(searchQuery = event.query) }
@@ -817,23 +850,20 @@ class ChatViewModel @Inject constructor(
         val chatId = UUID.randomUUID().toString()
         val messageTimestamp = System.currentTimeMillis()
         
-        // Messagetext cho tin nhắn
-        val messageText = if (isFileMessage && prompt.isEmpty()) {
-            "" // Tin nhắn trống, file sẽ hiển thị riêng
-        } else {
-            prompt // Sử dụng tin nhắn người dùng nhập
-        }
+        // Kiểm tra xem ảnh đã được upload trước đó chưa
+        val cachedImageUrl = imageUri?.toString()?.let { imageUrlCache[it] }
 
         // Tạo chat object ngay lập tức với chỉ id, timestamp, và nội dung cơ bản
         val chat = Chat(
             id = chatId,
-            prompt = messageText,
+            prompt = prompt,
             isFromUser = true,
             isError = false,
             userId = currentUserId,
             timestamp = messageTimestamp,
             isFileMessage = isFileMessage,
-            fileName = fileName
+            fileName = fileName,
+            imageUrl = cachedImageUrl // Sử dụng URL từ cache nếu có
         )
         
         // Hiển thị tin nhắn lên giao diện ngay lập tức
@@ -848,12 +878,18 @@ class ChatViewModel @Inject constructor(
             )
         }
         
-        // Xử lý tải ảnh lên trong một coroutine riêng biệt
+        // Xử lý tải ảnh lên trong một coroutine riêng biệt nếu chưa có trong cache
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Tải lên ảnh nếu có
-                val imageUrl = imageUri?.let {
-                    repository.uploadImage(it)
+                // Tải lên ảnh nếu có và chưa được cache
+                val imageUrl = if (cachedImageUrl != null) {
+                    // Ảnh đã được upload trước đó, sử dụng URL đã cache
+                    cachedImageUrl
+                } else {
+                    // Ảnh chưa được upload, upload ngay bây giờ
+                    imageUri?.let {
+                        repository.uploadImage(it)
+                    }
                 }
                 
                 // Cập nhật lại chat object với imageUrl đã tải lên
@@ -872,6 +908,9 @@ class ChatViewModel @Inject constructor(
                     _chatState.update {
                         it.copy(chatList = updatedList)
                     }
+                    
+                    // Xóa khỏi cache sau khi đã lưu vào cơ sở dữ liệu
+                    imageUri?.toString()?.let { key -> imageUrlCache.remove(key) }
                 }
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Lỗi khi tải ảnh lên: ${e.message}")

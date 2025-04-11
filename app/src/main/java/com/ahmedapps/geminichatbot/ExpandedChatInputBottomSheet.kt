@@ -79,6 +79,7 @@ fun ExpandedChatInputBottomSheet(
     fileUri: Uri? = null,
     fileName: String? = null,
     isFileUploading: Boolean = false,
+    isImageProcessing: Boolean = false,
     onRemoveImage: () -> Unit = {},
     onRemoveFile: () -> Unit = {},
     onImageClick: (Uri) -> Unit = {}
@@ -155,6 +156,22 @@ fun ExpandedChatInputBottomSheet(
                                         onLongClick = { }
                                     )
                             )
+
+                            // Hiển thị chỉ báo loading khi đang xử lý ảnh
+                            if (isImageProcessing) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black.copy(alpha = 0.4f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                            }
 
                             // Nút 'X' để xóa ảnh
                             Box(
