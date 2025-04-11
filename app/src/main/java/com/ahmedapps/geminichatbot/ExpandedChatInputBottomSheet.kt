@@ -104,7 +104,6 @@ fun ExpandedChatInputBottomSheet(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 40.dp)
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -121,8 +120,9 @@ fun ExpandedChatInputBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.9f)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .padding(bottom = 24.dp), // Thêm padding bổ sung ở phía dưới cho cử chỉ điều hướng
+                //.padding(bottom = 12.dp), // Thêm padding bổ sung ở phía dưới cho cử chỉ điều hướng
         ) {
             // Hiển thị ảnh đã chọn (nếu có)
             Box(

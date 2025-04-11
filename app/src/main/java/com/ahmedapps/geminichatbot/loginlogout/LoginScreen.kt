@@ -179,6 +179,7 @@ fun LoginScreen(
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestIdToken(defaultWebClientId)
             .requestEmail()
+            // Không sử dụng setAccountName(null) vì nó yêu cầu String không-null
             .build()
     }
     val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
@@ -837,8 +838,11 @@ fun LoginScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 isGoogleSignInLoading = true
                                 try {
-                                    val signInIntent = googleSignInClient.signInIntent
-                                    launcher.launch(signInIntent)
+                                    // Đăng xuất Google trước để hiển thị màn hình chọn tài khoản
+                                    googleSignInClient.signOut().addOnCompleteListener {
+                                        val signInIntent = googleSignInClient.signInIntent
+                                        launcher.launch(signInIntent)
+                                    }
                                 } catch (e: Exception) {
                                     // Xử lý nếu có lỗi khi tạo intent (ít gặp)
                                     Log.e("LoginScreen", "Lỗi khi lấy Google Sign In Intent", e)

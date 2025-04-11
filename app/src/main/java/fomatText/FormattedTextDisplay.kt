@@ -57,7 +57,9 @@ fun FormattedTextDisplay(
     snackbarHostState: SnackbarHostState,
     isNewMessage: Boolean = false,
     typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
-    onAnimationComplete: () -> Unit = {}
+    onAnimationComplete: () -> Unit = {},
+    stopTypingMessageId: String? = null,
+    messageId: String? = null
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -71,6 +73,13 @@ fun FormattedTextDisplay(
 
     val sections = remember(annotatedString) {
         splitAnnotatedString(annotatedString)
+    }
+    
+    LaunchedEffect(stopTypingMessageId) {
+        if (stopTypingMessageId != null && messageId != null && stopTypingMessageId == messageId && !animationCompleted) {
+            animationCompleted = true
+            onAnimationComplete()
+        }
     }
     
     LaunchedEffect(animationCompleted) {
@@ -92,7 +101,9 @@ fun FormattedTextDisplay(
                         isAnimated = isNewMessage && !animationCompleted,
                         typingSpeed = typingSpeed,
                         onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
-                        hapticFeedback = haptic
+                        hapticFeedback = haptic,
+                        stopTypingMessageId = stopTypingMessageId,
+                        messageId = messageId
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -109,7 +120,9 @@ fun FormattedTextDisplay(
                                 ),
                                 delayMillis = typingSpeed,
                                 onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
-                                hapticFeedback = haptic
+                                hapticFeedback = haptic,
+                                stopTypingMessageId = stopTypingMessageId,
+                                messageId = messageId
                             )
                         }
                     } else {
@@ -126,7 +139,9 @@ fun FormattedTextDisplay(
                             typingSpeed = typingSpeed,
                             onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
                             snackbarHostState = snackbarHostState,
-                            hapticFeedback = haptic
+                            hapticFeedback = haptic,
+                            stopTypingMessageId = stopTypingMessageId,
+                            messageId = messageId
                         )
                     } else {
                         EnhancedTableView(
@@ -146,7 +161,9 @@ fun FormattedTextDisplay(
                             isAnimated = true,
                             typingSpeed = typingSpeed,
                             onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
-                            hapticFeedback = haptic
+                            hapticFeedback = haptic,
+                            stopTypingMessageId = stopTypingMessageId,
+                            messageId = messageId
                         )
                     } else {
                         EnhancedBlockquoteView(
@@ -166,7 +183,9 @@ fun FormattedTextDisplay(
                                 ),
                                 delayMillis = typingSpeed,
                                 onAnimationComplete = { if (i == sections.size - 1) animationCompleted = true },
-                                hapticFeedback = haptic
+                                hapticFeedback = haptic,
+                                stopTypingMessageId = stopTypingMessageId,
+                                messageId = messageId
                             )
                         } else {
                             Text(
@@ -304,7 +323,9 @@ fun EnhancedCodeBlockView(
     isAnimated: Boolean = false,
     typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
     onAnimationComplete: () -> Unit = {},
-    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    stopTypingMessageId: String?,
+    messageId: String?
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -633,7 +654,9 @@ private fun AnimatedAnnotatedText(
     style: TextStyle,
     delayMillis: Long,
     onAnimationComplete: () -> Unit = {},
-    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    stopTypingMessageId: String?,
+    messageId: String?
 ) {
     var displayedText by remember { mutableStateOf(AnnotatedString("")) }
 
@@ -706,7 +729,9 @@ fun AnimatedTableView(
     typingSpeed: Long,
     onAnimationComplete: () -> Unit,
     snackbarHostState: SnackbarHostState,
-    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    stopTypingMessageId: String?,
+    messageId: String?
 ) {
     var displayedRowCount by remember { mutableStateOf(0) }
     var displayedCellCount by remember { mutableStateOf(List(rows.size) { 0 }) }
@@ -809,7 +834,9 @@ private fun EnhancedBlockquoteViewWithHaptic(
     isAnimated: Boolean = false,
     typingSpeed: Long = TypingConfig.DEFAULT_TYPING_SPEED,
     onAnimationComplete: () -> Unit = {},
-    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback? = null
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    stopTypingMessageId: String?,
+    messageId: String?
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val blockquoteColor = if (isDarkTheme) Color(0xFF4A4A4A) else Color(0xFFE0E0E0)

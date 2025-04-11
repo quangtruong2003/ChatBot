@@ -22,6 +22,8 @@ data class ChatState(
         val isEditing: Boolean = false,
         val editingChatId: String? = null,
         val editingChatTimestamp: Long = -1,
+        val isProcessingFile: Boolean = false,
+        val stopTypingMessageId: String? = null,
 
         val editingImageUrl: String? = null,
         val editingFileUri: Uri? = null, // Giữ lại Uri nếu logic EditChat cần

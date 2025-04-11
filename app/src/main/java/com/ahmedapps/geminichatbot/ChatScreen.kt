@@ -1208,7 +1208,8 @@ fun ChatScreen(
                                         modelDisplayNameMap = chatViewModel.modelDisplayNameMap,
                                         modelIconMap = chatViewModel.modelIconMap,
                                         selectedModel = selectedModel,
-                                        chat = userMessage // Truyền tin nhắn user làm tham số
+                                        chat = userMessage, // Truyền tin nhắn user làm tham số
+                                        stopTypingMessageId = chatState.stopTypingMessageId
                                     )
                                 }
                             }

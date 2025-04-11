@@ -14,7 +14,9 @@ fun AnimatedAnnotatedText(
     minTypingSpeed: Long = TypingConfig.MIN_TYPING_SPEED,
     maxTypingSpeed: Long = TypingConfig.MAX_TYPING_SPEED, 
     smartTypingSpeed: Boolean = TypingConfig.USE_SMART_TYPING,
-    onAnimationComplete: () -> Unit = {}
+    onAnimationComplete: () -> Unit = {},
+    stopTypingMessageId: String? = null,
+    messageId: String? = null
 ) {
     var currentLength by remember { mutableStateOf(0) }
     val textLength = annotatedString.text.length
@@ -45,10 +47,23 @@ fun AnimatedAnnotatedText(
         }
     }
 
+    // Hiệu ứng để kiểm tra nếu cần dừng ngay lập tức
+    LaunchedEffect(stopTypingMessageId) {
+        if (stopTypingMessageId != null && messageId != null && stopTypingMessageId == messageId && currentLength < textLength) {
+            currentLength = textLength
+            onAnimationComplete()
+        }
+    }
+
     // Khi annotatedString thay đổi, bắt đầu lại animation
     LaunchedEffect(annotatedString) {
         currentLength = 0
         while (currentLength < annotatedString.text.length) {
+            if (stopTypingMessageId != null && messageId != null && stopTypingMessageId == messageId) {
+                currentLength = textLength
+                break
+            }
+            
             val nextChar = if (currentLength < annotatedString.text.length) 
                             annotatedString.text[currentLength] else ' '
             val smartDelay = getSmartDelay(nextChar)

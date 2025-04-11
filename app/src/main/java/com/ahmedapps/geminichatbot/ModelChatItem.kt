@@ -66,7 +66,8 @@ fun ModelChatItem(
     modelDisplayNameMap: Map<String, String> = emptyMap(),
     modelIconMap: Map<String, Int> = emptyMap(),
     selectedModel: String = "",
-    chat: Chat? = null
+    chat: Chat? = null,
+    stopTypingMessageId: String? = null
 ) {
     val isDarkTheme = isSystemInDarkTheme()
     val textColor = if (isDarkTheme) Color.White else Color.Black
@@ -166,7 +167,9 @@ fun ModelChatItem(
                             typingSpeed = typingSpeed,
                             onAnimationComplete = {
                                 isAnimationCompleted = true
-                            }
+                            },
+                            stopTypingMessageId = stopTypingMessageId,
+                            messageId = chatId
                         )
                     }
 

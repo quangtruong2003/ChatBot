@@ -27,6 +27,8 @@ import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
 import android.content.SharedPreferences
+import com.google.firebase.firestore.WriteBatch
+import kotlinx.coroutines.awaitAll
 
 class ChatRepository @Inject constructor(
     private val context: Context,
@@ -44,6 +46,10 @@ class ChatRepository @Inject constructor(
     // Thêm biến để lưu trữ rules
     private var _rulesAI: String = ""
     val rulesAI: String get() = _rulesAI
+    
+    // Thêm biến để lưu trạng thái bật/tắt rules
+    private var _isRulesEnabled: Boolean = true
+    val isRulesEnabled: Boolean get() = _isRulesEnabled
 
     // SharedPreferences để lưu trữ rules
     private val sharedPreferences: SharedPreferences by lazy {
@@ -53,6 +59,7 @@ class ChatRepository @Inject constructor(
     init {
         Log.d("ChatRepository", "Initialized with User ID: $userId")
         loadRulesFromSharedPreferences() // Tải rules từ SharedPreferences thay vì Firestore
+        loadRulesEnabledStateFromSharedPreferences() // Tải trạng thái bật/tắt rules
     }
 
     private val segmentsCollection
@@ -96,8 +103,8 @@ class ChatRepository @Inject constructor(
         if (hasImage) {
             // Khi có hình ảnh
             buildString {
-                // Thêm rules vào đầu prompt nếu có
-                if (_rulesAI.isNotEmpty()) {
+                // Thêm rules vào đầu prompt nếu có VÀ nếu rules đang được bật
+                if (_rulesAI.isNotEmpty() && _isRulesEnabled) {
                     append(_rulesAI)
                     append("\n\n")
                 }
@@ -132,8 +139,8 @@ class ChatRepository @Inject constructor(
                     chat.prompt
                 }
             
-            // LUÔN thêm rules vào tin nhắn nếu có rules
-            if (_rulesAI.isNotEmpty()) {
+            // LUÔN thêm rules vào tin nhắn nếu có rules VÀ nếu rules đang được bật
+            if (_rulesAI.isNotEmpty() && _isRulesEnabled) {
                 Log.d("ChatRepository", "Adding rules to request. Rules: ${_rulesAI.take(50)}...")
                 if (historyText.isEmpty()) {
                     // Nếu không có lịch sử chat từ bot, chỉ thêm rules và tin nhắn người dùng
@@ -143,41 +150,13 @@ class ChatRepository @Inject constructor(
                     "${_rulesAI}\n\n$historyText\nUser: $currentPrompt"
                 }
             } else {
-                // Không có rules, chỉ gửi tin nhắn thông thường
+                // Không có rules hoặc rules đã bị tắt, chỉ gửi tin nhắn thông thường
                 if (historyText.isEmpty()) {
                     "User: $currentPrompt"
                 } else {
                     "$historyText\nUser: $currentPrompt"
                 }
             }
-        }
-    }
-
-    /**
-     * Xử lý phản hồi từ API và cập nhật đoạn chat.
-     * Chỉ cập nhật tiêu đề nếu chat segment hiện tại đang có tiêu đề mặc định.
-     */
-    private suspend fun handleResponse(
-        response: com.google.ai.client.generativeai.type.GenerateContentResponse?,
-        chat: Chat,
-        selectedSegmentId: String?
-    ) {
-        val responseText = response?.text
-        if (responseText != null) {
-            val updatedChat = chat.copy(prompt = responseText, isError = false)
-            insertChat(updatedChat, selectedSegmentId)
-            if (!_hasUpdatedTitle && _selectedSegmentId != null) {
-                // Lấy tiêu đề hiện tại của đoạn chat
-                val segmentSnapshot = segmentsCollection.document(_selectedSegmentId!!).get().await()
-                val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
-                if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
-                    updateSegmentTitle(_selectedSegmentId, responseText)
-                    _hasUpdatedTitle = true
-                }
-            }
-        } else {
-            val errorChat = chat.copy(prompt = "Error: Empty response or API error", isError = true)
-            insertChat(errorChat, selectedSegmentId)
         }
     }
 
@@ -207,8 +186,27 @@ class ChatRepository @Inject constructor(
                 isError = false,
                 userId = userId
             )
-            handleResponse(response, chat, selectedSegmentId)
-            chat.copy(prompt = responseText ?: "Error: Empty response", isError = responseText == null)
+            
+            // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
+            if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
+                val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
+                val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
+                if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
+                    val generatedTitle = generateChatSegmentTitleFromResponse(responseText)
+                    updateSegmentTitle(selectedSegmentId, generatedTitle)
+                    _hasUpdatedTitle = true
+                }
+            }
+            
+            // Lưu tin nhắn vào Firestore
+            val updatedChat = if (responseText != null) {
+                chat.copy(prompt = responseText, isError = false)
+            } else {
+                chat.copy(prompt = "Error: Empty response or API error", isError = true)
+            }
+            insertChat(updatedChat, selectedSegmentId)
+            
+            updatedChat
         } catch (e: Exception) {
             e.printStackTrace()
             val chat = Chat.fromPrompt(
@@ -291,19 +289,29 @@ class ChatRepository @Inject constructor(
                 return@coroutineScope errorChat
             }
 
+            // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
+            if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
+                val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
+                val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
+                if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
+                    val generatedTitle = generateChatSegmentTitleFromResponse(responseText)
+                    updateSegmentTitle(selectedSegmentId, generatedTitle)
+                    _hasUpdatedTitle = true
+                }
+            }
+
             val chat = Chat(
-                prompt = "",
+                prompt = responseText ?: "Error: Empty response",
                 imageUrl = imageUrl,
                 isFromUser = false,
-                isError = false,
+                isError = responseText == null,
                 userId = userId
             )
-            handleResponse(response, chat, selectedSegmentId)
-            chat.copy(
-                prompt = responseText ?: "Error: Empty response",
-                isError = responseText == null,
-                imageUrl = imageUrl
-            )
+            
+            // Lưu tin nhắn vào Firestore
+            insertChat(chat, selectedSegmentId)
+            
+            chat
         } catch (e: Exception) {
             e.printStackTrace()
             val chat = Chat(
@@ -372,24 +380,35 @@ class ChatRepository @Inject constructor(
             Log.d("ChatRepository", "API Response (Regen Image): ${response.text}")
 
             val responseText = response.text
+            
+            // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
+            if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
+                val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
+                val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
+                if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
+                    val generatedTitle = generateChatSegmentTitleFromResponse(responseText)
+                    updateSegmentTitle(selectedSegmentId, generatedTitle)
+                    _hasUpdatedTitle = true
+                }
+            }
+            
             val chat = Chat(
-                prompt = "",
+                prompt = responseText ?: "Error: Empty response",
                 imageUrl = imageUrl, // Giữ lại imageUrl gốc
                 isFromUser = false,
-                isError = false,
+                isError = responseText == null,
                 userId = userId
             )
-            handleResponse(response, chat, selectedSegmentId)
-            chat.copy(
-                prompt = responseText ?: "Error: Empty response",
-                isError = responseText == null,
-                imageUrl = imageUrl
-            )
+            
+            // Lưu tin nhắn vào Firestore
+            insertChat(chat, selectedSegmentId)
+            
+            chat
         } catch (e: Exception) {
             e.printStackTrace()
             val errorChat = Chat(
                 prompt = "Error: ${e.localizedMessage}",
-                imageUrl = imageUrl, // Giữ lại imageUrl gốc khi lỗi
+                imageUrl = imageUrl, // Giữ lại imageUrl gốc
                 isFromUser = false,
                 isError = true,
                 userId = userId
@@ -478,19 +497,57 @@ class ChatRepository @Inject constructor(
 
     /**
      * Xóa tất cả các đoạn chat và tin nhắn của người dùng.
+     * Sử dụng nhiều batch để xử lý nhanh hơn với số lượng lớn các document.
      */
     suspend fun deleteAllChats() = withContext(Dispatchers.IO) {
         try {
-            val batch = db.batch()
+            // Tạo một danh sách để lưu trữ tất cả các tác vụ xóa
+            val deleteOperations = mutableListOf<kotlinx.coroutines.Deferred<Unit>>()
+            
+            // Lấy tất cả segments
             val segmentsSnapshot = segmentsCollection.get().await()
+            
+            // Xử lý từng segment song song
             for (segmentDoc in segmentsSnapshot.documents) {
-                val messagesSnapshot = segmentDoc.reference.collection("messages").get().await()
-                for (messageDoc in messagesSnapshot.documents) {
-                    batch.delete(messageDoc.reference)
+                val operation = async {
+                    // Lấy tất cả messages của segment hiện tại
+                    val messagesSnapshot = segmentDoc.reference.collection("messages").get().await()
+                    
+                    // Tạo nhiều batch nếu có quá nhiều message (giới hạn Firestore là 500 hoạt động/batch)
+                    val batches = mutableListOf<WriteBatch>()
+                    var currentBatch = db.batch()
+                    var operationCount = 0
+                    val BATCH_LIMIT = 450 // Đặt giới hạn nhỏ hơn 500 để an toàn
+                    
+                    // Thêm thao tác xóa từng tin nhắn vào batch
+                    for (messageDoc in messagesSnapshot.documents) {
+                        currentBatch.delete(messageDoc.reference)
+                        operationCount++
+                        
+                        // Nếu đến giới hạn, lưu batch hiện tại và tạo batch mới
+                        if (operationCount >= BATCH_LIMIT) {
+                            batches.add(currentBatch)
+                            currentBatch = db.batch()
+                            operationCount = 0
+                        }
+                    }
+                    
+                    // Thêm xóa segment vào batch cuối cùng
+                    currentBatch.delete(segmentDoc.reference)
+                    batches.add(currentBatch)
+                    
+                    // Thực hiện tất cả các batch
+                    batches.forEach { batch -> 
+                        batch.commit().await() 
+                    }
                 }
-                batch.delete(segmentDoc.reference)
+                
+                deleteOperations.add(operation)
             }
-            batch.commit().await()
+            
+            // Chờ tất cả các tác vụ xóa hoàn thành
+            deleteOperations.awaitAll()
+            
             Log.d("ChatRepository", "All chats deleted successfully.")
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error deleting all chats", e)
@@ -634,14 +691,16 @@ class ChatRepository @Inject constructor(
     /**
      * Cập nhật rules AI từ UserDetail và lưu vào SharedPreferences
      */
-    suspend fun updateRulesAI(rules: String) = withContext(Dispatchers.IO) {
+    suspend fun updateRulesAI(rules: String, isEnabled: Boolean = _isRulesEnabled) = withContext(Dispatchers.IO) {
         try {
             _rulesAI = rules
-            // Lưu rules vào SharedPreferences
+            _isRulesEnabled = isEnabled
+            // Lưu rules và trạng thái vào SharedPreferences
             sharedPreferences.edit()
                 .putString("${userId}_rules_ai", rules)
+                .putBoolean("${userId}_rules_enabled", isEnabled)
                 .apply()
-            Log.d("ChatRepository", "Rules AI updated: $rules")
+            Log.d("ChatRepository", "Rules AI updated: $rules, Enabled: $isEnabled")
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error updating Rules AI", e)
         }
@@ -658,6 +717,20 @@ class ChatRepository @Inject constructor(
             }
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error loading Rules AI from SharedPreferences", e)
+        }
+    }
+
+    /**
+     * Tải trạng thái bật/tắt rules từ SharedPreferences
+     */
+    private fun loadRulesEnabledStateFromSharedPreferences() {
+        try {
+            if (userId.isNotEmpty()) {
+                _isRulesEnabled = sharedPreferences.getBoolean("${userId}_rules_enabled", true)
+                Log.d("ChatRepository", "Loaded Rules AI enabled state: $_isRulesEnabled")
+            }
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error loading Rules AI enabled state", e)
         }
     }
 
@@ -704,6 +777,22 @@ class ChatRepository @Inject constructor(
             Log.d("ChatRepository", "Updated chat message with ID: ${chat.id}")
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error updating chat message: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Cập nhật trạng thái bật/tắt rules AI
+     */
+    suspend fun updateRulesEnabledState(isEnabled: Boolean) = withContext(Dispatchers.IO) {
+        try {
+            _isRulesEnabled = isEnabled
+            // Lưu trạng thái vào SharedPreferences
+            sharedPreferences.edit()
+                .putBoolean("${userId}_rules_enabled", isEnabled)
+                .apply()
+            Log.d("ChatRepository", "Rules AI enabled state updated: $isEnabled")
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error updating Rules AI enabled state", e)
         }
     }
 }
