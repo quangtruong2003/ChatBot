@@ -106,7 +106,7 @@ import com.google.accompanist.permissions.shouldShowRationale
 import android.speech.SpeechRecognizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-
+//xin chao
 // Di chuyển hàm crop từ ChatScreen.kt để sử dụng cho dropdown menu
 fun Modifier.crop(
     horizontal: Dp = 0.dp,
