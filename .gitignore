@@ -14,4 +14,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Bỏ toàn bộ model-vi khỏi Git
+app/src/main/assets/model-vi/
+
 
