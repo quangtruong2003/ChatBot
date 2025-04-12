@@ -1,3 +1,0 @@
-Bigger Vietnamese model for Vosk
-
-%WER 15.70 [ 1212 / 7722, 33 ins, 103 del, 1076 sub ] exp/chain/tdnn/decode_test/wer_10_0.0
