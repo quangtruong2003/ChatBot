@@ -162,5 +162,8 @@ dependencies {
     implementation("androidx.appcompat:appcompat:$appcompat_version")
     // For loading and tinting drawables on older versions of the platform
     implementation("androidx.appcompat:appcompat-resources:$appcompat_version")
+
+    implementation ("net.java.dev.jna:jna:5.13.0@aar")
+    implementation ("com.alphacephei:vosk-android:0.3.47")
 }
 

@@ -120,6 +120,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.text.Editable
 import android.view.View
+import android.widget.Toast
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1048,22 +1049,14 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .navigationBarsPadding()
-
-                    ){
-
-                    // Thêm Box weight 1f cho phần hiển thị nội dung conversation
+                ) {
+                    // Box chứa nội dung chat với weight để nó mở rộng
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-//                            .clickable(
-//                                interactionSource = remember { MutableInteractionSource() },
-//                                indication = null // Không hiển thị hiệu ứng ripple
-//                            ) {
-//                                focusManager.clearFocus() // Đóng bàn phím
-//                            },
                     ) {
-                        // Danh sách chat chính - luôn hiển thị vì đã đặt trong Box riêng biệt
+                        // LazyColumn hiển thị danh sách chat
                         LazyColumn(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -1232,16 +1225,6 @@ fun ChatScreen(
                             }
                         }
 
-                        // Hiển thị lớp mờ khi đang ở chế độ chỉnh sửa
-                        // if (chatState.isEditing) {
-                        //     Box(
-                        //         modifier = Modifier
-                        //             .fillMaxSize()
-                        //             .background(Color.Black.copy(alpha = 0.5f))
-                        //             .clickable(enabled = false) { /* Vô hiệu hóa click */ }
-                        //     )
-                        // }
-
                         // Hiển thị WelcomeMessage như một lớp phủ nếu không có tin nhắn
                         androidx.compose.animation.AnimatedVisibility(
                             visible = showWelcomeMessage && chatState.chatList.isEmpty(),
@@ -1268,6 +1251,7 @@ fun ChatScreen(
                         }
                     }
 
+                    // Box hiển thị hình ảnh và file đã chọn
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1412,6 +1396,8 @@ fun ChatScreen(
                             }
                         }
                     }
+                    
+                    // Box cho input field - quan trọng: đặt ở cuối Column để nó nằm ở dưới cùng
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1422,215 +1408,37 @@ fun ChatScreen(
                                 shape = RoundedCornerShape(20.dp)
                             ),
                     ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            // --- TextField nằm phía trên ---
-                            LaunchedEffect(chatState.imageUri, chatState.chatList) {
-                                showWelcomeMessage = chatState.chatList.isEmpty()
-                            }
-                            
-                            // CustomTextField với các tham số cần thiết
-                            CustomTextField(
-                                chatViewModel = chatViewModel,
-                                chatState = chatState,
-                                focusRequester = focusRequester,
-                                scope = scope,
-                                snackbarHostState = snackbarHostState,
-                                imagePicker = imagePicker,
-                                documentPickerLauncher = documentPickerLauncher,
-                                photoUri = photoUri,
-                                takePictureLauncher = takePictureLauncher,
-                                navController = navController,
-                                createImageUriInner = { createImageUriInner() },
-                                onPhotoUriChange = { newUri -> 
-                                    photoUri = newUri 
-                                },
-                                onImageReceived = { uri -> 
-                                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
-                                },
-                                showKeyboardAfterEdit = showKeyboardAfterEdit,
-                                onKeyboardShown = { showKeyboardAfterEdit = false }
-                            )
-
-                            // --- Hàng chứa nút Icon ---
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                // --- Nút '+' (Thêm ảnh) ---
-                                IconButton(
-                                    onClick = { showSourceMenu = !showSourceMenu
-                                        // Thêm phản hồi rung khi mở dropdown chọn ảnh
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    },
-                                    modifier = Modifier
-                                        .padding(bottom = 8.dp)
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .alpha(if (showSourceMenu) 0.5f else 1f),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(id = R.drawable.ic_popup),
-                                        contentDescription = "Thêm ảnh",
-                                        tint = textColor,
-                                        modifier = Modifier.alpha(0.6f)
-                                    )
-                                }
-
-                                // --- DropdownMenu Hiển thị các lựa chọn ---
-                                DropdownMenu(
-                                    expanded = showSourceMenu,
-                                    onDismissRequest = { showSourceMenu = false },
-                                    properties = PopupProperties(focusable = false),
-                                    modifier = Modifier
-                                        .crop(vertical = 8.dp)
-                                        .background(
-                                            MaterialTheme.colorScheme.surface,
-                                            shape = RoundedCornerShape(15.dp)
-                                        )
-                                        .width(IntrinsicSize.Max),
-                                    offset = DpOffset(x = 0.dp, y = (-8).dp)
-                                ) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = "Gửi tệp tài liệu",
-                                                style = TextStyle(
-                                                    color = textColor,
-                                                    fontSize = 16.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                        },
-                                        onClick = {
-                                            // Tạm thời quay lại dùng "*/*" để kiểm tra
-                                            documentPickerLauncher.launch("*/*")
-                                            showSourceMenu = false
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        },
-                                        trailingIcon = {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_chosefile),
-                                                contentDescription = "Gửi tệp tài liệu",
-                                                tint = textColor
-                                            )
-                                        }
-                                    )
-                                    Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp)
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = "Chụp ảnh",
-                                                style = TextStyle(
-                                                    color = textColor,
-                                                    fontSize = 16.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                        },
-                                        onClick = {
-                                            photoUri = createImageUriInner()
-                                            photoUri?.let {
-                                                takePictureLauncher.launch(it)
-                                            }
-                                            showSourceMenu = false
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        },
-                                        trailingIcon = {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.camera_add),
-                                                contentDescription = "Chụp ảnh",
-                                                tint = textColor
-                                            )
-                                        }
-                                    )
-                                    Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp)
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = "Thư viện ảnh",
-                                                style = TextStyle(
-                                                    color = textColor,
-                                                    fontSize = 16.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                        },
-                                        onClick = {
-                                            imagePicker.launch(
-                                                PickVisualMediaRequest(
-                                                    ActivityResultContracts.PickVisualMedia.ImageOnly
-                                                )
-                                            )
-                                            showSourceMenu = false
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        },
-                                        trailingIcon = {
-                                            Icon(
-                                                painter = painterResource(id = R.drawable.ic_addpicture),
-                                                contentDescription = "Thư viện ảnh",
-                                                tint = textColor
-                                            )
-                                        }
-                                    )
-                                }
-
-                                // --- Nút gửi tin nhắn ---
-                                if (chatState.isLoading) {
-                                    // Bỏ hiệu ứng nhấp nháy
-                                    val isDarkTheme = isSystemInDarkTheme()
-                                    Icon(
-                                        modifier = Modifier
-                                            .padding(bottom = 8.dp)
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                chatViewModel.stopCurrentResponse()
-                                                // Thêm phản hồi rung khi dừng
-                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            },
-                                        painter = painterResource(id = if (isDarkTheme) R.drawable.ic_stopresponse_dark else R.drawable.ic_stopresponse_light),
-                                        contentDescription = "Dừng",
-                                        tint = Color.Unspecified
-                                    )
-                                } else {
-                                    IconButton(
-                                        onClick = {
-                                            if (isTextNotEmpty) {
-                                                val sanitizedPrompt = sanitizeMessage(chatState.prompt)
-                                                chatViewModel.onEvent(
-                                                    ChatUiEvent.SendPrompt(
-                                                        sanitizedPrompt,
-                                                        chatState.imageUri
-                                                    )
-                                                )
-                                                // Thêm dòng này để xóa nội dung ô nhập liệu
-                                                chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(""))
-                                                // Thêm phản hồi rung khi gửi tin nhắn
-                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                        },
-                                        modifier = Modifier
-                                            .padding(bottom = 8.dp)
-                                            .size(48.dp),
-                                        enabled = isTextNotEmpty && !chatState.isLoading
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(id = R.drawable.ic_send),
-                                            contentDescription = "Send Message",
-                                            tint = if (isTextNotEmpty && !chatState.isLoading) textColor else textColor.copy(alpha = 0.4f),
-                                            modifier = Modifier.size(40.dp)
-                                        )
-                                    }
-                                }
-                            }
+                        // --- TextField nằm phía trên ---
+                        LaunchedEffect(chatState.imageUri, chatState.chatList) {
+                            showWelcomeMessage = chatState.chatList.isEmpty()
                         }
+                        
+                        // CustomTextField với các tham số cần thiết
+                        CustomTextField(
+                            chatViewModel = chatViewModel,
+                            chatState = chatState,
+                            focusRequester = focusRequester,
+                            scope = scope,
+                            snackbarHostState = snackbarHostState,
+                            imagePicker = imagePicker,
+                            documentPickerLauncher = documentPickerLauncher,
+                            photoUri = photoUri,
+                            takePictureLauncher = takePictureLauncher,
+                            navController = navController,
+                            createImageUriInner = { createImageUriInner() },
+                            onPhotoUriChange = { newUri -> 
+                                photoUri = newUri 
+                            },
+                            onImageReceived = { uri -> 
+                                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                            },
+                            showKeyboardAfterEdit = showKeyboardAfterEdit,
+                            onKeyboardShown = { showKeyboardAfterEdit = false }
+                        )
                     }
                 }
 
+                // LaunchedEffect cho việc kiểm tra danh sách chat rỗng
                 LaunchedEffect(chatState.chatList.isEmpty()) {
                     if (chatState.chatList.isEmpty()) {
                         showWelcomeMessage = true
@@ -1659,6 +1467,7 @@ fun ChatScreen(
                     }
                 }
 
+                // Nút scroll to bottom
                 AnimatedVisibility(
                     visible = userScrolledAwayFromBottom && !chatState.isEditing,
                     enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
