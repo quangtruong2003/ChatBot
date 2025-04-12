@@ -107,7 +107,6 @@ import android.speech.SpeechRecognizer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// Xin chào
 // Di chuyển hàm crop từ ChatScreen.kt để sử dụng cho dropdown menu
 fun Modifier.crop(
     horizontal: Dp = 0.dp,
