@@ -1387,8 +1387,18 @@ class ChatViewModel @Inject constructor(
             try {
                 val chat: Chat = when {
                     imageUrl != null -> {
-                        // Trường hợp có hình ảnh
-                        repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId)
+                        // Kiểm tra xem imageUrl có phải là file âm thanh không dựa vào tên file
+                        if (fileName != null && (fileName.endsWith(".ogg", ignoreCase = true) || 
+                                               fileName.endsWith(".mp3", ignoreCase = true) || 
+                                               fileName.endsWith(".m4a", ignoreCase = true) ||
+                                               fileName.endsWith(".wav", ignoreCase = true))) {
+                            // Nếu là file âm thanh, sử dụng hàm regenerateResponseWithAudio
+                            Log.d("ChatViewModel", "Regenerating with audio file: $fileName, URL: $imageUrl")
+                            repository.regenerateResponseWithAudio(userPrompt, imageUrl, segmentId)
+                        } else {
+                            // Nếu là hình ảnh thông thường 
+                            repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId)
+                        }
                     }
                     fileName != null -> {
                         // Trường hợp có file
@@ -1555,8 +1565,17 @@ class ChatViewModel @Inject constructor(
                         try {
                             val chatResponse: Chat = when {
                                 editingImageUrl != null -> {
-                                    Log.d("ChatViewModelEdit", "Sending edited prompt with original image URL.")
-                                    repository.regenerateResponseWithImage(prompt, editingImageUrl, segmentId)
+                                    // Kiểm tra xem URL có phải là file âm thanh hay không dựa vào tên file
+                                    if (editingFileName != null && (editingFileName.endsWith(".ogg", ignoreCase = true) || 
+                                                                 editingFileName.endsWith(".mp3", ignoreCase = true) || 
+                                                                 editingFileName.endsWith(".m4a", ignoreCase = true) ||
+                                                                 editingFileName.endsWith(".wav", ignoreCase = true))) {
+                                        Log.d("ChatViewModelEdit", "Sending edited prompt with audio file URL: $editingImageUrl")
+                                        repository.regenerateResponseWithAudio(prompt, editingImageUrl, segmentId)
+                                    } else {
+                                        Log.d("ChatViewModelEdit", "Sending edited prompt with original image URL.")
+                                        repository.regenerateResponseWithImage(prompt, editingImageUrl, segmentId)
+                                    }
                                 }
                                 editingFileName != null -> {
                                     val cachedUri = fileUriCache[editingFileName]

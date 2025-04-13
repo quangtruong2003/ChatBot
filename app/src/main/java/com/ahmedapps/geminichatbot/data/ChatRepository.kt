@@ -410,15 +410,31 @@ class ChatRepository @Inject constructor(
      */
     private suspend fun downloadImageAsBitmap(imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            // Sử dụng StorageReference để lấy download URL nếu cần (giả sử imageUrl là path)
-            // Hoặc nếu imageUrl đã là download URL thì dùng trực tiếp
-            val imageRef = storage.getReferenceFromUrl(imageUrl)
-            val maxDownloadSizeBytes: Long = 10 * 1024 * 1024 // Giới hạn 10MB
-            val bytes = imageRef.getBytes(maxDownloadSizeBytes).await()
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            // Kiểm tra xem URL có phải là URL cục bộ ("file://...") không
+            if (imageUrl.startsWith("file://")) {
+                try {
+                    // Đây là URI file cục bộ, đọc file trực tiếp
+                    val file = File(Uri.parse(imageUrl).path ?: "")
+                    if (file.exists()) {
+                        return@withContext BitmapFactory.decodeFile(file.absolutePath)
+                    } else {
+                        Log.e("ChatRepository", "Local file not found: $imageUrl")
+                        return@withContext null
+                    }
+                } catch (e: Exception) {
+                    Log.e("ChatRepository", "Error decoding local file: $imageUrl", e)
+                    return@withContext null
+                }
+            } else {
+                // Đây là Firebase Storage URL, sử dụng Storage Reference
+                val imageRef = storage.getReferenceFromUrl(imageUrl)
+                val maxDownloadSizeBytes: Long = 10 * 1024 * 1024 // Giới hạn 10MB
+                val bytes = imageRef.getBytes(maxDownloadSizeBytes).await()
+                return@withContext BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error downloading image from URL: $imageUrl", e)
-            null
+            return@withContext null
         }
     }
 
@@ -989,6 +1005,134 @@ class ChatRepository @Inject constructor(
             )
             insertChat(chat, selectedSegmentId)
             chat
+        }
+    }
+
+    /**
+     * Regenerate phản hồi cho tin nhắn âm thanh.
+     */
+    suspend fun regenerateResponseWithAudio(prompt: String, audioUrl: String, selectedSegmentId: String?): Chat = coroutineScope {
+        try {
+            // Lấy lịch sử chat
+            val chatHistory = getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
+            
+            // Kiểm tra xem URL có phải là URL cục bộ không
+            if (audioUrl.startsWith("file://")) {
+                // Xử lý file âm thanh cục bộ
+                val audioFile = File(Uri.parse(audioUrl).path ?: "")
+                if (!audioFile.exists()) {
+                    val errorChat = Chat.fromPrompt(
+                        prompt = "Error: Không thể tìm thấy file âm thanh để tạo lại tin nhắn",
+                        isFromUser = false,
+                        isError = true,
+                        userId = userId
+                    )
+                    insertChat(errorChat, selectedSegmentId)
+                    return@coroutineScope errorChat
+                }
+                
+                // Đọc dữ liệu byte của file
+                val audioBytes = audioFile.readBytes()
+                
+                // Tạo prompt đầy đủ
+                val fullPrompt = if (prompt.isNotEmpty()) {
+                    getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
+                } else {
+                    getFullPrompt("Đây là một đoạn âm thanh, hãy phân tích nội dung của nó.", hasImage = false, chatHistory = chatHistory)
+                }
+                
+                Log.d("ChatRepository", "Regenerating prompt with audio: $fullPrompt")
+                
+                // Tạo content với âm thanh và văn bản
+                val content = content(role = "user") {
+                    if (prompt.isNotBlank()) {
+                        text(fullPrompt)
+                        blob("audio/ogg", audioBytes)
+                    } else {
+                        blob("audio/ogg", audioBytes)
+                    }
+                }
+                
+                // Gọi API để nhận phản hồi
+                val response = generativeModel.generateContent(content)
+                val responseText = response.text
+                Log.d("ChatRepository", "API Response for regenerated audio: $responseText")
+                
+                // Xử lý cập nhật tiêu đề
+                if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
+                    val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
+                    val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
+                    if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
+                        val generatedTitle = generateChatSegmentTitleFromResponse(responseText)
+                        updateSegmentTitle(selectedSegmentId, generatedTitle)
+                        _hasUpdatedTitle = true
+                    }
+                }
+                
+                // Tạo và lưu tin nhắn với URL âm thanh gốc
+                val chat = Chat(
+                    prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
+                    imageUrl = audioUrl,
+                    isFromUser = false,
+                    isError = responseText == null,
+                    userId = userId,
+                    isFileMessage = true,
+                    fileName = audioFile.name
+                )
+                
+                insertChat(chat, selectedSegmentId)
+                return@coroutineScope chat
+            } else {
+                // Nếu là URL Firebase, tải về để xử lý
+                // Hiện tại chúng ta chỉ cần gọi lại API với URL gốc
+                val fullPrompt = if (prompt.isNotEmpty()) {
+                    getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
+                } else {
+                    getFullPrompt("Đây là một đoạn âm thanh, hãy phân tích nội dung của nó.", hasImage = false, chatHistory = chatHistory)
+                }
+                
+                Log.d("ChatRepository", "Regenerating prompt with audio URL: $fullPrompt")
+                
+                // Gọi API mà không có file âm thanh (chỉ với văn bản)
+                val response = generativeModel.generateContent(fullPrompt)
+                val responseText = response.text
+                
+                // Xử lý cập nhật tiêu đề
+                if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
+                    val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
+                    val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
+                    if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
+                        val generatedTitle = generateChatSegmentTitleFromResponse(responseText)
+                        updateSegmentTitle(selectedSegmentId, generatedTitle)
+                        _hasUpdatedTitle = true
+                    }
+                }
+                
+                // Tạo và lưu tin nhắn với URL âm thanh gốc
+                val chat = Chat(
+                    prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
+                    imageUrl = audioUrl,
+                    isFromUser = false,
+                    isError = responseText == null,
+                    userId = userId,
+                    isFileMessage = true
+                )
+                
+                insertChat(chat, selectedSegmentId)
+                return@coroutineScope chat
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            val errorChat = Chat(
+                prompt = "Error: ${e.localizedMessage}",
+                imageUrl = audioUrl,
+                isFromUser = false, 
+                isError = true,
+                userId = userId,
+                isFileMessage = true
+            )
+            insertChat(errorChat, selectedSegmentId)
+            return@coroutineScope errorChat
         }
     }
 }
