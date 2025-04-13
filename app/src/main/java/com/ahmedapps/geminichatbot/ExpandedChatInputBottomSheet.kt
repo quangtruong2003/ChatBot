@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.ViewCompat
 import android.content.Context
 import android.view.inputmethod.InputMethodManager
+import com.ahmedapps.geminichatbot.ui.components.AudioPlayerComponent
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -80,6 +81,7 @@ fun ExpandedChatInputBottomSheet(
     fileName: String? = null,
     isFileUploading: Boolean = false,
     isImageProcessing: Boolean = false,
+    isAudioMessage: Boolean = false,
     onRemoveImage: () -> Unit = {},
     onRemoveFile: () -> Unit = {},
     onImageClick: (Uri) -> Unit = {}
@@ -202,61 +204,75 @@ fun ExpandedChatInputBottomSheet(
 
                     // Thêm phần hiển thị file vào đây
                     fileUri?.let { uri ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth(0.5f)
-                                .padding(vertical = 4.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Icon file
-                            Box(
+                        if (isAudioMessage) {
+                            // Hiển thị AudioPlayerComponent cho file âm thanh
+                            AudioPlayerComponent(
+                                context = context,
+                                audioUri = uri,
                                 modifier = Modifier
-                                    .size(40.dp)
-                                    .padding(start = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (isFileUploading) R.drawable.ic_fileuploaderror else R.drawable.ic_fileuploaded
-                                    ),
-                                    contentDescription = "File đã chọn",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            }
-                            
-                            // Tên file nằm bên phải icon
-                            Text(
-                                text = fileName ?: "File không xác định",
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 8.dp),
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                isCompact = true,
+                                onDelete = onRemoveFile
                             )
-                            
-                            // Nút 'X' để xóa file
-                            Box(
+                        } else {
+                            // Hiển thị file thông thường (không phải âm thanh)
+                            Row(
                                 modifier = Modifier
-                                    .padding(end = 8.dp)
-                                    .size(20.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFAAAAAA))
-                                    .clickable {
-                                        onRemoveFile()
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    },
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth(0.5f)
+                                    .padding(vertical = 4.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Xóa file",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(12.dp)
+                                // Icon file
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .padding(start = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (isFileUploading) R.drawable.ic_fileuploaderror else R.drawable.ic_fileuploaded
+                                        ),
+                                        contentDescription = "File đã chọn",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                                
+                                // Tên file nằm bên phải icon
+                                Text(
+                                    text = fileName ?: "File không xác định",
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 8.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                
+                                // Nút 'X' để xóa file
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFAAAAAA))
+                                        .clickable {
+                                            onRemoveFile()
+                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Xóa file",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                }
                             }
                         }
                     }

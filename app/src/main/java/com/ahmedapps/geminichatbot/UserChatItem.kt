@@ -39,7 +39,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Attachment
 import androidx.compose.ui.platform.LocalFocusManager
+import com.ahmedapps.geminichatbot.ui.components.AudioPlayerComponent
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -86,47 +88,82 @@ fun UserChatItem(
     ) {
         Column(horizontalAlignment = Alignment.End) {
             imageUrl?.let { url ->
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(url)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = "Your Image",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .widthIn(max = maxWidth)
-                        .heightIn(max = maxImageHeight)
-                        .clip(RoundedCornerShape(12.dp))
-                        .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
-                        .combinedClickable(
-                            onClick = { onImageClick(url) },
-                            onLongClick = { onLongPress(prompt) }
-                        )
-                )
-            }
-            
-            if (isFileMessage && fileName != null) {
-                Row(
-                    modifier = Modifier
-                        .widthIn(max = maxWidth)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(backgroundColor)
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.InsertDriveFile,
-                        contentDescription = "File",
-                        tint = textColor,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = fileName,
-                        color = textColor,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                // Kiểm tra nếu là tin nhắn file
+                if (isFileMessage && fileName != null) {
+                    val safeFileName = fileName
+                    val safeImageUrl = url
+
+                    // Kiểm tra nếu là file âm thanh
+                    if (safeFileName != null && safeImageUrl != null) {
+                        if (safeFileName.endsWith(".ogg") || safeFileName.endsWith(".m4a") || 
+                            safeFileName.endsWith(".mp3") || safeFileName.endsWith(".wav")) {
+                            AudioPlayerComponent(
+                                context = LocalContext.current,
+                                audioSource = safeImageUrl,
+                                modifier = Modifier
+                                    .widthIn(max = maxWidth)
+                                    .heightIn(max = 80.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                                isCompact = true
+                            )
+                        } else {
+                            // Hiển thị hình ảnh nếu không phải file âm thanh
+                            AsyncImage(
+                                model = safeImageUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(8.dp)
+                                    .heightIn(max = 240.dp)
+                                    .widthIn(max = 240.dp),
+                                contentScale = ContentScale.Fit
+                            )
+
+                            // Hiển thị thông tin file
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp, end = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Attachment,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color.Gray
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = safeFileName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Hiển thị hình ảnh như bình thường
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(url)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Your Image",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .widthIn(max = maxWidth)
+                            .heightIn(max = maxImageHeight)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, Color.Transparent, RoundedCornerShape(12.dp))
+                            .combinedClickable(
+                                onClick = { onImageClick(url) },
+                                onLongClick = { onLongPress(prompt) }
+                            )
                     )
                 }
             }
@@ -148,7 +185,7 @@ fun UserChatItem(
             }
             
             // Thêm các nút hành động (chỉ hiển thị khi có chatId)
-            if (chatId != null && prompt.isNotEmpty()) {
+            if (chatId != null && (prompt.isNotEmpty() || (isFileMessage && imageUrl != null))) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -156,38 +193,42 @@ fun UserChatItem(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Nút edit (đã chuyển ra bên trái)
-                    IconButton(
-                        onClick = { 
-                            onEditClick(chatId)
-                        },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_editrequest),
-                            contentDescription = "Chỉnh sửa",
-                            tint = textColor.copy(alpha = 0.7f),
-                            modifier = Modifier.size(16.dp)
-                        )
+                    // Nút edit (chỉ hiển thị khi tin nhắn có nội dung)
+                    if (prompt.isNotEmpty()) {
+                        IconButton(
+                            onClick = { 
+                                onEditClick(chatId)
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_editrequest),
+                                contentDescription = "Chỉnh sửa",
+                                tint = textColor.copy(alpha = 0.7f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                     
-                    // Nút copy (ở giữa)
-                    IconButton(
-                        onClick = { 
-                            clipboardManager.setText(formattedPrompt)
-                            Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_copy),
-                            contentDescription = "Sao chép",
-                            tint = textColor.copy(alpha = 0.7f),
-                            modifier = Modifier.size(16.dp)
-                        )
+                    // Nút copy (chỉ hiển thị khi tin nhắn có nội dung)
+                    if (prompt.isNotEmpty()) {
+                        IconButton(
+                            onClick = { 
+                                clipboardManager.setText(formattedPrompt)
+                                Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_copy),
+                                contentDescription = "Sao chép",
+                                tint = textColor.copy(alpha = 0.7f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                     
-                    // Nút xóa (bên phải)
+                    // Nút xóa (luôn hiển thị nếu có chatId)
                     IconButton(
                         onClick = { 
                             onDeleteClick(chatId)

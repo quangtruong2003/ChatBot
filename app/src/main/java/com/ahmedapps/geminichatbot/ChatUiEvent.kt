@@ -6,8 +6,11 @@ import com.ahmedapps.geminichatbot.data.ChatSegment
 
 sealed class ChatUiEvent {
     data class SendPrompt(val prompt: String, val imageUri: Uri?) : ChatUiEvent()
+    data class SendAudioPrompt(val prompt: String, val audioUri: Uri) : ChatUiEvent()
     data class UpdatePrompt(val newPrompt: String) : ChatUiEvent()
     data class OnImageSelected(val uri: Uri) : ChatUiEvent()
+    data class OnAudioRecorded(val uri: Uri, val fileName: String) : ChatUiEvent()
+    data class OnAudioFileSelected(val uri: Uri) : ChatUiEvent()
     data class SearchSegments(val query: String) : ChatUiEvent()
     data class SelectSegment(val segment: ChatSegment) : ChatUiEvent()
     object ClearSearch : ChatUiEvent()
@@ -19,6 +22,7 @@ sealed class ChatUiEvent {
     data class OnFileSelected(val uri: Uri) : ChatUiEvent()
     object RemoveFile : ChatUiEvent()
     data class DeleteChat(val chatId: String) : ChatUiEvent()
+    data class UpdateFileName(val fileName: String) : ChatUiEvent()
     data class EditChat(
         val chatId: String,
         val message: String,

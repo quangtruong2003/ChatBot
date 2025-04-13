@@ -15,7 +15,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 1
-        versionName = "2025.04.18"
+        versionName = "2025.04.20"
         buildConfigField("String", "VERSION_NAME", "\"${versionName}\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -165,5 +165,12 @@ dependencies {
 
     implementation ("net.java.dev.jna:jna:5.13.0@aar")
     implementation ("com.alphacephei:vosk-android:0.3.47")
+
+    // Audio processing
+    implementation("org.jcodec:jcodec:0.2.5")
+    implementation("org.jcodec:jcodec-android:0.2.5")
+    implementation("com.google.android.exoplayer:exoplayer-core:2.19.1")
+    implementation("com.arthenica:ffmpeg-kit-full:6.0-2.LTS")
+
 }
 

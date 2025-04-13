@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -11,6 +12,7 @@ import android.util.Log
 import androidx.compose.ui.geometry.isEmpty
 import com.ahmedapps.geminichatbot.BuildConfig
 import com.ahmedapps.geminichatbot.di.GenerativeModelProvider
+import com.ahmedapps.geminichatbot.utils.AudioConverter
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import com.google.firebase.auth.FirebaseAuth
@@ -23,12 +25,15 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
 import android.content.SharedPreferences
 import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.awaitAll
+import com.google.ai.client.generativeai.type.Content
 
 class ChatRepository @Inject constructor(
     private val context: Context,
@@ -68,6 +73,9 @@ class ChatRepository @Inject constructor(
     private val storageReference
         get() = storage.reference.child("images/$userId/")
 
+    private val audioStorageReference
+        get() = storage.reference.child("audio/$userId/")
+
     // Tiêu đề mặc định của một đoạn chat mới
     private val DEFAULT_SEGMENT_TITLE = "Đoạn chat mới"
 
@@ -87,6 +95,77 @@ class ChatRepository @Inject constructor(
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error uploading image", e)
             null
+        }
+    }
+
+    /**
+     * Upload tệp âm thanh lên Firebase Storage và trả về URL download.
+     * Chuyển đổi từ M4A sang OGG (Vorbis) nếu cần thiết.
+     */
+    suspend fun uploadAudioFile(audioUri: Uri): String? = withContext(Dispatchers.IO) {
+        try {
+            // Lấy đường dẫn file thực từ Uri
+            val audioPath = AudioConverter.getPathFromUri(context, audioUri)
+            if (audioPath == null) {
+                Log.e("ChatRepository", "Cannot get file path from URI: $audioUri")
+                return@withContext audioUri.toString() // Trả về URI cục bộ nếu không thể lấy đường dẫn
+            }
+            
+            val originalFile = File(audioPath)
+            
+            // Kiểm tra mime type
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(context, audioUri)
+            val mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
+            retriever.release()
+            
+            // Tạo file OGG tạm
+            val tempOggFile = File(context.cacheDir, "${System.currentTimeMillis()}.ogg")
+            
+            // Chuyển đổi sang OGG nếu không phải định dạng OGG
+            val fileToUpload = if (mimeType?.contains("ogg", ignoreCase = true) != true) {
+                Log.d("ChatRepository", "Converting audio to OGG: ${originalFile.name}")
+                val isConverted = AudioConverter.convertToOgg(originalFile.path, tempOggFile.path)
+                if (!isConverted) {
+                    Log.e("ChatRepository", "Failed to convert audio to OGG")
+                    return@withContext audioUri.toString() // Trả về URI cục bộ nếu không thể chuyển đổi
+                }
+                tempOggFile
+            } else {
+                originalFile
+            }
+            
+            try {
+                // Tải lên Firebase Storage
+                val audioRef = audioStorageReference.child("${System.currentTimeMillis()}.ogg")
+                audioRef.putFile(Uri.fromFile(fileToUpload)).await()
+                val url = audioRef.downloadUrl.await().toString()
+                
+                // Xóa file tạm nếu đã tạo
+                if (fileToUpload.path != originalFile.path && fileToUpload.exists()) {
+                    fileToUpload.delete()
+                }
+                
+                Log.d("ChatRepository", "Audio uploaded, URL: $url")
+                return@withContext url
+            } catch (e: Exception) {
+                Log.e("ChatRepository", "Error uploading to Firebase Storage", e)
+                
+                // Trả về URI của file đã chuyển đổi (OGG) nếu có
+                if (fileToUpload.exists() && fileToUpload.path != originalFile.path) {
+                    val localUri = Uri.fromFile(fileToUpload).toString()
+                    Log.d("ChatRepository", "Fallback to local OGG file: $localUri")
+                    return@withContext localUri
+                }
+                
+                // Nếu không có file OGG, trả về URI gốc
+                Log.d("ChatRepository", "Fallback to original URI: $audioUri")
+                return@withContext audioUri.toString()
+            }
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error processing audio file", e)
+            // Trả về URI gốc thay vì null
+            return@withContext audioUri.toString()
         }
     }
 
@@ -793,6 +872,123 @@ class ChatRepository @Inject constructor(
             Log.d("ChatRepository", "Rules AI enabled state updated: $isEnabled")
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error updating Rules AI enabled state", e)
+        }
+    }
+
+    // Hàm hỗ trợ chuyển đổi Uri thành File
+    private fun uriToFile(uri: Uri): File {
+        val inputStream = context.contentResolver.openInputStream(uri)
+            ?: throw IOException("Không thể mở luồng dữ liệu từ URI")
+        
+        val tempFile = File.createTempFile("audio_", ".mp3", context.cacheDir)
+        
+        tempFile.outputStream().use { outputStream ->
+            inputStream.copyTo(outputStream)
+        }
+        
+        inputStream.close()
+        return tempFile
+    }
+
+    /**
+     * Lấy phản hồi từ GenerativeModel kèm file âm thanh.
+     */
+    suspend fun getResponseWithAudio(prompt: String, audioUri: Uri, selectedSegmentId: String?): Chat = coroutineScope {
+        try {
+            // Song song: lấy lịch sử chat và tải file âm thanh lên Firebase Storage
+            val chatHistoryDeferred = async(Dispatchers.IO) {
+                getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
+            }
+            val audioUrlDeferred = async(Dispatchers.IO) { uploadAudioFile(audioUri) }
+
+            val chatHistory = chatHistoryDeferred.await()
+            val audioUrl = audioUrlDeferred.await()
+
+            if (audioUrl == null) {
+                val errorChat = Chat.fromPrompt(
+                    prompt = "Error: Không thể tải lên file âm thanh",
+                    isFromUser = false,
+                    isError = true,
+                    userId = userId
+                )
+                insertChat(errorChat, selectedSegmentId)
+                return@coroutineScope errorChat
+            }
+
+            val fullPrompt = if (prompt.isNotEmpty()) {
+                getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
+            } else {
+                getFullPrompt("Đây là một đoạn âm thanh, hãy phân tích nội dung của nó.", hasImage = false, chatHistory = chatHistory)
+            }
+
+            Log.d("ChatRepository", "Sending prompt with audio: $fullPrompt")
+            Log.d("ChatRepository", "Audio URL: $audioUrl")
+
+            // Tạo tạm thời tệp audio để gửi đến API
+            val audioFile = uriToFile(audioUri)
+            
+            // Đọc dữ liệu byte của file
+            val audioBytes = audioFile.readBytes()
+            
+            // Tạo content với âm thanh và/hoặc văn bản sử dụng content builder API
+            val content = content(role = "user") {
+                if (prompt.isNotBlank()) {
+                    // Nếu có cả văn bản và âm thanh
+                    text(fullPrompt)
+                    // Thêm phần âm thanh với mime type phù hợp
+                    blob("audio/ogg", audioBytes)
+                } else {
+                    // Nếu chỉ có âm thanh
+                    blob("audio/ogg", audioBytes)
+                }
+            }
+            
+            // Xóa file tạm sau khi đã đọc bytes
+            if (audioFile.exists()) {
+                audioFile.delete()
+            }
+
+            val response = generativeModel.generateContent(content)
+            val responseText = response.text
+            Log.d("ChatRepository", "API Response for audio: $responseText")
+
+            // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
+            if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
+                val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
+                val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
+                if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
+                    val generatedTitle = generateChatSegmentTitleFromResponse(responseText)
+                    updateSegmentTitle(selectedSegmentId, generatedTitle)
+                    _hasUpdatedTitle = true
+                }
+            }
+
+            // Tạo chat object với URL âm thanh
+            val chat = Chat(
+                prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
+                imageUrl = audioUrl, // Lưu URL âm thanh vào trường imageUrl
+                isFromUser = false,
+                isError = responseText == null,
+                userId = userId,
+                isFileMessage = true, // Đánh dấu là tin nhắn file
+                fileName = AudioConverter.getFileNameFromUri(context, audioUri) ?: "audio.ogg" // Lưu tên file
+            )
+            
+            // Lưu tin nhắn vào Firestore
+            insertChat(chat, selectedSegmentId)
+            
+            chat
+        } catch (e: Exception) {
+            e.printStackTrace()
+            val chat = Chat(
+                prompt = "Error: ${e.localizedMessage}",
+                imageUrl = null,
+                isFromUser = false,
+                isError = true,
+                userId = userId
+            )
+            insertChat(chat, selectedSegmentId)
+            chat
         }
     }
 }

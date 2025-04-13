@@ -11,6 +11,8 @@ data class ChatState(
         val fileUri: Uri? = null,
         val fileName: String? = null,
         val isFileUploading: Boolean = false,
+        val isFileMessage: Boolean = false,
+        val isAudioMessage: Boolean = false,
         val chatList: List<Chat> = emptyList(),
         val chatSegments: List<ChatSegment> = emptyList(),
         val selectedSegment: ChatSegment? = null,

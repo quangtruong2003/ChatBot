@@ -3,6 +3,10 @@ package com.ahmedapps.geminichatbot.ui.components
 import android.Manifest
 import android.content.ClipDescription
 import android.content.Context
+import android.media.MediaRecorder
+import android.net.Uri
+import android.os.Build
+import android.os.Build.VERSION_CODES
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Base64
@@ -21,15 +25,20 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -50,8 +59,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +75,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -75,6 +84,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -91,22 +102,24 @@ import com.ahmedapps.geminichatbot.ChatViewModel
 import com.ahmedapps.geminichatbot.ExpandedChatInputBottomSheet
 import com.ahmedapps.geminichatbot.R
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import android.net.Uri
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.ui.unit.Dp
-import com.ahmedapps.geminichatbot.ui.components.VoiceRecognitionHelper
+import java.io.File
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import com.ahmedapps.geminichatbot.crop
+import com.ahmedapps.geminichatbot.ui.components.AudioPlayerComponent
 import com.ahmedapps.geminichatbot.ui.components.VoiceRecordingBar
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
-import android.speech.SpeechRecognizer
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-//xin chao
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+
 // Di chuyển hàm crop từ ChatScreen.kt để sử dụng cho dropdown menu
 fun Modifier.crop(
     horizontal: Dp = 0.dp,
@@ -129,6 +142,155 @@ fun sanitizeMessage(input: String): String {
         .filter { it.isNotBlank() } // Loại bỏ các dòng trống
         .joinToString("\n") // Ghép lại thành một chuỗi với dấu xuống dòng
         .trim() // Loại bỏ khoảng trắng ở đầu và cuối
+}
+
+/**
+ * Helper class để xử lý ghi âm và tạo file audio
+ */
+class AudioRecorderHelper(private val context: Context) {
+    private var recorder: MediaRecorder? = null
+    private var outputFile: File? = null
+    private var isRecording = false
+    
+    companion object {
+        private const val TAG = "AudioRecorderHelper"
+    }
+    
+    /**
+     * Kiểm tra quyền ghi âm
+     */
+    fun hasRecordAudioPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    
+    /**
+     * Bắt đầu ghi âm
+     * @return Uri của file ghi âm nếu thành công, null nếu thất bại
+     */
+    fun startRecording(): File? {
+        if (isRecording) {
+            Log.d(TAG, "Đã đang ghi âm, bỏ qua yêu cầu")
+            return null
+        }
+        
+        try {
+            // Tạo file đầu ra
+            val audioDir = File(context.filesDir, "audio")
+            if (!audioDir.exists()) {
+                audioDir.mkdirs()
+            }
+            
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            outputFile = File(audioDir, "audio_$timeStamp.m4a")
+            
+            recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                MediaRecorder(context)
+            } else {
+                MediaRecorder()
+            }
+            
+            recorder?.apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128000)
+                setAudioSamplingRate(44100)
+                setOutputFile(outputFile?.absolutePath)
+                
+                try {
+                    prepare()
+                    start()
+                    isRecording = true
+                    Log.d(TAG, "Bắt đầu ghi âm: ${outputFile?.absolutePath}")
+                    return outputFile
+                } catch (e: IOException) {
+                    Log.e(TAG, "Lỗi chuẩn bị MediaRecorder: ${e.message}")
+                    releaseRecorder()
+                    outputFile = null
+                    return null
+                }
+            }
+            return null
+        } catch (e: Exception) {
+            Log.e(TAG, "Lỗi bắt đầu ghi âm: ${e.message}")
+            releaseRecorder()
+            outputFile = null
+            return null
+        }
+    }
+    
+    /**
+     * Dừng ghi âm và trả về file đã ghi
+     * @return File đã ghi âm nếu thành công, null nếu thất bại
+     */
+    fun stopRecording(): File? {
+        if (!isRecording) {
+            Log.d(TAG, "Không đang ghi âm, bỏ qua yêu cầu dừng")
+            return null
+        }
+        
+        try {
+            recorder?.apply {
+                stop()
+                Log.d(TAG, "Dừng ghi âm: ${outputFile?.absolutePath}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Lỗi dừng ghi âm: ${e.message}")
+        } finally {
+            releaseRecorder()
+        }
+        
+        val recordedFile = outputFile
+        outputFile = null
+        
+        return if (recordedFile != null && recordedFile.exists() && recordedFile.length() > 0) {
+            recordedFile
+        } else {
+            Log.e(TAG, "File ghi âm không tồn tại hoặc rỗng")
+            null
+        }
+    }
+    
+    /**
+     * Hủy ghi âm hiện tại
+     */
+    fun cancelRecording() {
+        if (!isRecording) {
+            return
+        }
+        
+        try {
+            recorder?.apply {
+                stop()
+                Log.d(TAG, "Hủy ghi âm")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Lỗi khi hủy ghi âm: ${e.message}")
+        } finally {
+            releaseRecorder()
+        }
+        
+        // Xóa file nếu có
+        outputFile?.delete()
+        outputFile = null
+    }
+    
+    /**
+     * Giải phóng MediaRecorder
+     */
+    private fun releaseRecorder() {
+        try {
+            recorder?.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Lỗi giải phóng MediaRecorder: ${e.message}")
+        } finally {
+            recorder = null
+            isRecording = false
+        }
+    }
 }
 
 @OptIn(ExperimentalPermissionsApi::class)
@@ -167,8 +329,15 @@ fun CustomTextField(
     val textWatcherTagKey = R.id.text_watcher_tag_key
     // Trạng thái cho dropdown menu
     var showSourceMenu by remember { mutableStateOf(false) }
+    
+    // Biến mới để theo dõi trạng thái đã ghi âm xong và có thể nghe lại
+    var hasRecordedAudio by remember { mutableStateOf(false) }
+    
+    // Biến để lưu Uri của file âm thanh
+    var recordedAudioUri by remember { mutableStateOf<Uri?>(null) }
+    
     // Kiểm tra xem có văn bản hoặc hình ảnh hoặc file nào không
-    val isTextNotEmpty = chatState.prompt.isNotEmpty() || chatState.imageUri != null || chatState.fileUri != null
+    val isTextNotEmpty = chatState.prompt.isNotEmpty() || chatState.imageUri != null || chatState.fileUri != null || hasRecordedAudio
     
     // Trạng thái cho voice recording
     var isRecording by remember { mutableStateOf(false) }
@@ -183,101 +352,128 @@ fun CustomTextField(
     
     // Thêm trạng thái cho việc xử lý ghi âm
     var isProcessingVoice by remember { mutableStateOf(false) }
-    // Thêm trạng thái để theo dõi trạng thái nhận dạng giọng nói
-    var voiceRecognitionStatus by remember { 
-        mutableStateOf<ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus?>(null) 
-    }
     
     // --- Cặp biến trạng thái theo dõi voice recording UI ---
     var isVoiceBarVisible by remember { mutableStateOf(false) } // Ban đầu không hiển thị
     var isClosing by remember { mutableStateOf(false) } // Theo dõi việc đang đóng thanh ghi âm
     var isCancelled by remember { mutableStateOf(false) } // Đánh dấu nếu người dùng đã chủ động hủy
     
-    // Khởi tạo ImprovedVoiceRecognitionHelper
-    val voiceRecognitionHelper = remember {
-        ImprovedVoiceRecognitionHelper(
-            context = context,
-            onRecognitionResult = { recognizedText ->
-                // Xử lý khi có kết quả nhận dạng
-                if (isCancelled) {
-                    Log.d("VoiceRecognition", "Bỏ qua thông báo kết quả do người dùng đã hủy")
-                    return@ImprovedVoiceRecognitionHelper
-                }
+    // Biến để theo dõi coroutine cập nhật thời gian
+    var timerJob by remember { mutableStateOf<Job?>(null) }
+    
+    // Khởi tạo AudioRecorderHelper
+    val audioRecorderHelper = remember {
+        AudioRecorderHelper(context)
+    }
+    
+    // Biến lưu file âm thanh hiện tại
+    var currentAudioFile by remember { mutableStateOf<File?>(null) }
+    
+    // Biến lưu thời điểm bắt đầu ghi âm
+    var recordingStartTimeMs by remember { mutableStateOf(0L) }
+    
+    // Hàm bắt đầu ghi âm và hiển thị thanh trạng thái
+    val startRecording = {
+        // Reset trạng thái nghe lại âm thanh
+        hasRecordedAudio = false
+        recordedAudioUri = null
+        
+        // Không cho bắt đầu ghi âm nếu đang editing hoặc đang chờ phản hồi
+        if (!chatState.isEditing && !chatState.isWaitingForResponse && !isProcessingVoice) {
+            if (audioRecorderHelper.hasRecordAudioPermission()) {
+                Log.d("CustomTextField", "Bắt đầu ghi âm...")
+                recordingStartTimeMs = System.currentTimeMillis()
+                recordingDurationMs = 0L
+                isRecording = true
+                isCancelled = false // Reset biến đánh dấu hủy
+                isClosing = false // Reset biến đánh dấu đóng
+                isVoiceBarVisible = true // Hiển thị thanh ghi âm
                 
-                // Chỉ cập nhật trạng thái khi không trong quá trình đóng
-                if (!isClosing) {
-                    isProcessingVoice = false
-                    isRecording = false
-                    recordingDurationMs = 0
-                }
+                // Bắt đầu ghi âm
+                currentAudioFile = audioRecorderHelper.startRecording()
                 
-                // Khi nhận dạng giọng nói thành công, cập nhật prompt
-                if (recognizedText.isNotEmpty()) {
-                    Log.d("VoiceRecognition", "Kết quả nhận dạng: $recognizedText")
-                    chatViewModel.onEvent(
-                        ChatUiEvent.UpdatePrompt(
-                            if (chatState.prompt.isEmpty()) recognizedText
-                            else "${chatState.prompt} $recognizedText"
-                        )
-                    )
-                    
-                    // Hiển thị thông báo thành công
-                    Toast.makeText(
-                        context,
-                        "Đã chuyển giọng nói thành văn bản",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                } else {
-                    // Hiển thị thông báo khi không nhận dạng được
-                    Toast.makeText(
-                        context,
-                        "Không nhận dạng được giọng nói, vui lòng thử lại",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            },
-            onStatusChange = { status ->
-                // Chỉ cập nhật trạng thái khi không trong quá trình đóng
-                if (!isClosing) {
-                    // Cập nhật trạng thái nhận dạng giọng nói
-                    voiceRecognitionStatus = status
-                    
-                    // Xử lý các trạng thái đặc biệt
-                    when (status) {
-                        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.IDLE -> {
-                            isProcessingVoice = false
-                            if (isRecording) {
-                                isRecording = false
-                                recordingDurationMs = 0
-                            }
+                // Khởi động coroutine để cập nhật thời gian
+                timerJob?.cancel()
+                timerJob = scope.launch {
+                    try {
+                        while (isActive && isRecording) {
+                            recordingDurationMs = System.currentTimeMillis() - recordingStartTimeMs
+                            delay(100) // Cập nhật mỗi 100ms
                         }
-                        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.LISTENING -> {
-                            isRecording = true
-                            isProcessingVoice = false
-                        }
-                        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.PROCESSING,
-                        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.INITIALIZING,
-                        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.PREPARING_MODEL -> {
-                            isProcessingVoice = true
-                        }
-                        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.ERROR,
-                        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.NO_PERMISSION -> {
-                            isProcessingVoice = false
-                            // Hiển thị thông báo sau 2 giây và reset
-                            scope.launch {
-                                delay(2000)
-                                voiceRecognitionStatus = null
-                                isRecording = false
-                                recordingDurationMs = 0
-                            }
-                        }
-                        null -> {} // Do nothing
+                    } catch (e: Exception) {
+                        Log.e("CustomTextField", "Lỗi trong coroutine cập nhật thời gian: ${e.message}")
                     }
-                } else {
-                    Log.d("VoiceRecognition", "Bỏ qua cập nhật trạng thái vì đang trong quá trình đóng")
                 }
+            } else {
+                Log.d("CustomTextField", "Không có quyền ghi âm")
+                showPermissionRequest = true
             }
-        )
+        } else {
+            Log.d("CustomTextField", "Không thể bắt đầu ghi âm - isEditing: ${chatState.isEditing}, isWaiting: ${chatState.isWaitingForResponse}, isProcessing: $isProcessingVoice")
+        }
+    }
+    
+    // Hàm dừng ghi âm và xử lý kết quả
+    val stopRecording = {
+        if (isRecording) {
+            Log.d("CustomTextField", "Dừng ghi âm...")
+            isRecording = false
+            isProcessingVoice = true // Chuyển trạng thái sang đang xử lý
+            timerJob?.cancel()
+            
+            // Dừng ghi âm và lấy file
+            val audioFile = audioRecorderHelper.stopRecording()
+            currentAudioFile = audioFile
+            if (audioFile != null && audioFile.exists()) {
+                val audioUri = Uri.fromFile(audioFile)
+                recordedAudioUri = audioUri
+                
+                // Chuyển sang trạng thái nghe lại
+                hasRecordedAudio = true
+                isVoiceBarVisible = false
+                isProcessingVoice = false
+                
+                // Gửi sự kiện OnAudioRecorded để lưu file âm thanh (nhưng chưa gửi ngay)
+                chatViewModel.onEvent(ChatUiEvent.OnAudioRecorded(audioUri, audioFile.name))
+            } else {
+                // Nếu không có file hợp lệ, reset trạng thái
+                isVoiceBarVisible = false
+                isProcessingVoice = false
+                hasRecordedAudio = false
+            }
+        }
+    }
+    
+    // Hàm hủy ghi âm
+    val cancelRecording = {
+        if (isRecording) {
+            Log.d("CustomTextField", "Hủy ghi âm...")
+            isRecording = false
+            isCancelled = true // Đánh dấu là người dùng đã hủy
+            isClosing = true // Bắt đầu animation đóng
+            timerJob?.cancel()
+            audioRecorderHelper.cancelRecording()
+            
+            // Reset trạng thái nghe lại
+            hasRecordedAudio = false
+            recordedAudioUri = null
+            
+            // Animation đóng
+            scope.launch {
+                delay(300) // Thời gian animation
+                isVoiceBarVisible = false
+            }
+        }
+    }
+    
+    // Cleanup resources khi component bị hủy
+    DisposableEffect(Unit) {
+        onDispose {
+            timerJob?.cancel()
+            if (isRecording) {
+                audioRecorderHelper.cancelRecording()
+            }
+        }
     }
     
     // Launcher để yêu cầu quyền ghi âm
@@ -287,32 +483,41 @@ fun CustomTextField(
         if (isGranted) {
             // Quyền đã được cấp, bắt đầu ghi âm
             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            voiceRecognitionHelper.startListening()
+            startRecording()
         } else {
             // Quyền bị từ chối
             scope.launch {
-                snackbarHostState.showSnackbar("Ứng dụng cần quyền ghi âm để nhận dạng giọng nói.")
-            }
-            voiceRecognitionStatus = ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.NO_PERMISSION
-        }
-    }
-    
-    // Xử lý việc dừng ghi âm khi component bị dispose
-    DisposableEffect(Unit) {
-        onDispose {
-            if (isRecording) {
-                voiceRecognitionHelper.stopListening()
-                voiceRecognitionHelper.destroy()
+                snackbarHostState.showSnackbar("Ứng dụng cần quyền ghi âm để ghi âm tin nhắn.")
             }
         }
     }
     
-    // Theo dõi thời gian ghi âm
-    LaunchedEffect(isRecording) {
-        recordingDurationMs = 0
-        while (isRecording && voiceRecognitionStatus == ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.LISTENING) {
-            delay(1000)
-            recordingDurationMs += 1000
+    // Document picker callback
+    val documentPickerResult = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                // Kiểm tra loại file
+                val mimeType = context.contentResolver.getType(uri)
+                if (mimeType != null && mimeType.startsWith("audio/")) {
+                    // Đây là file âm thanh
+                    recordedAudioUri = uri
+                    hasRecordedAudio = true
+                    chatViewModel.onEvent(ChatUiEvent.OnAudioFileSelected(uri))
+                } else {
+                    // File thông thường (không phải âm thanh)
+                    chatViewModel.onEvent(ChatUiEvent.OnFileSelected(uri))
+                }
+            }
+        }
+    )
+    
+    // Effect khi fileUri trong chatState thay đổi
+    LaunchedEffect(chatState.fileUri, chatState.isAudioMessage) {
+        if (chatState.fileUri != null && chatState.isAudioMessage && !hasRecordedAudio) {
+            // Nếu có file âm thanh trong chatState nhưng chưa hiển thị thanh phát
+            recordedAudioUri = chatState.fileUri
+            hasRecordedAudio = true
         }
     }
     
@@ -328,7 +533,7 @@ fun CustomTextField(
     // Hiển thị thông báo nếu cần lý giải tại sao cần quyền ghi âm
     LaunchedEffect(audioPermissionState.status) {
         if (!audioPermissionState.status.isGranted && audioPermissionState.status.shouldShowRationale) {
-            snackbarHostState.showSnackbar("Ứng dụng cần quyền ghi âm để nhận dạng giọng nói và nhập tin nhắn bằng giọng nói.")
+            snackbarHostState.showSnackbar("Ứng dụng cần quyền ghi âm để ghi âm tin nhắn.")
         }
     }
 
@@ -351,13 +556,71 @@ fun CustomTextField(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Hiển thị audio player nếu đã ghi âm xong và có file âm thanh
+        AnimatedVisibility(
+            visible = hasRecordedAudio && recordedAudioUri != null,
+            enter = fadeIn() + slideInHorizontally(),
+            exit = fadeOut() + slideOutHorizontally(),
+            modifier = Modifier.padding(bottom = 4.dp)
+        ) {
+            recordedAudioUri?.let { uri ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                ) {
+                    AudioPlayerComponent(
+                        context = context,
+                        audioUri = uri,
+                        modifier = Modifier.fillMaxWidth(),
+                        isCompact = true,
+                        onDelete = {
+                            // Hủy bỏ bản ghi âm, reset trạng thái và xóa file
+                            hasRecordedAudio = false
+                            
+                            // Lưu URI tạm thời để tham chiếu đến file cần xóa
+                            val fileToDelete = recordedAudioUri
+                            recordedAudioUri = null
+                            
+                            // Reset trạng thái file âm thanh trong ViewModel
+                            chatViewModel.onEvent(ChatUiEvent.RemoveFile)
+                            
+                            // Xóa file âm thanh nếu tồn tại (chạy trong background)
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    fileToDelete?.let { audioUri ->
+                                        val path = audioUri.path
+                                        if (path != null) {
+                                            val file = File(path)
+                                            if (file.exists()) {
+                                                file.delete()
+                                                Log.d("CustomTextField", "Đã xóa file âm thanh: $path")
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("CustomTextField", "Lỗi khi xóa file âm thanh: ${e.message}")
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .wrapContentHeight(align = Alignment.Top)
                 .heightIn(min = 40.dp, max = 160.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surface)
+                .background(
+                    if (hasRecordedAudio) 
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.9f) 
+                    else 
+                        MaterialTheme.colorScheme.surface
+                )
         ) {
             // Đã xóa phần hiển thị ảnh nhỏ ở đây vì đã hiển thị ở phần ChatScreen
             
@@ -600,20 +863,19 @@ fun CustomTextField(
         }
         
         // --- Thay đổi Hàng chứa nút Icon để hỗ trợ ghi âm ---
-        if ((isRecording || isProcessingVoice || voiceRecognitionStatus != null) && !isClosing && isVoiceBarVisible) {
+        if (isRecording || isProcessingVoice) {
             // Hiển thị thanh ghi âm với trạng thái hiện tại
             VoiceRecordingBar(
                 durationMs = recordingDurationMs,
                 isProcessingVoice = isProcessingVoice,
-                recognitionStatus = voiceRecognitionStatus,
                 isVisible = true, // Luôn hiển thị vì điều kiện bên ngoài đã kiểm tra isVoiceBarVisible
                 onStopRecording = {
-                    if (!isProcessingVoice && voiceRecognitionStatus == ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.LISTENING) {
+                    if (!isProcessingVoice && isRecording) {
                         // Ngay khi người dùng nhấn nút xử lý, đánh dấu phản hồi xúc giác
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         
                         // Dừng việc ghi âm để bắt đầu xử lý
-                        voiceRecognitionHelper.stopListening()
+                        stopRecording()
                         
                         // Hiển thị logging để debug
                         Log.d("VoiceRecording", "Dừng ghi âm để xử lý")
@@ -640,14 +902,12 @@ fun CustomTextField(
                             delay(300)
                             
                             // Dừng và hủy bỏ việc ghi âm
-                            Log.d("VoiceRecording", "Bắt đầu destroy và reset voice recognition")
-                            voiceRecognitionHelper.destroy()
-                            voiceRecognitionHelper.reset()
+                            Log.d("VoiceRecording", "Bắt đầu hủy ghi âm")
+                            cancelRecording()
                             
                             // Reset tất cả các trạng thái
                             isProcessingVoice = false
                             isRecording = false
-                            voiceRecognitionStatus = null
                             recordingDurationMs = 0
                             
                             // Log để debug
@@ -722,8 +982,8 @@ fun CustomTextField(
                             )
                         },
                         onClick = {
-                            // Tạm thời quay lại dùng "*/*" để kiểm tra
-                            documentPickerLauncher.launch("*/*")
+                            // Sử dụng document picker callback đã định nghĩa
+                            documentPickerResult.launch("*/*")
                             showSourceMenu = false
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         },
@@ -801,7 +1061,7 @@ fun CustomTextField(
                 // Nút Microphone - di chuyển sát bên trái nút gửi và điều chỉnh kích thước, màu sắc
                 IconButton(
                     onClick = {
-                        if (!isRecording && voiceRecognitionStatus == null && !isClosing) {
+                        if (!isRecording && !isProcessingVoice && !isClosing) {
                             when {
                                 // Đã có quyền, bắt đầu ghi âm ngay
                                 ContextCompat.checkSelfPermission(
@@ -815,31 +1075,8 @@ fun CustomTextField(
                                         isVoiceBarVisible = true
                                     }
                                     
-                                    // Tải và khởi tạo mô hình khi cần thiết, và sau đó bắt đầu ghi âm
-                                    scope.launch {
-                                        try {
-                                            // Cập nhật UI để hiển thị đang chuẩn bị
-                                            voiceRecognitionStatus = ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.INITIALIZING
-                                            
-                                            // Bắt đầu lắng nghe, ImprovedVoiceRecognitionHelper sẽ tự xử lý việc khởi tạo model nếu cần
-                                            voiceRecognitionHelper.startListening() 
-                                            
-                                        } catch (e: Exception) {
-                                            Log.e("VoiceRecognition", "Lỗi khi bắt đầu ghi âm: ${e.message}")
-                                            voiceRecognitionStatus = ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.ERROR
-                                            
-                                            // Hiển thị thông báo lỗi
-                                            Toast.makeText(
-                                                context,
-                                                "Không thể bắt đầu ghi âm: ${e.message}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                            
-                                            // Reset trạng thái sau 2 giây
-                                            delay(2000)
-                                            voiceRecognitionStatus = null
-                                        }
-                                    }
+                                    // Bắt đầu ghi âm
+                                    startRecording()
                                 }
                                 // Chưa có quyền, yêu cầu quyền
                                 else -> {
@@ -885,15 +1122,37 @@ fun CustomTextField(
                     IconButton(
                         onClick = {
                             if (isTextNotEmpty) {
-                                val sanitizedPrompt = sanitizeMessage(chatState.prompt)
-                                chatViewModel.onEvent(
-                                    ChatUiEvent.SendPrompt(
-                                        sanitizedPrompt,
-                                        chatState.imageUri
+                                // Kiểm tra nếu là tin nhắn âm thanh từ ghi âm trực tiếp hoặc từ chatState
+                                if ((hasRecordedAudio && recordedAudioUri != null) || 
+                                    (chatState.isAudioMessage && chatState.fileUri != null)) {
+                                    // Ưu tiên sử dụng recordedAudioUri nếu có (ghi âm trực tiếp)
+                                    val audioUriToSend = recordedAudioUri ?: chatState.fileUri!!
+                                    
+                                    // Gửi prompt với file âm thanh
+                                    val sanitizedPrompt = sanitizeMessage(chatState.prompt)
+                                    chatViewModel.onEvent(
+                                        ChatUiEvent.SendAudioPrompt(
+                                            sanitizedPrompt,
+                                            audioUriToSend
+                                        )
                                     )
-                                )
+                                    // Reset trạng thái nghe lại sau khi gửi
+                                    hasRecordedAudio = false
+                                    recordedAudioUri = null
+                                } else {
+                                    // Gửi prompt bình thường
+                                    val sanitizedPrompt = sanitizeMessage(chatState.prompt)
+                                    chatViewModel.onEvent(
+                                        ChatUiEvent.SendPrompt(
+                                            sanitizedPrompt,
+                                            chatState.imageUri
+                                        )
+                                    )
+                                }
                                 // Thêm dòng này để xóa nội dung ô nhập liệu
                                 chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(""))
+                                // Xóa file sau khi gửi tin nhắn
+                                chatViewModel.onEvent(ChatUiEvent.RemoveFile)
                                 // Thêm phản hồi rung khi gửi tin nhắn
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             }
@@ -927,10 +1186,26 @@ fun CustomTextField(
             messageText = chatState.prompt,
             onMessageTextChange = { newText -> chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(newText)) },
             onSendMessage = {
-                if (chatState.prompt.isNotBlank() || chatState.imageUri != null || chatState.fileUri != null) {
+                if (chatState.prompt.isNotBlank() || chatState.imageUri != null || chatState.fileUri != null || hasRecordedAudio) {
                     val sanitizedPrompt = sanitizeMessage(chatState.prompt)
-                    chatViewModel.onEvent(ChatUiEvent.SendPrompt(sanitizedPrompt, chatState.imageUri))
+                    // Kiểm tra nếu là file âm thanh
+                    if (hasRecordedAudio && recordedAudioUri != null || chatState.isAudioMessage && chatState.fileUri != null) {
+                        val audioUriToSend = recordedAudioUri ?: chatState.fileUri!!
+                        chatViewModel.onEvent(
+                            ChatUiEvent.SendAudioPrompt(
+                                sanitizedPrompt,
+                                audioUriToSend
+                            )
+                        )
+                        // Reset trạng thái âm thanh
+                        hasRecordedAudio = false
+                        recordedAudioUri = null
+                    } else {
+                        // Gửi tin nhắn bình thường
+                        chatViewModel.onEvent(ChatUiEvent.SendPrompt(sanitizedPrompt, chatState.imageUri))
+                    }
                     chatViewModel.onEvent(ChatUiEvent.UpdatePrompt(""))
+                    chatViewModel.onEvent(ChatUiEvent.RemoveFile) // Xóa file sau khi gửi
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     showExpandedInputSheet = false
                 }
@@ -940,7 +1215,7 @@ fun CustomTextField(
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             },
             onAttachFile = {
-                documentPickerLauncher.launch("*/*")
+                documentPickerResult.launch("*/*")
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             },
             onTakePicture = {
@@ -957,12 +1232,16 @@ fun CustomTextField(
             fileName = chatState.fileName,
             isFileUploading = chatState.isFileUploading,
             isImageProcessing = chatState.isImageProcessing,
+            isAudioMessage = chatState.isAudioMessage || hasRecordedAudio,
             onRemoveImage = {
                 chatViewModel.onEvent(ChatUiEvent.RemoveImage)
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             },
             onRemoveFile = {
                 chatViewModel.onEvent(ChatUiEvent.RemoveFile)
+                // Đồng thời reset trạng thái audio trong component này
+                hasRecordedAudio = false
+                recordedAudioUri = null
                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             },
             onImageClick = { uri ->

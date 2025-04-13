@@ -136,6 +136,8 @@ fun ModelChatItem(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.Start
         ) {
+            // Loại bỏ phần hiển thị file âm thanh theo yêu cầu
+            
             // Hiển thị "Thinking..." hoặc nội dung tin nhắn
             if (isThinking) {
                 Box(
@@ -244,16 +246,27 @@ fun ModelChatItem(
                                                 } 
                                                 // Option 2: Kiểm tra thông tin từ đối tượng Chat (tin nhắn người dùng) được truyền vào
                                                 else if (chat != null) {
-                                                    // Nếu là tin nhắn chứa hình ảnh
-                                                    if (chat.imageUrl != null) {
-                                                        canRegenerate = true
-                                                        effectivePrompt = "Hãy mô tả hình ảnh này"
-                                                    } 
-                                                    // Nếu là tin nhắn chứa file
-                                                    else if (chat.isFileMessage) {
+                                                    // Kiểm tra nếu là tin nhắn chứa file (ưu tiên kiểm tra file trước)
+                                                    if (chat.isFileMessage) {
                                                         canRegenerate = true
                                                         val fileName = chat.fileName ?: "không rõ tên"
-                                                        effectivePrompt = "Hãy tóm tắt nội dung file $fileName"
+                                                        
+                                                        // Kiểm tra phần mở rộng của file để phân biệt âm thanh và file thông thường
+                                                        val isAudioFile = fileName.endsWith(".ogg", ignoreCase = true) || 
+                                                                         fileName.endsWith(".mp3", ignoreCase = true) || 
+                                                                         fileName.endsWith(".m4a", ignoreCase = true) ||
+                                                                         fileName.endsWith(".wav", ignoreCase = true)
+                                                        
+                                                        effectivePrompt = if (isAudioFile) {
+                                                            "Đây là một đoạn âm thanh, hãy phân tích nội dung của nó. Nếu nó là câu hỏi, bạn hãy trả lời nó bằng 1 cách xuất sắc nhất. Trả lời giống như con người đang nói chuyện với nhau."
+                                                        } else {
+                                                            "Hãy tóm tắt nội dung file $fileName"
+                                                        }
+                                                    }
+                                                    // Nếu không phải file mà là hình ảnh
+                                                    else if (chat.imageUrl != null) {
+                                                        canRegenerate = true
+                                                        effectivePrompt = "Hãy mô tả hình ảnh này"
                                                     }
                                                 }
                                                 

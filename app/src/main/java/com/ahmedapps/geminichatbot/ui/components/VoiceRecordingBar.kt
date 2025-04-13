@@ -50,9 +50,8 @@ fun VoiceRecordingBar(
     onStopRecording: () -> Unit,
     onCancelRecording: () -> Unit,
     isProcessingVoice: Boolean = false,
-    recognitionStatus: ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus? = null,
-    modifier: Modifier = Modifier,
-    isVisible: Boolean = true
+    isVisible: Boolean = true,
+    modifier: Modifier = Modifier
 ) {
     // Chuyển đổi thời gian từ mili giây sang định dạng "mm:ss"
     val formattedTime = formatRecordingTime(durationMs)
@@ -100,28 +99,11 @@ fun VoiceRecordingBar(
         label = "wave3"
     )
     
-    // Xác định trạng thái hiển thị
-    val isInProcessingState = isProcessingVoice || 
-                             recognitionStatus == ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.PROCESSING ||
-                             recognitionStatus == ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.INITIALIZING ||
-                             recognitionStatus == ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.PREPARING_MODEL
-    
     // Xác định màu đèn báo trạng thái
-    val indicatorColor = when {
-        recognitionStatus == ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.ERROR -> Color.Yellow
-        isInProcessingState -> Color.Gray
-        else -> Color.Red
-    }
+    val indicatorColor = if (isProcessingVoice) Color.Gray else Color.Red
     
     // Xác định thông báo trạng thái
-    val statusMessage = when (recognitionStatus) {
-        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.INITIALIZING -> "Đang khởi tạo..."
-        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.PREPARING_MODEL -> "Đang chuẩn bị..."
-        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.PROCESSING -> "Đang xử lý..."
-        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.ERROR -> "Đã xảy ra lỗi"
-        ImprovedVoiceRecognitionHelper.VoiceRecognitionStatus.NO_PERMISSION -> "Không có quyền"
-        else -> if (isProcessingVoice) "Đang xử lý..." else formattedTime
-    }
+    val statusMessage = if (isProcessingVoice) "Đang xử lý..." else formattedTime
     
     AnimatedVisibility(
         visible = isVisible,
@@ -161,7 +143,7 @@ fun VoiceRecordingBar(
             Box(
                 modifier = Modifier
                     .size(12.dp)
-                    .scale(if (isInProcessingState) 1f else scale)
+                    .scale(if (isProcessingVoice) 1f else scale)
                     .clip(CircleShape)
                     .background(indicatorColor)
             )
@@ -179,7 +161,7 @@ fun VoiceRecordingBar(
             Spacer(modifier = Modifier.width(16.dp))
             
             // Thanh sóng âm - hiển thị khi không trong quá trình xử lý
-            if (!isInProcessingState) {
+            if (!isProcessingVoice) {
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
@@ -218,7 +200,7 @@ fun VoiceRecordingBar(
                     .background(MaterialTheme.colorScheme.primary),
                 contentAlignment = Alignment.Center
             ) {
-                if (isInProcessingState) {
+                if (isProcessingVoice) {
                     // Hiển thị biểu tượng loading khi đang xử lý
                     CircularProgressIndicator(
                         modifier = Modifier.size(24.dp),
