@@ -134,7 +134,7 @@ fun SideDrawer(
                 gradient = gradientBrush
             ) {
                 Text(
-                    text = "ChatAI BY JOHNESS",
+                    text = "CHATAI BY JOHNESS",
                     color = Color.White,
                     style = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 )

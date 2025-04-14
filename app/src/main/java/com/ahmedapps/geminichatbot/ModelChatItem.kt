@@ -42,6 +42,10 @@ import android.widget.Toast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 
 
 
@@ -82,6 +86,17 @@ fun ModelChatItem(
     
     // Clipboard manager for copy function
     val clipboardManager = LocalClipboardManager.current
+    
+    // Thêm biến state để quản lý hiển thị dấu tích khi copy
+    var showCopyTick by remember { mutableStateOf(false) }
+    
+    // LaunchedEffect để ẩn dấu tích sau 2 giây
+    LaunchedEffect(showCopyTick) {
+        if (showCopyTick) {
+            delay(2000)
+            showCopyTick = false
+        }
+    }
 
     // Sử dụng toàn màn hình thay vì 0.9f
     val screenHeight = LocalConfiguration.current.screenHeightDp.dp
@@ -293,19 +308,41 @@ fun ModelChatItem(
                             }
                             
                             // Copy button
-                            IconButton(
-                                onClick = { 
-                                    clipboardManager.setText(formattedResponse)
-                                    Toast.makeText(context, "Đã sao chép vào bộ nhớ tạm", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.size(30.dp)
-                            ) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_copy),
-                                    contentDescription = "Sao chép",
-                                    tint = textColor.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(16.dp)
-                                )
+                            Box {
+                                IconButton(
+                                    onClick = { 
+                                        clipboardManager.setText(formattedResponse)
+                                        showCopyTick = true
+                                    },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    // Hiệu ứng chuyển đổi giữa biểu tượng copy và dấu tích
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = !showCopyTick,
+                                        enter = fadeIn(animationSpec = tween(300)),
+                                        exit = fadeOut(animationSpec = tween(300))
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_copy),
+                                            contentDescription = "Sao chép",
+                                            tint = textColor.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = showCopyTick,
+                                        enter = fadeIn(animationSpec = tween(300)),
+                                        exit = fadeOut(animationSpec = tween(300))
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(id = R.drawable.ic_accept),
+                                            contentDescription = "Đã sao chép",
+                                            tint = Color(0xFF4CAF50), // Màu xanh lá
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
                             }
                             
                             // Delete button

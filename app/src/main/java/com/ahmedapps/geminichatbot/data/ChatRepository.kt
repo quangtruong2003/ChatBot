@@ -1135,4 +1135,135 @@ class ChatRepository @Inject constructor(
             return@coroutineScope errorChat
         }
     }
+
+    /**
+     * Upload tệp văn bản lên Firebase Storage và trả về URL download.
+     * Đồng thời trích xuất nội dung văn bản để gửi đến API.
+     */
+    suspend fun uploadTextFile(fileUri: Uri): Pair<String?, String> = withContext(Dispatchers.IO) {
+        try {
+            // Trích xuất nội dung file văn bản
+            val textContent = readTextFromUri(fileUri)
+            
+            // Tải lên Firebase Storage
+            val fileName = getFileNameFromUri(fileUri) ?: "${System.currentTimeMillis()}.txt"
+            val textRef = storage.reference.child("texts/$userId/$fileName")
+            textRef.putFile(fileUri).await()
+            val url = textRef.downloadUrl.await().toString()
+            
+            Log.d("ChatRepository", "Text file uploaded, URL: $url, Content length: ${textContent.length}")
+            Pair(url, textContent)
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error uploading text file", e)
+            Pair(fileUri.toString(), "Error: Không thể đọc nội dung file (${e.message})")
+        }
+    }
+    
+    /**
+     * Đọc nội dung file văn bản từ Uri
+     */
+    private fun readTextFromUri(uri: Uri): String {
+        val stringBuilder = StringBuilder()
+        try {
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                val reader = inputStream.bufferedReader()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    stringBuilder.append(line)
+                    stringBuilder.append("\n")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error reading text from URI", e)
+            return "Error reading file: ${e.message}"
+        }
+        return stringBuilder.toString()
+    }
+    
+    /**
+     * Lấy tên file từ Uri
+     */
+    private fun getFileNameFromUri(uri: Uri): String? {
+        var fileName: String? = null
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val displayNameIndex = it.getColumnIndex(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                if (displayNameIndex != -1) {
+                    fileName = it.getString(displayNameIndex)
+                }
+            }
+        }
+        return fileName
+    }
+
+    /**
+     * Lấy phản hồi từ GenerativeModel kèm file văn bản.
+     */
+    suspend fun getResponseWithTextFile(prompt: String, fileUri: Uri, selectedSegmentId: String?): Chat = coroutineScope {
+        try {
+            // Song song: lấy lịch sử chat và tải file văn bản
+            val chatHistoryDeferred = async(Dispatchers.IO) {
+                getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
+            }
+            val (fileUrl, textContent) = uploadTextFile(fileUri)
+            val chatHistory = chatHistoryDeferred.await()
+
+            // Tạo prompt kết hợp nội dung file và prompt người dùng
+            val effectivePrompt = if (prompt.isNotEmpty()) {
+                "$prompt\n\nNội dung file:\n$textContent"
+            } else {
+                "Hãy phân tích nội dung file văn bản sau:\n\n$textContent"
+            }
+
+            val fullPrompt = getFullPrompt(effectivePrompt, hasImage = false, chatHistory = chatHistory)
+            Log.d("ChatRepository", "Sending prompt with text file, prompt length: ${fullPrompt.length}")
+
+            // Gọi API với prompt kết hợp
+            val response = generativeModel.generateContent(fullPrompt)
+            val responseText = response.text
+            Log.d("ChatRepository", "API Response for text file: $responseText")
+
+            // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
+            if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
+                val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
+                val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
+                if (currentSegment?.title == DEFAULT_SEGMENT_TITLE) {
+                    val generatedTitle = generateChatSegmentTitleFromResponse(responseText)
+                    updateSegmentTitle(selectedSegmentId, generatedTitle)
+                    _hasUpdatedTitle = true
+                }
+            }
+
+            // Lấy tên file
+            val fileName = getFileNameFromUri(fileUri) ?: "unknown_file.txt"
+
+            // Tạo chat object với URL file
+            val chat = Chat(
+                prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
+                imageUrl = fileUrl,
+                isFromUser = false,
+                isError = responseText == null,
+                userId = userId,
+                isFileMessage = true,
+                fileName = fileName
+            )
+            
+            // Lưu tin nhắn vào Firestore
+            insertChat(chat, selectedSegmentId)
+            
+            chat
+        } catch (e: Exception) {
+            e.printStackTrace()
+            val chat = Chat(
+                prompt = "Error: ${e.localizedMessage}",
+                imageUrl = null,
+                isFromUser = false,
+                isError = true,
+                userId = userId
+            )
+            insertChat(chat, selectedSegmentId)
+            chat
+        }
+    }
 }

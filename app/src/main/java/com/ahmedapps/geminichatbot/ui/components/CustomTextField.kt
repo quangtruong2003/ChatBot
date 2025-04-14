@@ -7,6 +7,7 @@ import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
 import android.os.Build.VERSION_CODES
+import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Base64
@@ -114,11 +115,14 @@ import com.ahmedapps.geminichatbot.crop
 import com.ahmedapps.geminichatbot.ui.components.AudioPlayerComponent
 import com.ahmedapps.geminichatbot.ui.components.VoiceRecordingBar
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.ahmedapps.geminichatbot.utils.FileUtils
+import com.ahmedapps.geminichatbot.utils.AudioConverter
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 // Di chuyển hàm crop từ ChatScreen.kt để sử dụng cho dropdown menu
 fun Modifier.crop(
@@ -499,13 +503,21 @@ fun CustomTextField(
             if (uri != null) {
                 // Kiểm tra loại file
                 val mimeType = context.contentResolver.getType(uri)
+                
+                // Xử lý nếu là file âm thanh
                 if (mimeType != null && mimeType.startsWith("audio/")) {
                     // Đây là file âm thanh
                     recordedAudioUri = uri
                     hasRecordedAudio = true
                     chatViewModel.onEvent(ChatUiEvent.OnAudioFileSelected(uri))
-                } else {
-                    // File thông thường (không phải âm thanh)
+                } 
+                // Xử lý nếu là file ảnh
+                else if (com.ahmedapps.geminichatbot.utils.FileUtils.isImageFile(context, uri)) {
+                    // Đây là file ảnh, xử lý giống như khi chọn ảnh từ thư viện
+                    chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
+                }
+                else {
+                    // Đây là file thông thường (không phải âm thanh hoặc ảnh)
                     chatViewModel.onEvent(ChatUiEvent.OnFileSelected(uri))
                 }
             }
