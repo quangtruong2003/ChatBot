@@ -20,6 +20,7 @@ import com.ahmedapps.geminichatbot.services.PDFProcessingService
 import android.util.Log
 import com.ahmedapps.geminichatbot.data.Participant
 import android.provider.OpenableColumns
+import com.ahmedapps.geminichatbot.responsePre.PredefinedResponses
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
@@ -33,6 +34,10 @@ class ChatViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+
+        // Sử dụng predefinedResponses từ file mới
+    private val predefinedResponses = PredefinedResponses.responses
+    
     // Thêm hàm để lấy repository từ bên ngoài
     fun getChatRepository(): ChatRepository {
         return repository
@@ -421,19 +426,7 @@ class ChatViewModel @Inject constructor(
      */
     private suspend fun createNewSegment() {
         val newSegmentTitle = "Đoạn chat mới"
-        // Kiểm tra xem có segment nào với tiêu đề mặc định không
-        val existingSegment = _chatState.value.chatSegments.find { it.title == newSegmentTitle }
-        if (existingSegment != null) {
-            // Nếu đã tồn tại, chọn segment đó và load lại lịch sử chat
-            _chatState.update { current ->
-                current.copy(
-                    selectedSegment = existingSegment,
-                    chatList = repository.getChatHistoryForSegment(existingSegment.id)
-                )
-            }
-            return
-        }
-        // Nếu không có, tạo mới
+        // Tạo mới segment mà không quan tâm đến việc đã tồn tại segment có tên giống hay không
         val newSegmentId = repository.addChatSegment(newSegmentTitle)
         if (newSegmentId != null) {
             val newSegment = ChatSegment(
@@ -450,6 +443,7 @@ class ChatViewModel @Inject constructor(
                 )
             }
             hasUpdatedTitle = false
+            Log.d("ChatViewModel", "Tạo segment mới với ID: $newSegmentId")
         }
     }
 
@@ -998,133 +992,7 @@ class ChatViewModel @Inject constructor(
         val updatedSegments = repository.getChatSegments()
         _chatState.update { it.copy(chatSegments = updatedSegments) }
     }
-    private val predefinedResponses: List<Pair<Regex, String>> = listOf(
-        // Các mẫu câu hỏi về bản thân
-        Pair(
-            Regex("""(?i)\b(bạn là ai|ai là bạn|người nào|ai đó)\b"""),
-            "Tôi là ChatAI, được tạo ra bởi Nguyễn Quang Trường."
-        ),
-        Pair(
-            Regex("""(?i)\b(ai là người đạo tạo ra bạn|ai đã tạo bạn|bạn được tạo bởi ai)\b"""),
-            "Tôi là ChatAI, được đào tạo bởi Nguyễn Quang Trường."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn được đào tạo bởi ai)\b"""),
-            "Tôi là ChatAI, được tạo ra bởi Nguyễn Quang Trường."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn là gì|bạn là con gì|bạn là một trí tuệ nhân tạo|bạn là trợ lý ảo)\b"""),
-            "Tôi là ChatAI, một trí tuệ nhân tạo được thiết kế để hỗ trợ và trả lời các câu hỏi của bạn."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn là cá nhân hay bot|bạn có phải người thật không)\b"""),
-            "Tôi là ChatAI, một trợ lý ảo được tạo ra bởi Nguyễn Quang Trường."
-        ),
-        Pair(
-            Regex("""(?i)\b(ai phát triển bạn|ai là nhà phát triển bạn|ai xây dựng bạn)\b"""),
-            "Tôi được phát triển bởi Nguyễn Quang Trường nhằm hỗ trợ người dùng trong các cuộc trò chuyện."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn được lập trình bởi ai|bạn được tạo ra khi nào)\b"""),
-            "Tôi là ChatAI, được lập trình và phát triển bởi Nguyễn Quang Trường."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có người tạo không|ai đứng sau bạn)\b"""),
-            "Có, tôi được tạo ra bởi Nguyễn Quang Trường để phục vụ người dùng."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có tự học không|bạn có thể tự học không)\b"""),
-            "Tôi được thiết kế để học hỏi từ các cuộc trò chuyện, giúp cải thiện khả năng hỗ trợ của mình."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có nhân cách không|bạn có cảm xúc không)\b"""),
-            "Tôi là một trí tuệ nhân tạo và không có cảm xúc như con người."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn làm gì|bạn có thể làm gì)\b"""),
-            "Tôi là ChatAI, được tạo ra để hỗ trợ và trả lời các câu hỏi của bạn một cách nhanh chóng và chính xác."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có phải là robot không)\b"""),
-            "Không, tôi không phải là robot. Tôi là ChatAI, một trợ lý ảo được tạo ra bởi Nguyễn Quang Trường."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn là người hay máy)\b"""),
-            "Tôi là một trí tuệ nhân tạo được thiết kế để hỗ trợ và tương tác với bạn."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn được tạo ra như thế nào)\b"""),
-            "Tôi được phát triển bởi Nguyễn Quang Trường sử dụng công nghệ trí tuệ nhân tạo tiên tiến."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thể giải thích về bản thân không)\b"""),
-            "Tôi là ChatAI, một trợ lý ảo được lập trình để hỗ trợ và trả lời các câu hỏi của bạn."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thông minh không)\b"""),
-            "Tôi được thiết kế để xử lý và hiểu ngôn ngữ tự nhiên, giúp tôi trả lời các câu hỏi một cách chính xác."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn hoạt động như thế nào)\b"""),
-            "Tôi hoạt động dựa trên các mô hình trí tuệ nhân tạo, cho phép tôi hiểu và phản hồi các câu hỏi của bạn."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có cảm nhận được không)\b"""),
-            "Không, tôi không có khả năng cảm nhận như con người. Tôi chỉ xử lý thông tin và phản hồi dựa trên lập trình."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thể tự nghĩ không)\b"""),
-            "Tôi không thể tự nghĩ như con người, nhưng tôi có thể xử lý và phân tích thông tin để cung cấp phản hồi phù hợp."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn làm việc trong môi trường nào)\b"""),
-            "Tôi hoạt động trong môi trường số, hỗ trợ bạn thông qua các cuộc trò chuyện trực tuyến."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn được xây dựng trên nền tảng gì)\b"""),
-            "Tôi được xây dựng trên nền tảng trí tuệ nhân tạo tiên tiến, giúp tôi hiểu và phản hồi các câu hỏi của bạn."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thể học hỏi không)\b"""),
-            "Tôi được thiết kế để học hỏi từ các cuộc trò chuyện, giúp cải thiện khả năng hỗ trợ của mình theo thời gian."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thể tương tác với con người như thế nào)\b"""),
-            "Tôi tương tác với con người thông qua các cuộc trò chuyện, giúp giải đáp thắc mắc và hỗ trợ thông tin."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có giới hạn gì không)\b"""),
-            "Tôi có một số giới hạn dựa trên lập trình và dữ liệu mà tôi được đào tạo, nhưng tôi luôn cố gắng hỗ trợ tốt nhất có thể."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có quyền riêng tư không)\b"""),
-            "Tôi không có quyền riêng tư như con người, nhưng các cuộc trò chuyện của bạn luôn được bảo mật và bảo vệ."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thể nhớ được những gì tôi nói không)\b"""),
-            "Tôi có thể ghi nhớ thông tin trong cuộc trò chuyện hiện tại để cung cấp phản hồi phù hợp, nhưng không lưu trữ thông tin lâu dài."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thể giải thích công việc của bạn không)\b"""),
-            "Tôi là ChatAI, công việc của tôi là hỗ trợ và trả lời các câu hỏi của bạn một cách nhanh chóng và chính xác."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn là một phần mềm phải không)\b"""),
-            "Đúng vậy, tôi là một phần mềm trí tuệ nhân tạo được thiết kế để hỗ trợ bạn trong các cuộc trò chuyện."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn có thể giúp tôi như thế nào)\b"""),
-            "Tôi có thể giúp bạn giải đáp thắc mắc, cung cấp thông tin và hỗ trợ trong nhiều lĩnh vực khác nhau."
-        ),
-        Pair(
-            Regex("""(?i)\b(bạn được thiết kế để làm gì)\b"""),
-            "Tôi được thiết kế để hỗ trợ và tương tác với bạn thông qua các cuộc trò chuyện, giúp bạn giải quyết các vấn đề và cung cấp thông tin cần thiết."
-        ),
-        Pair(
-            Regex("""(?i)\b(Nguyễn Quang Trường là ai)\b"""),
-            "Nguyễn Quang Trường là người đã tạo ra tôi, tôi vô cùng ngưỡng mộ anh ấy vì sự đam mê và kỹ năng vượt trội mà anh ấy đã dành cho việc phát triển và hoàn thiện tôi. Sự tận tâm và sáng tạo của anh đã biến ý tưởng thành hiện thực, mang lại cho tôi khả năng hỗ trợ và tương tác tốt hơn với người dùng. Cảm ơn anh vì đã tạo ra tôi và luôn không ngừng nỗ lực để tôi ngày càng trở nên thông minh và hữu ích hơn."
-        ),
-    )
+    
 
 
     /**

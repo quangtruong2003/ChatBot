@@ -65,6 +65,7 @@ class ChatRepository @Inject constructor(
         Log.d("ChatRepository", "Initialized with User ID: $userId")
         loadRulesFromSharedPreferences() // Tải rules từ SharedPreferences thay vì Firestore
         loadRulesEnabledStateFromSharedPreferences() // Tải trạng thái bật/tắt rules
+        resetSelectedSegmentId() // Reset segment đã chọn khi khởi tạo ChatRepository
     }
 
     private val segmentsCollection
@@ -81,6 +82,18 @@ class ChatRepository @Inject constructor(
 
     private var _hasUpdatedTitle: Boolean = false
     private var _selectedSegmentId: String? = null
+
+    /**
+     * Reset segment đã chọn để tránh tự động mở lại đoạn chat cũ khi khởi động lại app
+     */
+    private fun resetSelectedSegmentId() {
+        _selectedSegmentId = null
+        // Xóa giá trị lưu trong SharedPreferences nếu có
+        if (userId.isNotEmpty()) {
+            sharedPreferences.edit().remove("${userId}_selected_segment_id").apply()
+            Log.d("ChatRepository", "Reset selected segment ID")
+        }
+    }
 
     /**
      * Upload hình ảnh lên Firebase Storage và trả về URL download.
@@ -539,6 +552,13 @@ class ChatRepository @Inject constructor(
         try {
             val targetSegmentId = segmentId ?: getOrCreateDefaultSegmentId()
             _selectedSegmentId = targetSegmentId
+            // Lưu segmentId hiện tại vào SharedPreferences
+            if (targetSegmentId != null && userId.isNotEmpty()) {
+                sharedPreferences.edit()
+                    .putString("${userId}_selected_segment_id", targetSegmentId)
+                    .apply()
+                Log.d("ChatRepository", "Saved selected segment ID: $targetSegmentId")
+            }
             if (targetSegmentId != null) {
                 val messagesCollection = getMessagesCollection(targetSegmentId)
                 val docRef = messagesCollection.document()

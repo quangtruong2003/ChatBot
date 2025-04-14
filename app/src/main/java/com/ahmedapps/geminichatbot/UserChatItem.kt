@@ -140,7 +140,7 @@ fun UserChatItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(end = 8.dp, bottom = 16.dp),
+            .padding(end = 8.dp, bottom = 0.dp),
         horizontalArrangement = Arrangement.End
     ) {
         Column(horizontalAlignment = Alignment.End) {
