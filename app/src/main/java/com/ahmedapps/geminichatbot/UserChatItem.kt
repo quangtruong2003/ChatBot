@@ -300,32 +300,6 @@ fun UserChatItem(
                     }
                     Spacer(modifier = Modifier.height(4.dp)) // Thêm khoảng cách trước các nút
                 }
-                
-                // Thêm nút xóa cho file khi không có prompt
-                if (prompt.isEmpty() && chatId != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier
-                            .widthIn(max = maxWidth)
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { 
-                                onDeleteClick(chatId)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_bin),
-                                contentDescription = "Xóa",
-                                tint = textColor.copy(alpha = 0.7f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
             } else if (imageUrl != null) {
                 // Hiển thị hình ảnh như bình thường (không phải file)
                 Box {
@@ -394,33 +368,6 @@ fun UserChatItem(
                                 showImageDropdownMenu = false
                             }
                         )
-                    }
-                }
-                
-                // Thêm nút xóa nếu không kèm tin nhắn (đã xóa nút copy)
-                if (prompt.isEmpty() && chatId != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier
-                            .widthIn(max = maxWidth)
-                            .padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Chỉ còn nút xóa (đã loại bỏ nút copy)
-                        IconButton(
-                            onClick = { 
-                                onDeleteClick(chatId)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_bin),
-                                contentDescription = "Xóa",
-                                tint = textColor.copy(alpha = 0.7f),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
                     }
                 }
             }
