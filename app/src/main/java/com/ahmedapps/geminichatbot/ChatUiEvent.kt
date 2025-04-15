@@ -28,9 +28,9 @@ sealed class ChatUiEvent {
         val message: String,
         val timestamp: Long,
         val imageUrl: String? = null,
-        val fileUri: Uri? = null,
         val fileName: String? = null
     ) : ChatUiEvent()
+    data class SaveEditedMessage(val newPrompt: String) : ChatUiEvent()
     object CancelEdit : ChatUiEvent()
     data class RegenerateResponse(
         val userPrompt: String,

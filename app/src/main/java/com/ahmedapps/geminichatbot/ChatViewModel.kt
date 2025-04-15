@@ -679,7 +679,6 @@ class ChatViewModel @Inject constructor(
                     event.message,
                     event.timestamp,
                     event.imageUrl,
-                    event.fileUri,
                     event.fileName
                 )
             }
@@ -687,14 +686,75 @@ class ChatViewModel @Inject constructor(
                 cancelEditing()
             }
             is ChatUiEvent.RegenerateResponse -> {
-                regenerateResponse(
-                    event.userPrompt,
-                    event.responseId,
-                    event.imageUrl,
-                    event.fileUri,
-                    event.fileName,
-                    event.timestamp
-                )
+                viewModelScope.launch {
+                    // Đánh dấu là đang loading và chờ phản hồi
+                    _chatState.update { it.copy(isLoading = true, isWaitingForResponse = true) }
+                    
+                    try {
+                        val userPrompt = event.userPrompt
+                        val responseId = event.responseId
+                        val segmentId = _chatState.value.selectedSegment?.id
+                        val imageUrl = event.imageUrl
+                        val fileName = event.fileName
+                        val userMessageTimestamp = event.timestamp
+                        
+                        // Log thông tin
+                        Log.d("ChatViewModel", "Regenerate với userPrompt: $userPrompt, responseId: $responseId, " +
+                              "imageUrl: $imageUrl, fileName: $fileName, timestamp: $userMessageTimestamp")
+                        
+                        // Lấy ID tin nhắn người dùng để loại trừ khỏi việc xóa
+                        val userChatId = _chatState.value.chatList
+                            .find { it.timestamp == userMessageTimestamp && it.isFromUser }?.id
+                        
+                        if (segmentId != null && userChatId != null) {
+                            // Xóa tất cả tin nhắn sau timestamp của tin nhắn người dùng, nhưng không xóa tin nhắn người dùng
+                            repository.deleteMessagesAfterTimestamp(segmentId, userMessageTimestamp, excludeIds = listOf(userChatId))
+                            
+                            // Cập nhật UI trước để xóa các tin nhắn đã xóa
+                            val updatedChatList = _chatState.value.chatList.filter { 
+                                it.timestamp <= userMessageTimestamp || it.id == userChatId
+                            }
+                            _chatState.update { it.copy(chatList = updatedChatList) }
+                            
+                            // Tạo response mới dựa trên dữ liệu
+                            val response = when {
+                                imageUrl != null -> {
+                                    if (fileName != null) {
+                                        // File đính kèm
+                                        repository.regenerateResponseWithFile(userPrompt, imageUrl, fileName, segmentId)
+                                    } else {
+                                        // Hình ảnh
+                                        repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId)
+                                    }
+                                }
+                                else -> {
+                                    // Tin nhắn văn bản
+                                    repository.getResponse(userPrompt, segmentId)
+                                }
+                            }
+                            
+                            // Cập nhật danh sách chat khi nhận được phản hồi
+                            _chatState.update { 
+                                it.copy(
+                                    chatList = it.chatList + response,
+                                    isLoading = false,
+                                    isWaitingForResponse = false
+                                )
+                            }
+                        } else {
+                            Log.e("ChatViewModel", "Không tìm thấy segment hoặc tin nhắn người dùng")
+                            _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
+                            insertModelChat("Không thể tạo lại phản hồi: không tìm thấy segment hoặc tin nhắn người dùng", true)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
+                        insertModelChat("Lỗi khi tạo lại phản hồi: ${e.message}", true)
+                    }
+                }
+            }
+            is ChatUiEvent.SaveEditedMessage -> {
+                saveEditedMessage(event.newPrompt)
             }
         }
     }
@@ -1780,12 +1840,16 @@ class ChatViewModel @Inject constructor(
         message: String,
         timestamp: Long,
         imageUrl: String? = null,
-        fileUri: Uri? = null,
         fileName: String? = null
     ) {
         // Tìm tin nhắn cần chỉnh sửa
         val chatToEdit = _chatState.value.chatList.find { it.id == chatId }
         if (chatToEdit != null) {
+            // Lấy trực tiếp các thông tin từ chat để đảm bảo không mất dữ liệu
+            val isFileMessage = chatToEdit.isFileMessage
+            val actualFileName = fileName ?: chatToEdit.fileName
+            val actualImageUrl = imageUrl ?: chatToEdit.imageUrl
+            
             // Cập nhật trạng thái để hiển thị giao diện chỉnh sửa
             _chatState.update {
                 it.copy(
@@ -1793,11 +1857,15 @@ class ChatViewModel @Inject constructor(
                     editingChatId = chatId,
                     editingChatTimestamp = timestamp,
                     prompt = message, // Đặt prompt hiện tại là nội dung đang edit
-                    editingImageUrl = imageUrl, // Lưu imageUrl
-                    editingFileUri = fileUri,   // Lưu fileUri
-                    editingFileName = fileName  // Lưu fileName
+                    editingImageUrl = actualImageUrl, // Lưu imageUrl đúng
+                    editingFileName = actualFileName // Lưu fileName đúng
                 )
             }
+            
+            // Log để kiểm tra
+            Log.d("ChatViewModel", "Bắt đầu edit tin nhắn: " +
+                    "ID=${chatId}, isFileMessage=${isFileMessage}, " +
+                    "fileName=${actualFileName}, imageUrl=${actualImageUrl}")
         }
     }
 
@@ -1812,10 +1880,161 @@ class ChatViewModel @Inject constructor(
                 editingChatId = null,
                 editingChatTimestamp = -1,
                 editingImageUrl = null,
-                editingFileUri = null,
+                //editingFileUri = null,
                 editingFileName = null,
                 prompt = "" // Xóa prompt khi hủy
             )
+        }
+        
+        // Log để kiểm tra
+        Log.d("ChatViewModel", "Đã hủy chỉnh sửa tin nhắn")
+    }
+
+    /**
+     * Lưu tin nhắn đã chỉnh sửa và xóa các tin nhắn mới hơn
+     */
+    private fun saveEditedMessage(newPrompt: String) {
+        viewModelScope.launch {
+            try {
+                val chatState = _chatState.value
+                val editingChatId = chatState.editingChatId ?: return@launch
+                val segmentId = chatState.selectedSegment?.id ?: return@launch
+                
+                // Tìm tin nhắn đang chỉnh sửa
+                val chatToEdit = chatState.chatList.find { it.id == editingChatId } ?: return@launch
+                
+                // Lấy thông tin file từ tin nhắn gốc
+                val isFileMessage = chatToEdit.isFileMessage
+                val imageUrl = chatToEdit.imageUrl
+                val fileName = chatToEdit.fileName
+                
+                // Log để kiểm tra
+                Log.d("ChatViewModel", "Edit tin nhắn: ID=${editingChatId}, " +
+                        "isFileMessage=${isFileMessage}, fileName=${fileName}, imageUrl=${imageUrl}, " +
+                        "oldPrompt=${chatToEdit.prompt}, newPrompt=${newPrompt}")
+                
+                // Tạo ID mới cho tin nhắn đã chỉnh sửa để tránh trùng lặp key trong LazyColumn
+                val newChatId = UUID.randomUUID().toString()
+                
+                // Cập nhật UI ngay lập tức để tránh trễ
+                val editedChat = chatToEdit.copy(
+                    id = newChatId, // Sử dụng ID mới
+                    prompt = newPrompt,
+                    // Giữ nguyên các thông tin file và hình ảnh từ tin nhắn gốc
+                    isFileMessage = isFileMessage, 
+                    imageUrl = imageUrl,
+                    fileName = fileName
+                )
+                
+                // Lấy danh sách tin nhắn đến tin nhắn đang edit
+                val chatListBeforeEdit = chatState.chatList.takeWhile { it.timestamp <= chatToEdit.timestamp }
+                
+                // Tìm vị trí của tin nhắn đang chỉnh sửa 
+                val editedChatIndex = chatListBeforeEdit.indexOfFirst { it.id == editingChatId }
+                
+                // Danh sách tin nhắn mới gồm tất cả tin nhắn trước (bao gồm) tin nhắn đang edit
+                val updatedPartialList = if (editedChatIndex >= 0) {
+                    val listBeforeEditedChat = chatListBeforeEdit.take(editedChatIndex)
+                    listBeforeEditedChat + editedChat
+                } else {
+                    chatListBeforeEdit.filterNot { it.id == editingChatId } + editedChat
+                }
+                
+                // Cập nhật UI ngay lập tức với tin nhắn đã edit, nhưng chưa có phản hồi mới
+                _chatState.update { 
+                    it.copy(
+                        chatList = updatedPartialList,
+                        isLoading = true,
+                        isWaitingForResponse = true,
+                        isEditing = false,
+                        prompt = "",
+                        editingChatId = null,
+                        editingChatTimestamp = -1,
+                        // Đặt lại các thông tin edit về null
+                        editingImageUrl = null,
+                        editingFileName = null
+                    )
+                }
+                
+                // Cập nhật tin nhắn đã chỉnh sửa vào Firestore (có thể chạy song song)
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        // Xử lý finalPrompt dựa trên loại tin nhắn
+                        val finalPrompt = if (isFileMessage && fileName != null) {
+                            // Kiểm tra xem có Uri trong cache cho file này không
+                            val cachedUri = fileUriCache[fileName]
+                            
+                            if (cachedUri != null) {
+                                // Trích xuất nội dung file khi Uri có trong cache
+                                Log.d("ChatViewModel", "Trích xuất nội dung từ file cache: $fileName")
+                                val fileContent = getFileContent(cachedUri, fileName)
+                                
+                                // Kết hợp prompt với nội dung file
+                                "$newPrompt\n\n--- Nội dung từ file $fileName ---\n$fileContent\n--- Kết thúc nội dung file ---"
+                            } else {
+                                // Kiểm tra xem có thể tải lại file từ imageUrl không (nếu là URL từ Firebase)
+                                if (imageUrl != null && imageUrl.startsWith("http")) {
+                                    try {
+                                        Log.d("ChatViewModel", "Thử trích xuất nội dung từ URL: $imageUrl")
+                                        // Kết hợp prompt với xử lý file
+                                        "$newPrompt\n\n--- Xử lý file $fileName từ URL ---"
+                                    } catch (e: Exception) {
+                                        Log.e("ChatViewModel", "Lỗi khi tải file từ URL: ${e.message}")
+                                        "$newPrompt\n\n(File đính kèm: $fileName - không trích xuất được nội dung)"
+                                    }
+                                } else {
+                                    // Không có cached Uri và không phải URL từ Firebase
+                                    Log.d("ChatViewModel", "Không thể trích xuất nội dung file, sử dụng prompt đơn giản")
+                                    "$newPrompt\n\n(File đính kèm: $fileName)"
+                                }
+                            }
+                        } else {
+                            // Không phải file, sử dụng prompt nguyên bản
+                            newPrompt
+                        }
+                        
+                        // Gọi repository để cập nhật tin nhắn và xóa tin nhắn mới hơn
+                        val response = repository.editChatMessage(editedChat, segmentId, finalPrompt)
+                        
+                        // Khi nhận được response, cập nhật UI thêm lần nữa
+                        withContext(Dispatchers.Main) {
+                            _chatState.update { 
+                                it.copy(
+                                    chatList = updatedPartialList + response,
+                                    isLoading = false,
+                                    isWaitingForResponse = false,
+                                    typedMessages = _typedMessagesIds.toSet() - response.id // Chưa đánh dấu response mới là đã typing
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("ChatViewModel", "Lỗi trong quá trình xử lý file: ${e.message}", e)
+                        withContext(Dispatchers.Main) {
+                            insertModelChat("Lỗi trong quá trình xử lý file: ${e.message}", true)
+                            _chatState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    isWaitingForResponse = false
+                                )
+                            }
+                        }
+                    }
+                }
+                
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Lỗi khi lưu tin nhắn đã chỉnh sửa: ${e.message}")
+                _chatState.update { 
+                    it.copy(
+                        isLoading = false,
+                        isWaitingForResponse = false,
+                        isEditing = false,
+                        prompt = ""
+                    )
+                }
+                
+                // Thêm tin nhắn lỗi thông báo cho người dùng
+                insertModelChat("Lỗi khi lưu tin nhắn đã chỉnh sửa: ${e.message}", true)
+            }
         }
     }
 }

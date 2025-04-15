@@ -1134,8 +1134,15 @@ fun CustomTextField(
                     IconButton(
                         onClick = {
                             if (isTextNotEmpty) {
-                                // Kiểm tra nếu là tin nhắn âm thanh từ ghi âm trực tiếp hoặc từ chatState
-                                if ((hasRecordedAudio && recordedAudioUri != null) || 
+                                if (chatState.isEditing) {
+                                    // Caso esteja editando uma mensagem existente
+                                    val sanitizedPrompt = sanitizeMessage(chatState.prompt)
+                                    chatViewModel.onEvent(ChatUiEvent.SaveEditedMessage(sanitizedPrompt))
+                                    
+                                    // Thêm phản hồi rung khi lưu chỉnh sửa
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                                else if ((hasRecordedAudio && recordedAudioUri != null) || 
                                     (chatState.isAudioMessage && chatState.fileUri != null)) {
                                     // Ưu tiên sử dụng recordedAudioUri nếu có (ghi âm trực tiếp)
                                     val audioUriToSend = recordedAudioUri ?: chatState.fileUri!!
@@ -1175,8 +1182,10 @@ fun CustomTextField(
                         enabled = isTextNotEmpty && !chatState.isLoading
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.ic_send),
-                            contentDescription = "Send Message",
+                            painter = painterResource(
+                                id = R.drawable.ic_send
+                            ),
+                            contentDescription = if (chatState.isEditing) "Lưu chỉnh sửa" else "Gửi tin nhắn",
                             tint = if (isTextNotEmpty && !chatState.isLoading) textColor else textColor.copy(alpha = 0.4f),
                             modifier = Modifier.size(40.dp)
                         )

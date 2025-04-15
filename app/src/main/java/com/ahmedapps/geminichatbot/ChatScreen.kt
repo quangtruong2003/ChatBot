@@ -1067,7 +1067,17 @@ fun ChatScreen(
                             items(
                                 items = chatState.chatList,
                                 key = { chat -> 
-                                    if (chat.id.isEmpty()) "chat_${chat.hashCode()}" else chat.id 
+                                    // Tạo key duy nhất không bao giờ trùng lặp
+                                    if (chat.id.isEmpty()) {
+                                        // Nếu ID rỗng, sử dụng tổ hợp của timestamp và hashCode
+                                        "chat_${chat.timestamp}_${chat.hashCode()}_${System.identityHashCode(chat)}"
+                                    } else {
+                                        // Thêm thêm các yếu tố khác vào key để đảm bảo luôn duy nhất
+                                        // Bao gồm cả nội dung và thông tin file (nếu có)
+                                        val fileInfo = if (chat.isFileMessage) "_file_${chat.fileName?.hashCode() ?: 0}" else ""
+                                        val contentHash = chat.prompt.hashCode()
+                                        "${chat.id}_${chat.timestamp}_${contentHash}${fileInfo}"
+                                    }
                                 }
                             ) { chat ->
                                 if (chat.isFromUser) {
@@ -1100,9 +1110,8 @@ fun ChatScreen(
                                                 chatId = chatId,
                                                 message = chat.prompt,
                                                 timestamp = chat.timestamp,
-                                                imageUrl = chat.imageUrl, // Truyền imageUrl
-                                                // fileUri = chat.fileUri,   // <-- XÓA DÒNG NÀY
-                                                fileName = chat.fileName  // Chỉ truyền fileName
+                                                imageUrl = chat.imageUrl,
+                                                fileName = chat.fileName
                                             ))
                                             // Kích hoạt hiển thị bàn phím
                                             showKeyboardAfterEdit = true

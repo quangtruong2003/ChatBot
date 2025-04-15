@@ -62,6 +62,7 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
+import android.app.AlertDialog
 
 
 
@@ -135,7 +136,7 @@ fun UserChatItem(
     }
 
     // Log kiểm tra thông tin
-    Log.d("UserChatItem", "Rendering: isFileMessage=$isFileMessage, fileName=$fileName, imageUrl=$imageUrl")
+    Log.d("UserChatItem", "Rendering: isFileMessage=$isFileMessage, fileName=$fileName, imageUrl=$imageUrl, chatId=$chatId")
 
     Row(
         modifier = Modifier
@@ -285,7 +286,7 @@ fun UserChatItem(
                 }
                 
                 // Sau khi hiển thị thông tin file, hiển thị prompt nếu có
-                if (prompt.isNotEmpty() && !localIsAudioFile) { // Sử dụng biến localIsAudioFile
+                if (prompt.isNotEmpty()) { // Đã xóa điều kiện !localIsAudioFile
                     Spacer(modifier = Modifier.height(4.dp)) // Thêm khoảng cách nhỏ
                     SelectionContainer {
                         FormattedTextDisplay(
@@ -403,8 +404,11 @@ fun UserChatItem(
                 ) {
                     // Nút edit (chỉ hiển thị khi tin nhắn có nội dung)
                     if (prompt.isNotEmpty()) {
+                        // Lấy context ở ngoài lambda function
+                        val context = LocalContext.current
                         IconButton(
                             onClick = { 
+                                // Gọi trực tiếp hàm chỉnh sửa tin nhắn mà không hiển thị dialog
                                 onEditClick(chatId)
                             },
                             modifier = Modifier.size(28.dp)

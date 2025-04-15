@@ -850,29 +850,31 @@ class ChatRepository @Inject constructor(
     }
 
     /**
-     * Xóa tất cả các tin nhắn trong một segment sau một timestamp nhất định.
+     * Xóa tất cả các tin nhắn được tạo sau một thời điểm cụ thể
      */
-    suspend fun deleteMessagesAfterTimestamp(segmentId: String, timestamp: Long) = withContext(Dispatchers.IO) {
-        if (timestamp <= 0) return@withContext // Không làm gì nếu timestamp không hợp lệ
+    suspend fun deleteMessagesAfterTimestamp(segmentId: String, timestamp: Long, excludeIds: List<String> = emptyList()) = withContext(Dispatchers.IO) {
         try {
             val messagesCollection = getMessagesCollection(segmentId)
-            val querySnapshot = messagesCollection
-                .whereGreaterThan("timestamp", timestamp)
-                .get()
-                .await()
             
-            if (!querySnapshot.isEmpty) {
-                val batch = db.batch()
-                querySnapshot.documents.forEach { doc ->
-                    batch.delete(doc.reference)
+            // Lấy tất cả các tin nhắn có timestamp lớn hơn timestamp đã cho
+            val query = messagesCollection.whereGreaterThan("timestamp", timestamp).get().await()
+            
+            // Xóa từng tin nhắn, bỏ qua các ID trong danh sách loại trừ
+            for (document in query.documents) {
+                val documentId = document.id
+                if (!excludeIds.contains(documentId)) {
+                    messagesCollection.document(documentId).delete().await()
+                    Log.d("ChatRepository", "Đã xóa tin nhắn $documentId sau timestamp $timestamp")
+                } else {
+                    Log.d("ChatRepository", "Bỏ qua tin nhắn $documentId vì nằm trong danh sách loại trừ")
                 }
-                batch.commit().await()
-                Log.d("ChatRepository", "Deleted ${querySnapshot.size()} messages after timestamp $timestamp in segment $segmentId")
-            } else {
-                Log.d("ChatRepository", "No messages found after timestamp $timestamp to delete in segment $segmentId")
             }
+            
+            val deletedCount = query.size() - excludeIds.size.coerceAtMost(query.size())
+            Log.d("ChatRepository", "Đã xóa $deletedCount tin nhắn sau timestamp $timestamp (bỏ qua ${excludeIds.size.coerceAtMost(query.size())} tin nhắn)")
         } catch (e: Exception) {
-            Log.e("ChatRepository", "Error deleting messages after timestamp $timestamp in segment $segmentId", e)
+            Log.e("ChatRepository", "Lỗi khi xóa tin nhắn sau timestamp: ${e.message}")
+            throw e
         }
     }
 
@@ -1143,16 +1145,14 @@ class ChatRepository @Inject constructor(
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            val errorChat = Chat(
+            val errorChat = Chat.fromPrompt(
                 prompt = "Error: ${e.localizedMessage}",
-                imageUrl = audioUrl,
-                isFromUser = false, 
+                isFromUser = false,
                 isError = true,
-                userId = userId,
-                isFileMessage = true
+                userId = userId
             )
             insertChat(errorChat, selectedSegmentId)
-            return@coroutineScope errorChat
+            errorChat
         }
     }
 
@@ -1284,6 +1284,191 @@ class ChatRepository @Inject constructor(
             )
             insertChat(chat, selectedSegmentId)
             chat
+        }
+    }
+
+    /**
+     * Xử lý chỉnh sửa tin nhắn người dùng, xóa tin nhắn mới hơn và khởi tạo lại hội thoại từ điểm chỉnh sửa
+     */
+    suspend fun editChatMessage(chat: Chat, segmentId: String, finalPrompt: String? = null): Chat = withContext(Dispatchers.IO) {
+        try {
+            // Lấy toàn bộ tin nhắn trong segment
+            val messagesCollection = getMessagesCollection(segmentId)
+            
+            // Tìm tin nhắn theo timestamp nếu là ID mới được tạo
+            var currentChatMessage: Chat? = null
+            
+            // Nếu ID chat được gửi đến khác với ID từ Firestore, thì cần tìm tin nhắn gốc theo timestamp
+            try {
+                val messageSnapshot = messagesCollection.document(chat.id).get().await()
+                currentChatMessage = messageSnapshot.toObject(Chat::class.java)
+            } catch (e: Exception) {
+                Log.d("ChatRepository", "Không tìm thấy tin nhắn theo ID, tìm theo timestamp...")
+            }
+            
+            // Nếu không tìm được, tìm theo timestamp và isFromUser
+            if (currentChatMessage == null) {
+                try {
+                    // Tìm tất cả tin nhắn người dùng có cùng timestamp (hoặc gần bằng), với độ chênh lệch ±100ms
+                    val messagesQuery = messagesCollection
+                        .whereEqualTo("isFromUser", true)
+                        .whereGreaterThanOrEqualTo("timestamp", chat.timestamp - 100)
+                        .whereLessThanOrEqualTo("timestamp", chat.timestamp + 100)
+                        .get()
+                        .await()
+                    
+                    // Tìm tin nhắn giống nhất (có thể là mã hash của nội dung, tên file, v.v.)
+                    currentChatMessage = messagesQuery.documents
+                        .mapNotNull { it.toObject(Chat::class.java)?.copy(id = it.id) }
+                        .firstOrNull()
+                    
+                    if (currentChatMessage != null) {
+                        Log.d("ChatRepository", "Đã tìm thấy tin nhắn gốc theo timestamp: ${currentChatMessage.id}")
+                    }
+                } catch (e: Exception) {
+                    Log.e("ChatRepository", "Lỗi khi tìm tin nhắn theo timestamp: ${e.message}")
+                }
+            }
+            
+            // Nếu vẫn không tìm được, tạo mới luôn và không cần tìm nữa
+            if (currentChatMessage == null) {
+                Log.d("ChatRepository", "Không tìm thấy tin nhắn gốc, tiếp tục với tin nhắn mới")
+                
+                // Thêm tin nhắn mới vào collection
+                messagesCollection.document(chat.id).set(chat).await()
+                
+                // Xử lý phản hồi dựa trên tin nhắn mới
+                val effectivePrompt = finalPrompt ?: chat.prompt
+                
+                val response = processMessageResponse(chat, effectivePrompt, segmentId)
+                return@withContext response
+            }
+            
+            // Đến đây, đã tìm được tin nhắn gốc
+            val originalChatId = currentChatMessage.id
+            val timestamp = currentChatMessage.timestamp
+            
+            // Thêm tin nhắn đã chỉnh sửa với ID mới
+            messagesCollection.document(chat.id).set(chat).await()
+            Log.d("ChatRepository", "Tin nhắn mới đã chỉnh sửa: ${chat.id}, prompt: ${chat.prompt}")
+            
+            // Xóa tin nhắn gốc nếu ID khác
+            if (chat.id != originalChatId) {
+                messagesCollection.document(originalChatId).delete().await()
+                Log.d("ChatRepository", "Đã xóa tin nhắn gốc: $originalChatId")
+            }
+            
+            // Xóa tin nhắn mới hơn, loại trừ tin nhắn đã chỉnh sửa
+            deleteMessagesAfterTimestamp(segmentId, timestamp, excludeIds = listOf(chat.id))
+            
+            // Khởi tạo lại hội thoại dựa trên tin nhắn chỉnh sửa
+            val effectivePrompt = finalPrompt ?: chat.prompt
+            Log.d("ChatRepository", "Sử dụng prompt có nội dung file: ${finalPrompt != null}")
+            
+            val response = processMessageResponse(chat, effectivePrompt, segmentId)
+            return@withContext response
+            
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error editing chat message: ${e.message}", e)
+            Chat(
+                prompt = "Error: Không thể chỉnh sửa tin nhắn (${e.localizedMessage})",
+                imageUrl = null,
+                isFromUser = false,
+                isError = true,
+                userId = userId
+            )
+        }
+    }
+    
+    // Hàm mới để xử lý phản hồi dựa trên tin nhắn đã chỉnh sửa
+    private suspend fun processMessageResponse(chat: Chat, prompt: String, segmentId: String?): Chat {
+        return if (chat.imageUrl != null) {
+            if (chat.isFileMessage) {
+                // Xử lý theo loại file
+                val fileName = chat.fileName ?: ""
+                when {
+                    // File âm thanh
+                    fileName.endsWith(".ogg") || fileName.endsWith(".mp3") || 
+                    fileName.endsWith(".wav") || fileName.endsWith(".m4a") -> {
+                        Log.d("ChatRepository", "Regenerating audio file response: ${chat.imageUrl}")
+                        regenerateResponseWithAudio(prompt, chat.imageUrl ?: "", segmentId)
+                    }
+                    
+                    // File văn bản hoặc các loại file khác 
+                    fileName.endsWith(".txt") || fileName.endsWith(".md") || 
+                    fileName.endsWith(".json") || fileName.endsWith(".xml") || 
+                    fileName.endsWith(".pdf") || fileName.endsWith(".doc") || 
+                    fileName.endsWith(".docx") -> {
+                        // Đối với file văn bản, gọi API với prompt đã chỉnh sửa
+                        Log.d("ChatRepository", "Regenerating text file response with extracted content")
+                        getResponse(prompt, segmentId)
+                    }
+                    
+                    // Các file khác và file không xác định
+                    else -> {
+                        Log.d("ChatRepository", "Regenerating generic file response")
+                        getResponse(prompt, segmentId)
+                    }
+                }
+            } else {
+                // Tin nhắn có hình ảnh
+                Log.d("ChatRepository", "Regenerating image response: ${chat.imageUrl}")
+                regenerateResponseWithImage(prompt, chat.imageUrl ?: "", segmentId)
+            }
+        } else {
+            // Tin nhắn văn bản thông thường
+            Log.d("ChatRepository", "Regenerating text response")
+            getResponse(prompt, segmentId)
+        }
+    }
+
+    /**
+     * Tạo lại phản hồi cho tin nhắn có file đính kèm.
+     */
+    suspend fun regenerateResponseWithFile(prompt: String, fileUrl: String, fileName: String, selectedSegmentId: String?): Chat = coroutineScope {
+        try {
+            // Kiểm tra kiểu file để có xử lý phù hợp
+            val fileExtension = fileName.substringAfterLast('.', "").lowercase()
+            
+            return@coroutineScope when {
+                // File âm thanh
+                fileExtension in listOf("ogg", "mp3", "wav", "m4a") -> {
+                    regenerateResponseWithAudio(prompt, fileUrl, selectedSegmentId)
+                }
+                
+                // File văn bản và PDF
+                fileExtension in listOf("txt", "md", "json", "xml", "pdf", "doc", "docx") -> {
+                    // Đối với file văn bản, gọi API với prompt đã chỉnh sửa (bao gồm nội dung file)
+                    val effectivePrompt = if (prompt.isEmpty()) {
+                        "Đây là file $fileName, hãy xử lý nội dung của nó."
+                    } else {
+                        "$prompt\n\n(File đính kèm: $fileName)"
+                    }
+                    
+                    getResponse(effectivePrompt, selectedSegmentId)
+                }
+                
+                // Các file khác
+                else -> {
+                    val effectivePrompt = if (prompt.isEmpty()) {
+                        "Tôi đã đính kèm file $fileName, hãy hỗ trợ tôi với file này."
+                    } else {
+                        "$prompt\n\n(File đính kèm: $fileName)"
+                    }
+                    
+                    getResponse(effectivePrompt, selectedSegmentId)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            val errorChat = Chat.fromPrompt(
+                prompt = "Error: ${e.localizedMessage}",
+                isFromUser = false,
+                isError = true,
+                userId = userId
+            )
+            insertChat(errorChat, selectedSegmentId)
+            errorChat
         }
     }
 }
