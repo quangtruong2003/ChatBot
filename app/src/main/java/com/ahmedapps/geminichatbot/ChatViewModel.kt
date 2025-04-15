@@ -1560,7 +1560,7 @@ class ChatViewModel @Inject constructor(
 
                 try {
                     // Sử dụng prompt mặc định "Tương tác với file ghi âm" nếu prompt rỗng
-                    val effectivePrompt = if (prompt.isEmpty()) "Tương tác với file ghi âm, trả lời nó nếu là câu hỏi, bạn hãy trả lời như con người thông minh và là con người thực thụ. Nên nhớ là ch cần câu trả lời." else prompt
+                    val effectivePrompt = if (prompt.isEmpty()) "Tương tác với file ghi âm, trả lời nó nếu là câu hỏi, bạn hãy trả lời như con người thông minh và là con người thực thụ. Nên nhớ là chỉ cần câu trả lời." else prompt
                     
                     val response = repository.getResponseWithAudio(effectivePrompt, audioUri, segmentId)
 

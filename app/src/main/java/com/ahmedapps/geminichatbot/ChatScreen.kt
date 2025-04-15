@@ -1257,7 +1257,7 @@ fun ChatScreen(
                         ) {
                             WelcomeMessage { displayText, apiPrompt ->
                                 // 1) Hiển thị tin nhắn user "Bạn sẽ là XXX" (KHÔNG gọi API)
-                                val localUserPrompt = "Bạn sẽ là $displayText"
+                                val localUserPrompt = "$displayText"
                                 chatViewModel.insertLocalUserChat(localUserPrompt)
 
                                 // 2) Gọi API với apiPrompt
