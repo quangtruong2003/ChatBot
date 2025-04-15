@@ -989,6 +989,7 @@ fun ChatScreen(
                             if (chatState.isEditing) {
                                 // Nếu đang ở chế độ chỉnh sửa, hủy chỉnh sửa
                                 chatViewModel.onEvent(ChatUiEvent.CancelEdit)
+                                focusManager.clearFocus()
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             } else {
                                 // Ngược lại thực hiện cuộn xuống dưới bình thường
@@ -1055,6 +1056,12 @@ fun ChatScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                focusManager.clearFocus()
+                            }
                     ) {
                         // LazyColumn hiển thị danh sách chat
                         LazyColumn(
