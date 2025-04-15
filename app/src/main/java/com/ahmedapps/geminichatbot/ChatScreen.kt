@@ -1248,10 +1248,11 @@ fun ChatScreen(
                                 animationSpec = tween(300),
                                 expandFrom = Alignment.Top
                             ),
-                            exit = fadeOut(animationSpec = tween(200)) + shrinkVertically(
-                                animationSpec = tween(200),
-                                shrinkTowards = Alignment.Top
-                            ),
+                            exit = fadeOut(animationSpec = tween(durationMillis = 250, easing = LinearOutSlowInEasing)) +
+                                   slideOutVertically(
+                                       animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
+                                       targetOffsetY = { -it / 4 } // Trượt lên một chút
+                                   ),
                             modifier = Modifier.fillMaxSize()
                         ) {
                             WelcomeMessage { displayText, apiPrompt ->
