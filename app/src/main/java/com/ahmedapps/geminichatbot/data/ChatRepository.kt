@@ -1297,19 +1297,36 @@ class ChatRepository @Inject constructor(
             
             // Tìm tin nhắn theo timestamp nếu là ID mới được tạo
             var currentChatMessage: Chat? = null
+            var originalChatId = ""
             
-            // Nếu ID chat được gửi đến khác với ID từ Firestore, thì cần tìm tin nhắn gốc theo timestamp
+            // Lấy tất cả tin nhắn trong segment theo thứ tự thời gian
+            val allMessages = messagesCollection
+                .orderBy("timestamp", Query.Direction.ASCENDING)
+                .get()
+                .await()
+                .documents
+                .mapNotNull { it.toObject(Chat::class.java)?.copy(id = it.id) }
+            
+            Log.d("ChatRepository", "Tổng số tin nhắn trước khi chỉnh sửa: ${allMessages.size}")
+            
+            // Tìm tin nhắn gốc bằng cách kết hợp nhiều phương pháp
+            
+            // Phương pháp 1: Tìm theo ID chính xác
             try {
                 val messageSnapshot = messagesCollection.document(chat.id).get().await()
                 currentChatMessage = messageSnapshot.toObject(Chat::class.java)
+                if (currentChatMessage != null) {
+                    originalChatId = currentChatMessage.id
+                    Log.d("ChatRepository", "Tìm thấy tin nhắn gốc theo ID: $originalChatId")
+                }
             } catch (e: Exception) {
-                Log.d("ChatRepository", "Không tìm thấy tin nhắn theo ID, tìm theo timestamp...")
+                Log.d("ChatRepository", "Không tìm thấy tin nhắn theo ID: ${chat.id}")
             }
             
-            // Nếu không tìm được, tìm theo timestamp và isFromUser
+            // Phương pháp 2: Tìm theo timestamp nếu phương pháp 1 thất bại
             if (currentChatMessage == null) {
                 try {
-                    // Tìm tất cả tin nhắn người dùng có cùng timestamp (hoặc gần bằng), với độ chênh lệch ±100ms
+                    // Tìm tin nhắn người dùng có cùng timestamp (hoặc gần bằng)
                     val messagesQuery = messagesCollection
                         .whereEqualTo("isFromUser", true)
                         .whereGreaterThanOrEqualTo("timestamp", chat.timestamp - 100)
@@ -1317,20 +1334,40 @@ class ChatRepository @Inject constructor(
                         .get()
                         .await()
                     
-                    // Tìm tin nhắn giống nhất (có thể là mã hash của nội dung, tên file, v.v.)
                     currentChatMessage = messagesQuery.documents
                         .mapNotNull { it.toObject(Chat::class.java)?.copy(id = it.id) }
                         .firstOrNull()
                     
                     if (currentChatMessage != null) {
-                        Log.d("ChatRepository", "Đã tìm thấy tin nhắn gốc theo timestamp: ${currentChatMessage.id}")
+                        originalChatId = currentChatMessage.id
+                        Log.d("ChatRepository", "Tìm thấy tin nhắn gốc theo timestamp: $originalChatId")
                     }
                 } catch (e: Exception) {
                     Log.e("ChatRepository", "Lỗi khi tìm tin nhắn theo timestamp: ${e.message}")
                 }
             }
             
-            // Nếu vẫn không tìm được, tạo mới luôn và không cần tìm nữa
+            // Phương pháp 3: Nếu vẫn không tìm được, tìm theo nội dung prompt nếu có
+            if (currentChatMessage == null && chat.prompt.isNotEmpty()) {
+                try {
+                    // Tìm tất cả tin nhắn của người dùng
+                    val userMessages = allMessages.filter { it.isFromUser }
+                    
+                    // Tìm tin nhắn có nội dung tương tự
+                    currentChatMessage = userMessages.firstOrNull { 
+                        it.prompt.contains(chat.prompt) || chat.prompt.contains(it.prompt) 
+                    }
+                    
+                    if (currentChatMessage != null) {
+                        originalChatId = currentChatMessage.id
+                        Log.d("ChatRepository", "Tìm thấy tin nhắn gốc theo nội dung: $originalChatId")
+                    }
+                } catch (e: Exception) {
+                    Log.e("ChatRepository", "Lỗi khi tìm tin nhắn theo nội dung: ${e.message}")
+                }
+            }
+            
+            // Nếu vẫn không tìm được, tạo mới và bỏ qua việc xóa
             if (currentChatMessage == null) {
                 Log.d("ChatRepository", "Không tìm thấy tin nhắn gốc, tiếp tục với tin nhắn mới")
                 
@@ -1345,27 +1382,102 @@ class ChatRepository @Inject constructor(
             }
             
             // Đến đây, đã tìm được tin nhắn gốc
-            val originalChatId = currentChatMessage.id
-            val timestamp = currentChatMessage.timestamp
+            val originalTimestamp = currentChatMessage.timestamp
             
-            // Thêm tin nhắn đã chỉnh sửa với ID mới
+            // PHẦN XÓA: Kết hợp nhiều cách để xóa triệt để
+            
+            // 1. Xóa theo vị trí trong danh sách
+            val originalMessageIndex = allMessages.indexOfFirst { it.id == originalChatId }
+            
+            // Danh sách các ID tin nhắn cần xóa
+            val messageIdsToDelete = mutableSetOf<String>()
+            
+            if (originalMessageIndex != -1) {
+                // Lấy danh sách tin nhắn cần xóa (tin nhắn gốc và tất cả tin nhắn sau đó)
+                val messagesToDelete = allMessages.drop(originalMessageIndex)
+                
+                // Thu thập tất cả ID cần xóa
+                messagesToDelete.forEach { message ->
+                    messageIdsToDelete.add(message.id)
+                }
+                
+                Log.d("ChatRepository", "Số tin nhắn cần xóa theo vị trí: ${messagesToDelete.size}")
+            }
+            
+            // 2. Xóa theo timestamp
+            val messagesAfterTimestamp = messagesCollection
+                .whereGreaterThanOrEqualTo("timestamp", originalTimestamp)
+                .get()
+                .await()
+                .documents
+            
+            // Thu thập thêm ID từ phương thức tìm theo timestamp
+            messagesAfterTimestamp.forEach { document ->
+                messageIdsToDelete.add(document.id)
+            }
+            
+            Log.d("ChatRepository", "Tổng số ID tin nhắn cần xóa (sau khi gộp): ${messageIdsToDelete.size}")
+            
+            // 3. Thực hiện xóa từng tin nhắn một để đảm bảo chắc chắn
+            for (messageId in messageIdsToDelete) {
+                try {
+                    messagesCollection.document(messageId).delete().await()
+                    Log.d("ChatRepository", "Đã xóa tin nhắn: $messageId")
+                } catch (e: Exception) {
+                    Log.e("ChatRepository", "Lỗi khi xóa tin nhắn $messageId: ${e.message}")
+                }
+            }
+            
+            // Chờ một chút để đảm bảo thao tác xóa hoàn tất
+            kotlinx.coroutines.delay(300)
+            
+            // Kiểm tra lại xem tin nhắn đã được xóa chưa
+            val remainingMessages = messagesCollection
+                .whereGreaterThanOrEqualTo("timestamp", originalTimestamp)
+                .get()
+                .await()
+                .documents
+            
+            if (remainingMessages.isNotEmpty()) {
+                Log.d("ChatRepository", "Vẫn còn ${remainingMessages.size} tin nhắn chưa xóa, thử xóa lại")
+                
+                // Xóa lại nếu còn sót
+                for (document in remainingMessages) {
+                    try {
+                        messagesCollection.document(document.id).delete().await()
+                        Log.d("ChatRepository", "Đã xóa tin nhắn (lần 2): ${document.id}")
+                    } catch (e: Exception) {
+                        Log.e("ChatRepository", "Lỗi khi xóa tin nhắn lần 2 ${document.id}: ${e.message}")
+                    }
+                }
+                
+                // Chờ thêm để đảm bảo
+                kotlinx.coroutines.delay(200)
+            }
+            
+            // Thêm tin nhắn đã chỉnh sửa
             messagesCollection.document(chat.id).set(chat).await()
             Log.d("ChatRepository", "Tin nhắn mới đã chỉnh sửa: ${chat.id}, prompt: ${chat.prompt}")
             
-            // Xóa tin nhắn gốc nếu ID khác
-            if (chat.id != originalChatId) {
-                messagesCollection.document(originalChatId).delete().await()
-                Log.d("ChatRepository", "Đã xóa tin nhắn gốc: $originalChatId")
-            }
-            
-            // Xóa tin nhắn mới hơn, loại trừ tin nhắn đã chỉnh sửa
-            deleteMessagesAfterTimestamp(segmentId, timestamp, excludeIds = listOf(chat.id))
+            // Cho một khoảng thời gian để đảm bảo tin nhắn đã được lưu
+            kotlinx.coroutines.delay(200)
             
             // Khởi tạo lại hội thoại dựa trên tin nhắn chỉnh sửa
             val effectivePrompt = finalPrompt ?: chat.prompt
             Log.d("ChatRepository", "Sử dụng prompt có nội dung file: ${finalPrompt != null}")
             
             val response = processMessageResponse(chat, effectivePrompt, segmentId)
+            
+            // Kiểm tra xem tin nhắn mới đã được thêm thành công chưa
+            val newMessages = messagesCollection
+                .orderBy("timestamp", Query.Direction.ASCENDING)
+                .get()
+                .await()
+                .documents
+                .size
+                
+            Log.d("ChatRepository", "Số tin nhắn sau khi chỉnh sửa: $newMessages")
+            
             return@withContext response
             
         } catch (e: Exception) {
