@@ -62,6 +62,7 @@ class ChatViewModel @Inject constructor(
 //        "gemini-1.5-flash-8b",
         "gemini-2.0-flash-exp",
         "gemini-2.0-flash-thinking-exp-01-21",
+        "gemini-2.5-flash-preview-04-17",
         //"gemini-exp-1206",
         "gemini-2.0-pro-exp-02-05",
         "gemini-2.5-pro-exp-03-25",
@@ -70,6 +71,7 @@ class ChatViewModel @Inject constructor(
         //"gemini-1.5-flash-8b" to "AI Tốc độ",
         "gemini-2.0-flash-exp" to "AI Flash",
         "gemini-2.0-flash-thinking-exp-01-21" to "AI Thinking",
+        "gemini-2.5-flash-preview-04-17" to "AI Flash Thinking",
         //"gemini-exp-1206" to "AI Toàn năng",
         "gemini-2.0-pro-exp-02-05" to "AI Toàn năng",
         "gemini-2.5-pro-exp-03-25" to "AI Coding",
@@ -78,6 +80,7 @@ class ChatViewModel @Inject constructor(
         //"AI Tốc độ" to R.drawable.ic_flash,
         "AI Flash" to R.drawable.ic_flash,
         "AI Lý luận" to R.drawable.ic_thandong,
+        "AI Flash Thinking" to R.drawable.ic_flash,
         "AI Toàn năng" to R.drawable.ic_lyluan,
         "AI Coding" to R.drawable.ic_coder,
     )
