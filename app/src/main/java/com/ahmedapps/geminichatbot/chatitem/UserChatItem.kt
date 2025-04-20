@@ -1,5 +1,5 @@
 // UserChatItem.kt
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.chatitem
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -56,6 +56,7 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
+import com.ahmedapps.geminichatbot.R
 
 
 @OptIn(ExperimentalFoundationApi::class)

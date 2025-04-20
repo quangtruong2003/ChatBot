@@ -1,4 +1,4 @@
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.drawer.right
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -66,6 +66,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.text.isDigitsOnly
+import com.ahmedapps.geminichatbot.data.ChatViewModel
+import com.ahmedapps.geminichatbot.R
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable

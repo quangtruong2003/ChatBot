@@ -9,11 +9,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
-import androidx.compose.ui.geometry.isEmpty
-import com.ahmedapps.geminichatbot.BuildConfig
 import com.ahmedapps.geminichatbot.di.GenerativeModelProvider
 import com.ahmedapps.geminichatbot.utils.AudioConverter
-import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -31,12 +28,11 @@ import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
 import android.content.SharedPreferences
-import com.ahmedapps.geminichatbot.ApiSettingsState
-import com.ahmedapps.geminichatbot.SafetyThreshold
+import com.ahmedapps.geminichatbot.drawer.right.ApiSettingsState
+import com.ahmedapps.geminichatbot.drawer.right.SafetyThreshold
 import com.google.ai.client.generativeai.type.GenerationConfig
 import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.awaitAll
-import com.google.ai.client.generativeai.type.Content
 import com.google.ai.client.generativeai.type.HarmCategory
 import com.google.ai.client.generativeai.type.BlockThreshold
 import com.google.ai.client.generativeai.type.SafetySetting

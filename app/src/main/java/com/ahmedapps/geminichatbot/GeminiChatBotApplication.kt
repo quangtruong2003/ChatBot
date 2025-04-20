@@ -1,5 +1,5 @@
 // GeminiChatBotApplication.kt
-package com.ahmedapps.geminichatbot.data
+package com.ahmedapps.geminichatbot
 
 import android.app.Application
 import com.google.firebase.FirebaseApp

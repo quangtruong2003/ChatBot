@@ -16,6 +16,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.ahmedapps.geminichatbot.data.ChatViewModel
+import com.ahmedapps.geminichatbot.drawer.left.UserDetailBottomSheet
 import com.ahmedapps.geminichatbot.loginlogout.LoginScreen
 import com.ahmedapps.geminichatbot.loginlogout.ForgotPasswordScreen
 import com.ahmedapps.geminichatbot.loginlogout.RegistrationScreen

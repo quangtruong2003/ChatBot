@@ -1,4 +1,4 @@
-package fomatText
+package com.ahmedapps.geminichatbot.fomatText
 
 /**
  * Cấu hình cho hiệu ứng typing text

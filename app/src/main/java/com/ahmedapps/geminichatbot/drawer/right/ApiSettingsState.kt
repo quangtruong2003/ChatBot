@@ -1,4 +1,4 @@
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.drawer.right
 
 // Enum để đại diện cho các ngưỡng chặn an toàn
 enum class SafetyThreshold(val level: Int, val displayName: String) {

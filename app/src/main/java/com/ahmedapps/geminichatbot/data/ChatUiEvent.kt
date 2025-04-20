@@ -1,8 +1,7 @@
 // ChatUiEvent.kt
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.data
 
 import android.net.Uri
-import com.ahmedapps.geminichatbot.data.ChatSegment
 
 sealed class ChatUiEvent {
     data class SendPrompt(val prompt: String, val imageUri: Uri?) : ChatUiEvent()

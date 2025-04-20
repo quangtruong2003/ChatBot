@@ -1,4 +1,4 @@
-package fomatText
+package com.ahmedapps.geminichatbot.fomatText
 
 import androidx.compose.runtime.*
 import androidx.compose.ui.text.AnnotatedString

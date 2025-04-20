@@ -1,9 +1,7 @@
 // ChatState.kt
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.data
 
 import android.net.Uri
-import com.ahmedapps.geminichatbot.data.Chat
-import com.ahmedapps.geminichatbot.data.ChatSegment
 
 data class ChatState(
         val prompt: String = "",

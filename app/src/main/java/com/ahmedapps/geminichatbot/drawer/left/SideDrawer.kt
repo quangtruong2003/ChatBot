@@ -1,8 +1,5 @@
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.drawer.left
 
-import android.os.Build
-import android.os.Vibrator
-import android.provider.Settings.Global.getString
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -32,7 +29,6 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,13 +46,13 @@ import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import android.content.Context
-import android.view.HapticFeedbackConstants
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.ahmedapps.geminichatbot.BuildConfig
+import com.ahmedapps.geminichatbot.data.ChatUiEvent
+import com.ahmedapps.geminichatbot.data.ChatViewModel
 
 @Composable
 fun SideDrawer(

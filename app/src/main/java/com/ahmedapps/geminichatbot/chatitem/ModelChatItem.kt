@@ -1,5 +1,5 @@
 // ModelChatItem.kt
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.chatitem
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -39,7 +39,8 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
-
+import com.ahmedapps.geminichatbot.R
+import com.ahmedapps.geminichatbot.drawer.left.crop
 
 
 @OptIn(ExperimentalFoundationApi::class)

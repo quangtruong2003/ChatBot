@@ -1,13 +1,9 @@
 // ChatViewModel.kt
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.data
 
 import android.net.Uri
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ahmedapps.geminichatbot.data.Chat
-import com.ahmedapps.geminichatbot.data.ChatRepository
-import com.ahmedapps.geminichatbot.data.ChatSegment
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -18,11 +14,12 @@ import kotlinx.coroutines.Job
 import android.content.Context
 import com.ahmedapps.geminichatbot.services.PDFProcessingService
 import android.util.Log
-import com.ahmedapps.geminichatbot.data.Participant
 import android.provider.OpenableColumns
+import com.ahmedapps.geminichatbot.R
+import com.ahmedapps.geminichatbot.drawer.right.ApiSettingsState
+import com.ahmedapps.geminichatbot.drawer.right.SafetyThreshold
 import com.ahmedapps.geminichatbot.responsePre.PredefinedResponses
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

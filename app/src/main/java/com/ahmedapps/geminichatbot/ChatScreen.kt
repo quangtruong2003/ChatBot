@@ -6,19 +6,11 @@ import android.content.ClipDescription
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Environment
-import android.provider.OpenableColumns
 import android.util.Base64
-import android.view.KeyEvent
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -28,7 +20,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -38,12 +29,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -52,13 +40,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -71,7 +55,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,66 +70,16 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.firebase.auth.FirebaseAuth
-import fomatText.parseFormattedText
-import fomatText.TypingConfig
-import kotlinx.coroutines.delay
+import com.ahmedapps.geminichatbot.fomatText.parseFormattedText
+import com.ahmedapps.geminichatbot.fomatText.TypingConfig
 import kotlinx.coroutines.launch
 import java.io.File
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.window.PopupProperties
-import com.ahmedapps.geminichatbot.services.PDFProcessingService
-import com.ahmedapps.geminichatbot.UserChatItem
 import android.content.Context
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.nativeKeyCode
-import androidx.compose.ui.input.key.isCtrlPressed
 import android.util.Log
 import java.io.FileOutputStream
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.ScrollState
-import androidx.compose.ui.graphics.SolidColor
-import kotlinx.coroutines.CoroutineScope
-import androidx.appcompat.widget.AppCompatEditText
-import android.view.ViewGroup
-import android.view.Gravity
-import android.text.InputType
-import android.text.TextWatcher
-import android.text.Editable
-import android.view.View
-import android.widget.Toast
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.platform.LocalDensity
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.ManagedActivityResultLauncher
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.LocalTextSelectionColors
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.text.selection.TextSelectionColors
-import androidx.compose.material.ripple.rememberRipple
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
@@ -155,28 +88,26 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.semantics.text
-import androidx.compose.foundation.layout.BoxScope
-import com.ahmedapps.geminichatbot.ui.components.CustomTextField
-import com.ahmedapps.geminichatbot.ui.components.sanitizeMessage
-import androidx.compose.material3.DrawerDefaults
+import com.ahmedapps.geminichatbot.textfield.CustomTextField
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.material3.DismissibleDrawerSheet
 import androidx.compose.material3.DismissibleNavigationDrawer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.ahmedapps.geminichatbot.chatitem.ModelChatItem
+import com.ahmedapps.geminichatbot.chatitem.UserChatItem
+import com.ahmedapps.geminichatbot.data.ChatUiEvent
+import com.ahmedapps.geminichatbot.data.ChatViewModel
+import com.ahmedapps.geminichatbot.drawer.left.SideDrawer
+import com.ahmedapps.geminichatbot.drawer.left.crop
+import com.ahmedapps.geminichatbot.drawer.right.RightSideDrawer
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
@@ -1206,12 +1137,14 @@ fun ChatScreen(
                                                                 snackbarHostState = snackbarHostState,
                                                                 chatId = chat.id,
                                                                 onDeleteClick = { chatId ->
-                                                                    chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
+                                                                    chatViewModel.onEvent(
+                                                                        ChatUiEvent.DeleteChat(chatId))
                                                                 },
                                                                 onEditClick = { chatId ->
                                                                     // Gọi sự kiện EditChat với chatId, nội dung tin nhắn, timestamp,
                                                                     // và quan trọng là imageUrl và fileName của tin nhắn gốc
-                                                                    chatViewModel.onEvent(ChatUiEvent.EditChat(
+                                                                    chatViewModel.onEvent(
+                                                                        ChatUiEvent.EditChat(
                                                                         chatId = chatId,
                                                                         message = chat.prompt,
                                                                         timestamp = chat.timestamp,
@@ -1271,7 +1204,8 @@ fun ChatScreen(
                                                                 },
                                                                 isMessageTyped = isMessageAlreadyTyped,
                                                                 onDeleteClick = { chatId ->
-                                                                    chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
+                                                                    chatViewModel.onEvent(
+                                                                        ChatUiEvent.DeleteChat(chatId))
                                                                 },
                                                                 onRegenerateClick = { prompt, responseId, _ ->
                                                                     // Kiểm tra nếu userMessage null
@@ -1426,7 +1360,8 @@ fun ChatScreen(
                                                                     .offset(x = 4.dp, y = (-4).dp)
                                                                     .clip(RoundedCornerShape(50))
                                                                     .clickable {
-                                                                        chatViewModel.onEvent(ChatUiEvent.RemoveImage)
+                                                                        chatViewModel.onEvent(
+                                                                            ChatUiEvent.RemoveImage)
                                                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                                                     }
                                                             ) {
@@ -1506,7 +1441,8 @@ fun ChatScreen(
                                                                     .clip(CircleShape)
                                                                     .background(Color(0xFFAAAAAA))
                                                                     .clickable {
-                                                                        chatViewModel.onEvent(ChatUiEvent.RemoveFile)
+                                                                        chatViewModel.onEvent(
+                                                                            ChatUiEvent.RemoveFile)
                                                                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                                                     },
                                                                 contentAlignment = Alignment.Center
@@ -1547,7 +1483,8 @@ fun ChatScreen(
                                                     navController = navController,
                                                     createImageUriInner = { createImageUriInner() },
                                                     onPhotoUriChange = { newUri -> photoUri = newUri },
-                                                    onImageReceived = { uri -> chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri)) },
+                                                    onImageReceived = { uri -> chatViewModel.onEvent(
+                                                        ChatUiEvent.OnImageSelected(uri)) },
                                                     showKeyboardAfterEdit = showKeyboardAfterEdit,
                                                     onKeyboardShown = { showKeyboardAfterEdit = false }
                                                 )

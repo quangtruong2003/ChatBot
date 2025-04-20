@@ -1,4 +1,4 @@
-package fomatText
+package com.ahmedapps.geminichatbot.fomatText
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

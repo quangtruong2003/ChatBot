@@ -1,4 +1,4 @@
-package com.ahmedapps.geminichatbot.ui.components
+package com.ahmedapps.geminichatbot.textfield
 
 import android.Manifest
 import android.content.ClipDescription
@@ -6,8 +6,6 @@ import android.content.Context
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Build
-import android.os.Build.VERSION_CODES
-import android.provider.OpenableColumns
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Base64
@@ -15,7 +13,6 @@ import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -37,20 +34,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -77,7 +67,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -85,7 +74,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -95,12 +83,9 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.navigation.NavController
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import com.ahmedapps.geminichatbot.ChatState
-import com.ahmedapps.geminichatbot.ChatUiEvent
-import com.ahmedapps.geminichatbot.ChatViewModel
-import com.ahmedapps.geminichatbot.ExpandedChatInputBottomSheet
+import com.ahmedapps.geminichatbot.data.ChatState
+import com.ahmedapps.geminichatbot.data.ChatUiEvent
+import com.ahmedapps.geminichatbot.data.ChatViewModel
 import com.ahmedapps.geminichatbot.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -111,18 +96,15 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.ahmedapps.geminichatbot.crop
+import com.ahmedapps.geminichatbot.drawer.left.crop
 import com.ahmedapps.geminichatbot.ui.components.AudioPlayerComponent
 import com.ahmedapps.geminichatbot.ui.components.VoiceRecordingBar
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.ahmedapps.geminichatbot.utils.FileUtils
-import com.ahmedapps.geminichatbot.utils.AudioConverter
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.google.accompanist.permissions.shouldShowRationale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
 
 // Di chuyển hàm crop từ ChatScreen.kt để sử dụng cho dropdown menu
 fun Modifier.crop(
