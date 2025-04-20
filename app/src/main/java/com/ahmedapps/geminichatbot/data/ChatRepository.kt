@@ -31,9 +31,15 @@ import java.text.Normalizer
 import java.util.Locale
 import javax.inject.Inject
 import android.content.SharedPreferences
+import com.ahmedapps.geminichatbot.ApiSettingsState
+import com.ahmedapps.geminichatbot.SafetyThreshold
+import com.google.ai.client.generativeai.type.GenerationConfig
 import com.google.firebase.firestore.WriteBatch
 import kotlinx.coroutines.awaitAll
 import com.google.ai.client.generativeai.type.Content
+import com.google.ai.client.generativeai.type.HarmCategory
+import com.google.ai.client.generativeai.type.BlockThreshold
+import com.google.ai.client.generativeai.type.SafetySetting
 
 class ChatRepository @Inject constructor(
     private val context: Context,
@@ -42,8 +48,6 @@ class ChatRepository @Inject constructor(
     private val storage: FirebaseStorage,
 ) {
     private val auth = FirebaseAuth.getInstance()
-    private val generativeModel: GenerativeModel
-        get() = generativeModelProvider.getGenerativeModel()
 
     val userId: String
         get() = auth.currentUser?.uid.orEmpty()
@@ -255,20 +259,34 @@ class ChatRepository @Inject constructor(
     /**
      * Lấy phản hồi từ GenerativeModel không kèm hình ảnh.
      */
-    suspend fun getResponse(prompt: String, selectedSegmentId: String?): Chat = withContext(Dispatchers.IO) {
+    suspend fun getResponse(
+        prompt: String,
+        selectedSegmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat = withContext(Dispatchers.IO) {
         try {
             val chatHistory = getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
             val fullPrompt = getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
 
-            // Thêm log hiển thị prompt gửi lên API chi tiết hơn
+            // Tạo GenerationConfig từ apiSettings
+            val (generationConfig, safetySettings) = buildGenerationConfig(apiSettings)
+
             Log.d("ChatRepository", "Sending prompt (no image): $fullPrompt")
+            Log.d("APISettingsDebug", "getResponse - Applying config: $generationConfig")
             Log.d("ChatRepository", "Rules status: ${if (_rulesAI.isNotEmpty()) "Rules present (${_rulesAI.length} chars)" else "No rules found"}")
             Log.d("ChatRepository", "Chat history size: ${chatHistory.size}")
             if (chatHistory.isNotEmpty()) {
                 Log.d("ChatRepository", "Chat history: ${chatHistory.size} messages, ${chatHistory.count { it.isFromUser }} from user")
             }
 
-            val response = generativeModel.generateContent(fullPrompt)
+            // Lấy model đã được cấu hình từ provider
+            val configuredModel = generativeModelProvider.createModelWithConfig(generationConfig, safetySettings)
+
+            // Sửa cách gọi generateContent để phù hợp với API và truyền config
+            val response = configuredModel.generateContent(content {
+                text(fullPrompt)
+            })
+
             Log.d("ChatRepository", "API Response: ${response.text}")
             val responseText = response.text
             val chat = Chat.fromPrompt(
@@ -279,7 +297,6 @@ class ChatRepository @Inject constructor(
                 userId = userId
             )
             
-            // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
             if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
                 val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
                 val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
@@ -290,7 +307,6 @@ class ChatRepository @Inject constructor(
                 }
             }
             
-            // Lưu tin nhắn vào Firestore
             val updatedChat = if (responseText != null) {
                 chat.copy(prompt = responseText, isError = false)
             } else {
@@ -316,7 +332,12 @@ class ChatRepository @Inject constructor(
     /**
      * Lấy phản hồi từ GenerativeModel kèm hình ảnh (tối ưu: gửi hình ảnh và request đồng thời).
      */
-    suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?): Chat = coroutineScope {
+    suspend fun getResponseWithImage(
+        prompt: String,
+        imageUri: Uri,
+        selectedSegmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat = coroutineScope {
         try {
             // Song song: lấy lịch sử chat và decode Bitmap
             val chatHistoryDeferred = async(Dispatchers.IO) {
@@ -339,49 +360,49 @@ class ChatRepository @Inject constructor(
             val chatHistory = chatHistoryDeferred.await()
             val bitmap = bitmapDeferred.await()
             if (bitmap == null) {
-                val errorChat = Chat.fromPrompt(
-                    prompt = "Error: Unable to decode image",
-                    isFromUser = false,
-                    isError = true,
-                    userId = userId
-                )
+                // Xử lý lỗi decode bitmap
+                val errorChat = Chat.fromPrompt("Error: Unable to decode image", isFromUser = false, isError = true, userId = userId)
                 insertChat(errorChat, selectedSegmentId)
-                return@coroutineScope errorChat
+                return@coroutineScope errorChat // Thoát sớm nếu bitmap null
             }
 
             val fullPrompt = getFullPrompt(prompt, hasImage = true, chatHistory = chatHistory)
 
-            // Thêm log hiển thị prompt gửi lên API
             Log.d("ChatRepository", "Sending prompt (with image): $fullPrompt")
 
+            // Tạo GenerationConfig
+            val (generationConfig, safetySettings) = buildGenerationConfig(apiSettings)
+            Log.d("APISettingsDebug", "getResponseWithImage - Applying config: $generationConfig")
+
             // Tạo content với cả hình ảnh và text
-            val content = content {
+            val imageContent = content {
                 image(bitmap)
                 text(fullPrompt)
             }
 
+            // Lấy model đã được cấu hình từ provider
+            val configuredModel = generativeModelProvider.createModelWithConfig(generationConfig, safetySettings)
+
             // Gọi API và upload ảnh đồng thời
-            val responseDeferred = async(Dispatchers.IO) { generativeModel.generateContent(content) }
+            val responseDeferred = async(Dispatchers.IO) {
+                // Sử dụng configuredModel và không truyền config nữa
+                configuredModel.generateContent(imageContent)
+            }
             val imageUrlDeferred = async(Dispatchers.IO) { uploadImage(imageUri) }
 
             val response = responseDeferred.await()
             val imageUrl = imageUrlDeferred.await()
 
+            // Truy cập response.text sau khi await
             val responseText = response.text
             Log.d("ChatRepository", "API Response: $responseText")
 
             if (imageUrl == null) {
-                val errorChat = Chat.fromPrompt(
-                    prompt = "Error: Unable to upload image",
-                    isFromUser = false,
-                    isError = true,
-                    userId = userId
-                )
+                val errorChat = Chat.fromPrompt("Error: Unable to upload image", isFromUser = false, isError = true, userId = userId)
                 insertChat(errorChat, selectedSegmentId)
-                return@coroutineScope errorChat
+                return@coroutineScope errorChat // Thoát sớm nếu upload ảnh lỗi
             }
 
-            // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
             if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
                 val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
                 val currentSegment = segmentSnapshot.toObject(ChatSegment::class.java)
@@ -400,11 +421,10 @@ class ChatRepository @Inject constructor(
                 userId = userId
             )
             
-            // Lưu tin nhắn vào Firestore
-            insertChat(chat, selectedSegmentId)
+            insertChat(chat, selectedSegmentId) // Lưu tin nhắn thành công
             
-            chat
-        } catch (e: Exception) {
+            chat // Trả về tin nhắn thành công
+        } catch (e: Exception) { // Bắt lỗi chung cho coroutine scope
             e.printStackTrace()
             val chat = Chat(
                 prompt = "Error: ${e.localizedMessage}",
@@ -419,7 +439,7 @@ class ChatRepository @Inject constructor(
     }
 
     /**
-     * Tải hình ảnh từ URL và trả về Bitmap.
+     * Tại hình ảnh từ URL và trả về Bitmap.
      */
     private suspend fun downloadImageAsBitmap(imageUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
@@ -454,9 +474,14 @@ class ChatRepository @Inject constructor(
     /**
      * Lấy phản hồi từ GenerativeModel cho việc regenerate với imageUrl.
      */
-    suspend fun regenerateResponseWithImage(prompt: String, imageUrl: String, selectedSegmentId: String?): Chat = coroutineScope {
+    suspend fun regenerateResponseWithImage(
+        prompt: String,
+        imageUrl: String,
+        selectedSegmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat = coroutineScope {
         try {
-            // Song song: lấy lịch sử chat và tải Bitmap từ URL
+            // Song song: lấy lịch sử chat và decode Bitmap từ URL
             val chatHistoryDeferred = async(Dispatchers.IO) {
                 getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
             }
@@ -479,16 +504,25 @@ class ChatRepository @Inject constructor(
             val fullPrompt = getFullPrompt(prompt, hasImage = true, chatHistory = chatHistory)
             Log.d("ChatRepository", "Regenerating prompt (with image URL): $fullPrompt")
 
-            val content = content {
+            // Tạo GenerationConfig
+            val (generationConfig, safetySettings) = buildGenerationConfig(apiSettings)
+            Log.d("APISettingsDebug", "regenerateResponseWithImage - Applying config: $generationConfig")
+
+            val contentBuilder = content {
                 image(bitmap)
                 text(fullPrompt)
             }
 
-            val response = generativeModel.generateContent(content)
-            Log.d("ChatRepository", "API Response (Regen Image): ${response.text}")
+            // Lấy model đã được cấu hình từ provider
+            val configuredModel = generativeModelProvider.createModelWithConfig(generationConfig, safetySettings)
+
+            // Gọi API với generationConfig (sửa lỗi)
+            // Sử dụng configuredModel và không truyền config nữa
+            val response = configuredModel.generateContent(contentBuilder)
 
             val responseText = response.text
-            
+            Log.d("ChatRepository", "API Response: $responseText")
+
             // Xử lý cập nhật tiêu đề nhanh chóng nếu cần
             if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
                 val segmentSnapshot = segmentsCollection.document(selectedSegmentId).get().await()
@@ -499,10 +533,10 @@ class ChatRepository @Inject constructor(
                     _hasUpdatedTitle = true
                 }
             }
-            
+
             val chat = Chat(
                 prompt = responseText ?: "Error: Empty response",
-                imageUrl = imageUrl, // Giữ lại imageUrl gốc
+                imageUrl = imageUrl,
                 isFromUser = false,
                 isError = responseText == null,
                 userId = userId
@@ -514,15 +548,15 @@ class ChatRepository @Inject constructor(
             chat
         } catch (e: Exception) {
             e.printStackTrace()
-            val errorChat = Chat(
+            val chat = Chat(
                 prompt = "Error: ${e.localizedMessage}",
-                imageUrl = imageUrl, // Giữ lại imageUrl gốc
+                imageUrl = imageUrl,
                 isFromUser = false,
                 isError = true,
                 userId = userId
             )
-            insertChat(errorChat, selectedSegmentId)
-            errorChat
+            insertChat(chat, selectedSegmentId)
+            chat
         }
     }
 
@@ -578,7 +612,21 @@ class ChatRepository @Inject constructor(
     private suspend fun generateChatSegmentTitleFromResponse(chat: String): String = withContext(Dispatchers.IO) {
         try {
             val prompt = "Đặt 1 tiêu đề duy nhất chính xác, ngắn gọn và xúc tích cho tin nhắn sau: '$chat'. Chỉ trả lời tiêu đề duy nhất. Tiêu đề phải hoàn hảo và hợp lí. Nên nhớ tiêu đề phải bao hàm đủ thông tin trong tin nhắn. Tiêu đề không dài quá 6 từ, không in đậm, chữ nghiêng và gạch chân"
-            val response = generativeModel.generateContent(prompt)
+            
+            // Tạo GenerationConfig tối giản cho việc tạo tiêu đề
+            val titleConfigBuilder = GenerationConfig.Builder()
+            titleConfigBuilder.temperature = 0.2f // Nhiệt độ thấp để có tiêu đề nhất quán
+            titleConfigBuilder.maxOutputTokens = 20 // Tiêu đề ngắn
+            val titleConfig = titleConfigBuilder.build()
+            
+            // Sử dụng model đã cấu hình từ provider
+            val baseModel = generativeModelProvider.createModelWithConfig(titleConfig, null)
+
+            // Sửa cách gọi generateContent
+            val response = baseModel.generateContent(content {
+                text(prompt)
+            })
+            
             response.text?.trim() ?: "Untitled Segment"
         } catch (e: Exception) {
             Log.e("ChatRepository", "Error generating segment title", e)
@@ -931,7 +979,12 @@ class ChatRepository @Inject constructor(
     /**
      * Lấy phản hồi từ GenerativeModel kèm file âm thanh.
      */
-    suspend fun getResponseWithAudio(prompt: String, audioUri: Uri, selectedSegmentId: String?): Chat = coroutineScope {
+    suspend fun getResponseWithAudio(
+        prompt: String,
+        audioUri: Uri,
+        selectedSegmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat = coroutineScope {
         try {
             // Song song: lấy lịch sử chat và tải file âm thanh lên Firebase Storage
             val chatHistoryDeferred = async(Dispatchers.IO) {
@@ -943,12 +996,7 @@ class ChatRepository @Inject constructor(
             val audioUrl = audioUrlDeferred.await()
 
             if (audioUrl == null) {
-                val errorChat = Chat.fromPrompt(
-                    prompt = "Error: Không thể tải lên file âm thanh",
-                    isFromUser = false,
-                    isError = true,
-                    userId = userId
-                )
+                val errorChat = Chat.fromPrompt("Error: Không thể tải lên file âm thanh", isFromUser = false, isError = true, userId = userId)
                 insertChat(errorChat, selectedSegmentId)
                 return@coroutineScope errorChat
             }
@@ -962,31 +1010,39 @@ class ChatRepository @Inject constructor(
             Log.d("ChatRepository", "Sending prompt with audio: $fullPrompt")
             Log.d("ChatRepository", "Audio URL: $audioUrl")
 
-            // Tạo tạm thời tệp audio để gửi đến API
+            // Tạo GenerationConfig
+            val (generationConfig, safetySettings) = buildGenerationConfig(apiSettings)
+            Log.d("APISettingsDebug", "getResponseWithAudio - Applying config: $generationConfig")
+
+            // Tạo content với âm thanh và văn bản
             val audioFile = uriToFile(audioUri)
-            
-            // Đọc dữ liệu byte của file
             val audioBytes = audioFile.readBytes()
-            
-            // Tạo content với âm thanh và/hoặc văn bản sử dụng content builder API
-            val content = content(role = "user") {
+            val audioContent = content(role = "user") {
                 if (prompt.isNotBlank()) {
-                    // Nếu có cả văn bản và âm thanh
                     text(fullPrompt)
-                    // Thêm phần âm thanh với mime type phù hợp
                     blob("audio/ogg", audioBytes)
                 } else {
-                    // Nếu chỉ có âm thanh
                     blob("audio/ogg", audioBytes)
                 }
             }
-            
-            // Xóa file tạm sau khi đã đọc bytes
             if (audioFile.exists()) {
                 audioFile.delete()
             }
+            
+            // Lấy model đã được cấu hình từ provider
+            val configuredModel = generativeModelProvider.createModelWithConfig(generationConfig, safetySettings)
 
-            val response = generativeModel.generateContent(content)
+            // Gọi API và upload ảnh đồng thời
+            val responseDeferred = async(Dispatchers.IO) {
+                // Sử dụng configuredModel và không truyền config nữa
+                configuredModel.generateContent(audioContent)
+            }
+            val imageUrlDeferred = async(Dispatchers.IO) { uploadImage(audioUri) }
+
+            val response = responseDeferred.await()
+            val imageUrl = imageUrlDeferred.await()
+
+            // Truy cập response.text sau khi await
             val responseText = response.text
             Log.d("ChatRepository", "API Response for audio: $responseText")
 
@@ -1004,15 +1060,14 @@ class ChatRepository @Inject constructor(
             // Tạo chat object với URL âm thanh
             val chat = Chat(
                 prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
-                imageUrl = audioUrl, // Lưu URL âm thanh vào trường imageUrl
+                imageUrl = imageUrl,
                 isFromUser = false,
                 isError = responseText == null,
                 userId = userId,
-                isFileMessage = true, // Đánh dấu là tin nhắn file
-                fileName = AudioConverter.getFileNameFromUri(context, audioUri) ?: "audio.ogg" // Lưu tên file
+                isFileMessage = true,
+                fileName = AudioConverter.getFileNameFromUri(context, audioUri) ?: "audio.ogg"
             )
             
-            // Lưu tin nhắn vào Firestore
             insertChat(chat, selectedSegmentId)
             
             chat
@@ -1033,11 +1088,20 @@ class ChatRepository @Inject constructor(
     /**
      * Regenerate phản hồi cho tin nhắn âm thanh.
      */
-    suspend fun regenerateResponseWithAudio(prompt: String, audioUrl: String, selectedSegmentId: String?): Chat = coroutineScope {
+    suspend fun regenerateResponseWithAudio(
+        prompt: String,
+        audioUrl: String,
+        selectedSegmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat = coroutineScope {
         try {
             // Lấy lịch sử chat
             val chatHistory = getChatHistoryForSegment(selectedSegmentId).filterNot { it.isError }
             
+            // Tạo GenerationConfig
+            val (generationConfig, safetySettings) = buildGenerationConfig(apiSettings)
+            Log.d("APISettingsDebug", "regenerateResponseWithAudio - Applying config: $generationConfig")
+
             // Kiểm tra xem URL có phải là URL cục bộ không
             if (audioUrl.startsWith("file://")) {
                 // Xử lý file âm thanh cục bộ
@@ -1053,10 +1117,8 @@ class ChatRepository @Inject constructor(
                     return@coroutineScope errorChat
                 }
                 
-                // Đọc dữ liệu byte của file
                 val audioBytes = audioFile.readBytes()
                 
-                // Tạo prompt đầy đủ
                 val fullPrompt = if (prompt.isNotEmpty()) {
                     getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
                 } else {
@@ -1065,8 +1127,7 @@ class ChatRepository @Inject constructor(
                 
                 Log.d("ChatRepository", "Regenerating prompt with audio: $fullPrompt")
                 
-                // Tạo content với âm thanh và văn bản
-                val content = content(role = "user") {
+                val contentBuilder = content(role = "user") {
                     if (prompt.isNotBlank()) {
                         text(fullPrompt)
                         blob("audio/ogg", audioBytes)
@@ -1075,10 +1136,13 @@ class ChatRepository @Inject constructor(
                     }
                 }
                 
-                // Gọi API để nhận phản hồi
-                val response = generativeModel.generateContent(content)
+                // Lấy model đã được cấu hình từ provider
+                val configuredModel = generativeModelProvider.createModelWithConfig(generationConfig, safetySettings)
+
+                // Gọi API với config (sửa lỗi)
+                // Sử dụng configuredModel và không truyền config nữa
+                val response = configuredModel.generateContent(contentBuilder)
                 val responseText = response.text
-                Log.d("ChatRepository", "API Response for regenerated audio: $responseText")
                 
                 // Xử lý cập nhật tiêu đề
                 if (responseText != null && !_hasUpdatedTitle && selectedSegmentId != null) {
@@ -1091,7 +1155,6 @@ class ChatRepository @Inject constructor(
                     }
                 }
                 
-                // Tạo và lưu tin nhắn với URL âm thanh gốc
                 val chat = Chat(
                     prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
                     imageUrl = audioUrl,
@@ -1104,9 +1167,9 @@ class ChatRepository @Inject constructor(
                 
                 insertChat(chat, selectedSegmentId)
                 return@coroutineScope chat
+
             } else {
-                // Nếu là URL Firebase, tải về để xử lý
-                // Hiện tại chúng ta chỉ cần gọi lại API với URL gốc
+                // Nếu là URL Firebase
                 val fullPrompt = if (prompt.isNotEmpty()) {
                     getFullPrompt(prompt, hasImage = false, chatHistory = chatHistory)
                 } else {
@@ -1115,8 +1178,14 @@ class ChatRepository @Inject constructor(
                 
                 Log.d("ChatRepository", "Regenerating prompt with audio URL: $fullPrompt")
                 
-                // Gọi API mà không có file âm thanh (chỉ với văn bản)
-                val response = generativeModel.generateContent(fullPrompt)
+                // Lấy model đã được cấu hình từ provider
+                val configuredModel = generativeModelProvider.createModelWithConfig(generationConfig, safetySettings)
+
+                // Sửa cách gọi generateContent với text
+                val response = configuredModel.generateContent(content {
+                    text(fullPrompt)
+                })
+                
                 val responseText = response.text
                 
                 // Xử lý cập nhật tiêu đề
@@ -1130,7 +1199,6 @@ class ChatRepository @Inject constructor(
                     }
                 }
                 
-                // Tạo và lưu tin nhắn với URL âm thanh gốc
                 val chat = Chat(
                     prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
                     imageUrl = audioUrl,
@@ -1220,7 +1288,12 @@ class ChatRepository @Inject constructor(
     /**
      * Lấy phản hồi từ GenerativeModel kèm file văn bản.
      */
-    suspend fun getResponseWithTextFile(prompt: String, fileUri: Uri, selectedSegmentId: String?): Chat = coroutineScope {
+    suspend fun getResponseWithTextFile(
+        prompt: String,
+        fileUri: Uri,
+        selectedSegmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat = coroutineScope {
         try {
             // Song song: lấy lịch sử chat và tải file văn bản
             val chatHistoryDeferred = async(Dispatchers.IO) {
@@ -1239,8 +1312,18 @@ class ChatRepository @Inject constructor(
             val fullPrompt = getFullPrompt(effectivePrompt, hasImage = false, chatHistory = chatHistory)
             Log.d("ChatRepository", "Sending prompt with text file, prompt length: ${fullPrompt.length}")
 
-            // Gọi API với prompt kết hợp
-            val response = generativeModel.generateContent(fullPrompt)
+            // Tạo GenerationConfig
+            val (generationConfig, safetySettings) = buildGenerationConfig(apiSettings)
+            Log.d("APISettingsDebug", "getResponseWithTextFile - Applying config: $generationConfig")
+
+            // Lấy model đã được cấu hình từ provider
+            val configuredModel = generativeModelProvider.createModelWithConfig(generationConfig, safetySettings)
+
+            // Sửa cách gọi generateContent
+            val response = configuredModel.generateContent(content {
+                text(fullPrompt)
+            })
+            
             val responseText = response.text
             Log.d("ChatRepository", "API Response for text file: $responseText")
 
@@ -1255,10 +1338,7 @@ class ChatRepository @Inject constructor(
                 }
             }
 
-            // Lấy tên file
             val fileName = getFileNameFromUri(fileUri) ?: "unknown_file.txt"
-
-            // Tạo chat object với URL file
             val chat = Chat(
                 prompt = responseText ?: "Error: Không nhận được phản hồi từ API",
                 imageUrl = fileUrl,
@@ -1269,7 +1349,6 @@ class ChatRepository @Inject constructor(
                 fileName = fileName
             )
             
-            // Lưu tin nhắn vào Firestore
             insertChat(chat, selectedSegmentId)
             
             chat
@@ -1290,7 +1369,12 @@ class ChatRepository @Inject constructor(
     /**
      * Xử lý chỉnh sửa tin nhắn người dùng, xóa tin nhắn mới hơn và khởi tạo lại hội thoại từ điểm chỉnh sửa
      */
-    suspend fun editChatMessage(chat: Chat, segmentId: String, finalPrompt: String? = null): Chat = withContext(Dispatchers.IO) {
+    suspend fun editChatMessage(
+        chat: Chat,
+        segmentId: String,
+        apiSettings: ApiSettingsState,
+        finalPrompt: String? = null
+    ): Chat = withContext(Dispatchers.IO) {
         try {
             // Lấy toàn bộ tin nhắn trong segment
             val messagesCollection = getMessagesCollection(segmentId)
@@ -1377,7 +1461,7 @@ class ChatRepository @Inject constructor(
                 // Xử lý phản hồi dựa trên tin nhắn mới
                 val effectivePrompt = finalPrompt ?: chat.prompt
                 
-                val response = processMessageResponse(chat, effectivePrompt, segmentId)
+                val response = processMessageResponse(chat, effectivePrompt, segmentId, apiSettings)
                 return@withContext response
             }
             
@@ -1466,7 +1550,7 @@ class ChatRepository @Inject constructor(
             val effectivePrompt = finalPrompt ?: chat.prompt
             Log.d("ChatRepository", "Sử dụng prompt có nội dung file: ${finalPrompt != null}")
             
-            val response = processMessageResponse(chat, effectivePrompt, segmentId)
+            val response = processMessageResponse(chat, effectivePrompt, segmentId, apiSettings)
             
             // Kiểm tra xem tin nhắn mới đã được thêm thành công chưa
             val newMessages = messagesCollection
@@ -1493,7 +1577,13 @@ class ChatRepository @Inject constructor(
     }
     
     // Hàm mới để xử lý phản hồi dựa trên tin nhắn đã chỉnh sửa
-    private suspend fun processMessageResponse(chat: Chat, prompt: String, segmentId: String?): Chat {
+    private suspend fun processMessageResponse(
+        chat: Chat,
+        prompt: String,
+        segmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat {
+        Log.d("APISettingsDebug", "processMessageResponse - Will use apiSettings: $apiSettings")
         return if (chat.imageUrl != null) {
             if (chat.isFileMessage) {
                 // Xử lý theo loại file
@@ -1503,7 +1593,7 @@ class ChatRepository @Inject constructor(
                     fileName.endsWith(".ogg") || fileName.endsWith(".mp3") || 
                     fileName.endsWith(".wav") || fileName.endsWith(".m4a") -> {
                         Log.d("ChatRepository", "Regenerating audio file response: ${chat.imageUrl}")
-                        regenerateResponseWithAudio(prompt, chat.imageUrl ?: "", segmentId)
+                        regenerateResponseWithAudio(prompt, chat.imageUrl ?: "", segmentId, apiSettings)
                     }
                     
                     // File văn bản hoặc các loại file khác 
@@ -1513,31 +1603,38 @@ class ChatRepository @Inject constructor(
                     fileName.endsWith(".docx") -> {
                         // Đối với file văn bản, gọi API với prompt đã chỉnh sửa
                         Log.d("ChatRepository", "Regenerating text file response with extracted content")
-                        getResponse(prompt, segmentId)
+                        getResponse(prompt, segmentId, apiSettings)
                     }
                     
                     // Các file khác và file không xác định
                     else -> {
                         Log.d("ChatRepository", "Regenerating generic file response")
-                        getResponse(prompt, segmentId)
+                        getResponse(prompt, segmentId, apiSettings)
                     }
                 }
             } else {
                 // Tin nhắn có hình ảnh
                 Log.d("ChatRepository", "Regenerating image response: ${chat.imageUrl}")
-                regenerateResponseWithImage(prompt, chat.imageUrl ?: "", segmentId)
+                regenerateResponseWithImage(prompt, chat.imageUrl ?: "", segmentId, apiSettings)
             }
         } else {
             // Tin nhắn văn bản thông thường
             Log.d("ChatRepository", "Regenerating text response")
-            getResponse(prompt, segmentId)
+            getResponse(prompt, segmentId, apiSettings)
         }
     }
 
     /**
      * Tạo lại phản hồi cho tin nhắn có file đính kèm.
      */
-    suspend fun regenerateResponseWithFile(prompt: String, fileUrl: String, fileName: String, selectedSegmentId: String?): Chat = coroutineScope {
+    suspend fun regenerateResponseWithFile(
+        prompt: String,
+        fileUrl: String,
+        fileName: String,
+        selectedSegmentId: String?,
+        apiSettings: ApiSettingsState
+    ): Chat = coroutineScope {
+        Log.d("APISettingsDebug", "regenerateResponseWithFile - Using apiSettings: $apiSettings")
         try {
             // Kiểm tra kiểu file để có xử lý phù hợp
             val fileExtension = fileName.substringAfterLast('.', "").lowercase()
@@ -1545,19 +1642,19 @@ class ChatRepository @Inject constructor(
             return@coroutineScope when {
                 // File âm thanh
                 fileExtension in listOf("ogg", "mp3", "wav", "m4a") -> {
-                    regenerateResponseWithAudio(prompt, fileUrl, selectedSegmentId)
+                    regenerateResponseWithAudio(prompt, fileUrl, selectedSegmentId, apiSettings)
                 }
                 
                 // File văn bản và PDF
                 fileExtension in listOf("txt", "md", "json", "xml", "pdf", "doc", "docx") -> {
-                    // Đối với file văn bản, gọi API với prompt đã chỉnh sửa (bao gồm nội dung file)
+                    // Đối với file văn bản, gọi API với prompt đã chỉnh sửa
                     val effectivePrompt = if (prompt.isEmpty()) {
                         "Đây là file $fileName, hãy xử lý nội dung của nó."
                     } else {
                         "$prompt\n\n(File đính kèm: $fileName)"
                     }
                     
-                    getResponse(effectivePrompt, selectedSegmentId)
+                    getResponse(effectivePrompt, selectedSegmentId, apiSettings)
                 }
                 
                 // Các file khác
@@ -1568,7 +1665,7 @@ class ChatRepository @Inject constructor(
                         "$prompt\n\n(File đính kèm: $fileName)"
                     }
                     
-                    getResponse(effectivePrompt, selectedSegmentId)
+                    getResponse(effectivePrompt, selectedSegmentId, apiSettings)
                 }
             }
         } catch (e: Exception) {
@@ -1582,5 +1679,56 @@ class ChatRepository @Inject constructor(
             insertChat(errorChat, selectedSegmentId)
             errorChat
         }
+    }
+
+    // Hàm helper để xây dựng GenerationConfig
+    private fun buildGenerationConfig(apiSettings: ApiSettingsState): Pair<GenerationConfig, List<SafetySetting>> {
+        Log.d("APISettingsDebug", "buildGenerationConfig - Received settings: $apiSettings")
+        val maxOutputTokens = try {
+            apiSettings.outputLength.toIntOrNull()?.takeIf { it > 0 } ?: 8192
+        } catch (e: NumberFormatException) {
+            Log.w("ChatRepository", "Invalid outputLength: ${apiSettings.outputLength}, defaulting to 8192.")
+            8192
+        }
+
+        val stopSequences = if (apiSettings.stopSequence.isNotBlank()) {
+            listOf(apiSettings.stopSequence)
+        } else {
+            null
+        }
+
+        // Map SafetyThreshold enum của chúng ta sang BlockThreshold của SDK
+        fun mapThreshold(threshold: SafetyThreshold): BlockThreshold {
+            return when (threshold) {
+                SafetyThreshold.BLOCK_NONE -> BlockThreshold.NONE
+                SafetyThreshold.BLOCK_ONLY_HIGH -> BlockThreshold.ONLY_HIGH
+                SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE -> BlockThreshold.MEDIUM_AND_ABOVE
+                SafetyThreshold.BLOCK_LOW_AND_ABOVE -> BlockThreshold.LOW_AND_ABOVE
+            }
+        }
+
+        // Tạo GenerationConfig với cú pháp đơn giản, tránh sử dụng các phương thức không tồn tại
+        val generationConfigBuilder = GenerationConfig.Builder()
+        generationConfigBuilder.temperature = apiSettings.temperature
+        generationConfigBuilder.topP = apiSettings.topP
+        generationConfigBuilder.maxOutputTokens = maxOutputTokens
+        if (stopSequences != null) {
+            generationConfigBuilder.stopSequences = stopSequences
+        }
+        
+        // Cài đặt các giá trị mặc định cần thiết
+        val generationConfig = generationConfigBuilder.build()
+        
+        // Tạo danh sách SafetySetting
+        val safetySettingsList = listOf(
+            SafetySetting(HarmCategory.HARASSMENT, mapThreshold(apiSettings.safetyHarassment)),
+            SafetySetting(HarmCategory.HATE_SPEECH, mapThreshold(apiSettings.safetyHate)),
+            SafetySetting(HarmCategory.SEXUALLY_EXPLICIT, mapThreshold(apiSettings.safetySexuallyExplicit)),
+            SafetySetting(HarmCategory.DANGEROUS_CONTENT, mapThreshold(apiSettings.safetyDangerous))
+        )
+        
+        Log.d("APISettingsDebug", "buildGenerationConfig - Built config: $generationConfig with ${safetySettingsList.size} safety settings")
+        
+        return Pair(generationConfig, safetySettingsList)
     }
 }

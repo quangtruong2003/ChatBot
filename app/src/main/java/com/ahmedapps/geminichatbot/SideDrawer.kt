@@ -54,6 +54,9 @@ import android.content.Context
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 
 @Composable
 fun SideDrawer(
@@ -79,6 +82,15 @@ fun SideDrawer(
     var showPersonalInfoDialog by remember { mutableStateOf(false) }
     var isSearchVisible by remember { mutableStateOf(false) }
     var expandedSegmentId by remember { mutableStateOf<String?>(null) }
+    val searchFocusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    
+    // Ẩn bàn phím khi drawer đóng
+    DisposableEffect(Unit) {
+        onDispose {
+            keyboardController?.hide()
+        }
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.background,
@@ -98,6 +110,7 @@ fun SideDrawer(
                     chatViewModel.onEvent(ChatUiEvent.SelectSegment(segment))
                     chatViewModel.onEvent(ChatUiEvent.ClearSearch)
                     expandedSegmentId = null
+                    keyboardController?.hide()
                     onClose()
                 },
                 onSegmentRename = { segment ->
@@ -109,8 +122,13 @@ fun SideDrawer(
                 },
                 onToggleSearch = {
                     isSearchVisible = !isSearchVisible
-                    if (!isSearchVisible) {
+                    if (isSearchVisible) {
+                        // Tập trung vào TextField và hiển thị bàn phím
+                        // LaunchedEffect để đảm bảo hệ thống có đủ thời gian render TextField trước khi focus
                         chatViewModel.onEvent(ChatUiEvent.ClearSearch)
+                    } else {
+                        chatViewModel.onEvent(ChatUiEvent.ClearSearch)
+                        keyboardController?.hide()
                     }
                     expandedSegmentId = null
                 },
@@ -124,6 +142,7 @@ fun SideDrawer(
                 },
                 onLogout = onLogout,
                 onShowUserDetail = onShowUserDetail,
+                searchFocusRequester = searchFocusRequester,
                 modifier = Modifier.weight(1f)
             )
             GradientButton(
@@ -191,7 +210,8 @@ fun AnimatedSearchBar(
     searchQuery: String,
     onSearchQueryChanged: (String) -> Unit,
     onClearSearch: () -> Unit,
-    isVisible: Boolean
+    isVisible: Boolean,
+    focusRequester: FocusRequester
 ) {
     AnimatedVisibility(
         visible = isVisible,
@@ -201,8 +221,17 @@ fun AnimatedSearchBar(
         SearchBar(
             searchQuery = searchQuery,
             onSearchQueryChanged = onSearchQueryChanged,
-            onClearSearch = onClearSearch
+            onClearSearch = onClearSearch,
+            focusRequester = focusRequester
         )
+        
+        // Khi SearchBar xuất hiện, tự động focus và hiển thị bàn phím
+        LaunchedEffect(isVisible) {
+            if (isVisible) {
+                kotlinx.coroutines.delay(100) // Đợi một chút để UI render
+                focusRequester.requestFocus()
+            }
+        }
     }
 }
 
@@ -233,7 +262,8 @@ fun GradientButton(
 fun SearchBar(
     searchQuery: String,
     onSearchQueryChanged: (String) -> Unit,
-    onClearSearch: () -> Unit
+    onClearSearch: () -> Unit,
+    focusRequester: FocusRequester
 ) {
     TextField(
         value = searchQuery,
@@ -242,7 +272,8 @@ fun SearchBar(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
-            .height(48.dp),
+            .height(48.dp)
+            .focusRequester(focusRequester),
         singleLine = true,
         shape = RoundedCornerShape(50),
         colors = TextFieldDefaults.colors(
@@ -339,6 +370,7 @@ fun CompletedChatList(
     onClearSearch: () -> Unit,
     onLogout: () -> Unit,
     onShowUserDetail: () -> Unit,
+    searchFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
     val currentUser = FirebaseAuth.getInstance().currentUser
@@ -396,7 +428,8 @@ fun CompletedChatList(
             searchQuery = searchQuery,
             onSearchQueryChanged = onSearchQueryChanged,
             onClearSearch = onClearSearch,
-            isVisible = isSearchVisible
+            isVisible = isSearchVisible,
+            focusRequester = searchFocusRequester
         )
         
         if (isSearchVisible) {

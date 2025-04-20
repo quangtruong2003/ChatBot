@@ -27,6 +27,7 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.ahmedapps.geminichatbot.utils.FileUtils
+import com.google.ai.client.generativeai.type.HarmCategory
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
@@ -475,36 +476,34 @@ class ChatViewModel @Inject constructor(
                         isWaitingForResponse = false
                     )
                 }
+                markMessageAsTyped(chat.id) // Đánh dấu đã typed
                 return@launch
             }
 
             try {
-                // Lưu trạng thái tiêu đề trước khi gọi repository
                 val segmentBeforeResponse = _chatState.value.selectedSegment
-                val wasDefaultTitle = segmentBeforeResponse?.title == "Đoạn chat mới" // Sử dụng hằng số hoặc giá trị mặc định
+                val wasDefaultTitle = segmentBeforeResponse?.title == "Đoạn chat mới"
 
-                val chat = repository.getResponse(prompt, selectedSegmentId)
+                // Truyền apiSettingsState.value vào repository.getResponse
+                Log.d("APISettingsDebug", "ViewModel calling repository.getResponse with settings: ${_apiSettingsState.value}") // Log trước khi gọi
+                val chat = repository.getResponse(prompt, selectedSegmentId, _apiSettingsState.value)
 
-                // Cập nhật danh sách tin nhắn trước
                  _chatState.update {
                     it.copy(
                         chatList = it.chatList + chat,
-                        isLoading = false, // Tắt loading ở đây
-                        isWaitingForResponse = false, // Tắt waiting ở đây
-                        typedMessages = _typedMessagesIds.toSet() - chat.id
+                        isLoading = false,
+                        isWaitingForResponse = false,
+                        typedMessages = _typedMessagesIds.toSet() - chat.id // Không đánh dấu typed trước khi animation
                     )
                 }
 
-                // Kiểm tra xem tiêu đề có thể đã được cập nhật không và tải lại segments nếu cần
-                // Chỉ tải lại nếu trước đó là tiêu đề mặc định VÀ response không phải lỗi
                 if (wasDefaultTitle && !chat.isError) {
-                    loadChatSegments() // Tải lại danh sách segments để cập nhật tiêu đề
+                    loadChatSegments()
                 }
 
             } catch (e: Exception) {
                 e.printStackTrace()
-                // Đặt lại cả isLoading và isWaitingForResponse khi có lỗi
-                _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) } // Kết thúc loading/chờ đợi khi lỗi
+                _chatState.update { it.copy(isLoading = false, isWaitingForResponse = false) }
             }
         }
     }
@@ -724,15 +723,15 @@ class ChatViewModel @Inject constructor(
                                 imageUrl != null -> {
                                     if (fileName != null) {
                                         // File đính kèm
-                                        repository.regenerateResponseWithFile(userPrompt, imageUrl, fileName, segmentId)
+                                        repository.regenerateResponseWithFile(userPrompt, imageUrl, fileName, segmentId, _apiSettingsState.value)
                                     } else {
                                         // Hình ảnh
-                                        repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId)
+                                        repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId, _apiSettingsState.value)
                                     }
                                 }
                                 else -> {
                                     // Tin nhắn văn bản
-                                    repository.getResponse(userPrompt, segmentId)
+                                    repository.getResponse(userPrompt, segmentId, _apiSettingsState.value)
                                 }
                             }
                             
@@ -894,10 +893,8 @@ class ChatViewModel @Inject constructor(
     private suspend fun getResponseWithImage(prompt: String, imageUri: Uri, selectedSegmentId: String?) {
         currentResponseJob?.cancel()
         currentResponseJob = viewModelScope.launch {
-             _chatState.update { it.copy(isWaitingForResponse = true, isImageProcessing = true) } // Bật cả isImageProcessing
-             // ... (predefined response handling in background) ...
+             _chatState.update { it.copy(isWaitingForResponse = true, isImageProcessing = true) }
 
-            // Nếu không có phản hồi tùy chỉnh, xử lý trong background
             viewModelScope.launch(Dispatchers.IO) {
                  try {
                      val actualPrompt = if (prompt.isEmpty()) {
@@ -906,34 +903,31 @@ class ChatViewModel @Inject constructor(
                          prompt
                      }
 
-                     // Lưu trạng thái tiêu đề trước khi gọi repository (cần lấy state từ Main dispatcher)
                      val segmentBeforeResponse = withContext(Dispatchers.Main) { _chatState.value.selectedSegment }
-                     val wasDefaultTitle = segmentBeforeResponse?.title == "Đoạn chat mới" // Sử dụng hằng số hoặc giá trị mặc định
+                     val wasDefaultTitle = segmentBeforeResponse?.title == "Đoạn chat mới"
 
-                     val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId)
+                     // Truyền apiSettingsState.value vào repository.getResponseWithImage
+                     Log.d("APISettingsDebug", "ViewModel calling repository.getResponseWithImage with settings: ${_apiSettingsState.value}") // Log trước khi gọi
+                     val chat = repository.getResponseWithImage(actualPrompt, imageUri, selectedSegmentId, _apiSettingsState.value)
 
-                     // Cập nhật UI với response thực tế (trên Main dispatcher)
                      withContext(Dispatchers.Main) {
                          _chatState.update {
                              it.copy(
                                  chatList = it.chatList + chat,
-                                 isLoading = false, // Tắt loading
-                                 isWaitingForResponse = false, // Tắt waiting
+                                 isLoading = false,
+                                 isWaitingForResponse = false,
                                  imageUri = null,
-                                 isImageProcessing = false, // Tắt image processing
-                                 typedMessages = _typedMessagesIds.toSet() - chat.id
+                                 isImageProcessing = false,
+                                 typedMessages = _typedMessagesIds.toSet() - chat.id // Không đánh dấu typed trước animation
                              )
                          }
 
-                         // Kiểm tra xem tiêu đề có thể đã được cập nhật không và tải lại segments nếu cần
-                         // Chỉ tải lại nếu trước đó là tiêu đề mặc định VÀ response không phải lỗi
                          if (wasDefaultTitle && !chat.isError) {
-                             loadChatSegments() // Tải lại danh sách segments
+                             loadChatSegments()
                          }
                      }
                  } catch (e: Exception) {
                      e.printStackTrace()
-                     // Thêm chat lỗi vào danh sách (trên Main dispatcher)
                      withContext(Dispatchers.Main) {
                          val errorChat = Chat.fromPrompt(
                              prompt = "Đã xảy ra lỗi: ${e.localizedMessage}",
@@ -944,14 +938,14 @@ class ChatViewModel @Inject constructor(
                          _chatState.update {
                              it.copy(
                                  chatList = it.chatList + errorChat,
-                                 isLoading = false, // Tắt loading
-                                 isWaitingForResponse = false, // Tắt waiting
-                                 isImageProcessing = false // Tắt image processing
+                                 isLoading = false,
+                                 isWaitingForResponse = false,
+                                 isImageProcessing = false
                              )
                          }
+                          markMessageAsTyped(errorChat.id) // Đánh dấu lỗi đã typed
                      }
                  }
-                // Không cần finally ở đây nếu các cờ state đã được quản lý trong khối try/catch và update state ở trên
              }
         }
     }
@@ -1365,10 +1359,10 @@ class ChatViewModel @Inject constructor(
                                                fileName.endsWith(".wav", ignoreCase = true))) {
                             // Nếu là file âm thanh, sử dụng hàm regenerateResponseWithAudio
                             Log.d("ChatViewModel", "Regenerating with audio file: $fileName, URL: $imageUrl")
-                            repository.regenerateResponseWithAudio(userPrompt, imageUrl, segmentId)
+                            repository.regenerateResponseWithAudio(userPrompt, imageUrl, segmentId, _apiSettingsState.value)
                         } else {
                             // Nếu là hình ảnh thông thường 
-                            repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId)
+                            repository.regenerateResponseWithImage(userPrompt, imageUrl, segmentId, _apiSettingsState.value)
                         }
                     }
                     fileName != null -> {
@@ -1402,17 +1396,17 @@ class ChatViewModel @Inject constructor(
                                 "$userPrompt\n\nNội dung từ file $fileName:\n$fileContent"
                             }
                             
-                            repository.getResponse(promptWithFile, segmentId)
+                            repository.getResponse(promptWithFile, segmentId, _apiSettingsState.value)
                         } else {
                             // Không có Uri trong cache, gửi prompt với tên file
                             Log.d("ChatViewModelEdit", "No cached Uri found for file: $fileName")
                             val promptWithFileNameInfo = "$userPrompt\n\n(Thông tin file: $fileName)"
-                            repository.getResponse(promptWithFileNameInfo, segmentId)
+                            repository.getResponse(promptWithFileNameInfo, segmentId, _apiSettingsState.value)
                         }
                     }
                     else -> {
                         // Gọi API thông thường nếu không có hình ảnh hoặc file
-                        repository.getResponse(userPrompt, segmentId)
+                        repository.getResponse(userPrompt, segmentId, _apiSettingsState.value)
                     }
                 }
                 
@@ -1534,63 +1528,62 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 if (_chatState.value.isEditing) {
-                    val chatId = _chatState.value.editingChatId ?: return@launch
-                    updateExistingChat(chatId, prompt, audioUri)
-                    _chatState.update { it.copy(isEditing = false, editingChatId = null) }
-                    return@launch
+                     // Chuyển đổi: cần lấy chatId và cập nhật updateExistingChat để nhận apiSettings
+                     val chatId = _chatState.value.editingChatId ?: return@launch
+                    // updateExistingChat(chatId, prompt, audioUri) // Sẽ cập nhật hàm này sau
+                     _chatState.update { it.copy(isEditing = false, editingChatId = null) }
+                     // For now, just log and proceed without update call until it's modified
+                     Log.w("ChatViewModel", "Skipping audio update during edit - updateExistingChat needs modification")
+                     return@launch
                 }
 
                 val segmentId = _chatState.value.selectedSegment?.id
                     ?: throw RuntimeException("Cannot send prompt without segment selection")
 
-                // Bắt đầu hiển thị trạng thái đang tải
                 _chatState.update { it.copy(isLoading = true) }
-
-                // Thêm tin nhắn người dùng kèm file âm thanh
                 insertLocalUserChat(prompt, audioUri, segmentId)
-
-                // Đặt lại trạng thái nhập và xóa file trạng thái
                 _chatState.update {
                     it.copy(
                         prompt = "",
                         isLoading = false,
+                        fileUri = null, // Reset fileUri after adding user chat
+                        fileName = null, // Reset fileName
                         imageUri = null,
                     )
                 }
 
-                // Đang đợi phản hồi
                 _chatState.update { it.copy(isWaitingForResponse = true) }
 
                 try {
-                    // Sử dụng prompt mặc định "Tương tác với file ghi âm" nếu prompt rỗng
                     val effectivePrompt = if (prompt.isEmpty()) "Tương tác với file ghi âm, trả lời nó nếu là câu hỏi, bạn hãy trả lời như con người thông minh và là con người thực thụ. Nên nhớ là chỉ cần câu trả lời." else prompt
-                    
-                    val response = repository.getResponseWithAudio(effectivePrompt, audioUri, segmentId)
+
+                    // Truyền apiSettingsState.value vào repository.getResponseWithAudio
+                    Log.d("APISettingsDebug", "ViewModel calling repository.getResponseWithAudio with settings: ${_apiSettingsState.value}") // Log trước khi gọi
+                    val response = repository.getResponseWithAudio(effectivePrompt, audioUri, segmentId, _apiSettingsState.value)
 
                     _chatState.update { state ->
                         state.copy(
                             chatList = state.chatList + response,
-                            isWaitingForResponse = false
+                            isWaitingForResponse = false,
+                            typedMessages = _typedMessagesIds.toSet() - response.id // Không đánh dấu typed trước animation
                         )
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
-
                     val errorChat = Chat.fromPrompt(
                         prompt = "Lỗi: ${e.localizedMessage ?: "Không thể xử lý file âm thanh"}",
                         isFromUser = false,
                         isError = true,
                         userId = repository.userId
                     )
-
                     repository.insertChat(errorChat, segmentId)
-
                     _chatState.update { state ->
                         state.copy(
                             chatList = state.chatList + errorChat,
                             isWaitingForResponse = false
                         )
                     }
+                     markMessageAsTyped(errorChat.id) // Đánh dấu lỗi đã typed
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1703,7 +1696,7 @@ class ChatViewModel @Inject constructor(
                 // Nếu có file âm thanh, gọi API và cập nhật phản hồi
                 if (audioUri != null) {
                     try {
-                        val response = repository.getResponseWithAudio(prompt, audioUri, segmentId)
+                        val response = repository.getResponseWithAudio(prompt, audioUri, segmentId, _apiSettingsState.value)
                         
                         _chatState.update { state ->
                             state.copy(
@@ -1765,7 +1758,8 @@ class ChatViewModel @Inject constructor(
                 }
                 
                 // Xử lý và gọi API
-                val chat = repository.getResponseWithTextFile(prompt, fileUri, selectedSegmentId)
+                Log.d("APISettingsDebug", "ViewModel calling repository.getResponseWithTextFile with settings: ${_apiSettingsState.value}") // Log trước khi gọi
+                val chat = repository.getResponseWithTextFile(prompt, fileUri, selectedSegmentId, _apiSettingsState.value)
                 
                 // Thêm ID vào danh sách typed messages
                 if (!chat.isError) {
@@ -1778,7 +1772,7 @@ class ChatViewModel @Inject constructor(
                         chatList = it.chatList + chat,
                         isLoading = false,
                         isWaitingForResponse = false,
-                        typedMessages = _typedMessagesIds.toSet()
+                        typedMessages = _typedMessagesIds.toSet() - chat.id // Không đánh dấu typed trước animation
                     )
                 }
                 
@@ -1899,121 +1893,95 @@ class ChatViewModel @Inject constructor(
     private fun saveEditedMessage(newPrompt: String) {
         viewModelScope.launch {
             try {
-                val chatState = _chatState.value
-                val editingChatId = chatState.editingChatId ?: return@launch
-                val segmentId = chatState.selectedSegment?.id ?: return@launch
-                
-                // Tìm tin nhắn đang chỉnh sửa
-                val chatToEdit = chatState.chatList.find { it.id == editingChatId } ?: return@launch
-                
-                // Lấy thông tin file từ tin nhắn gốc
+                val chatStateValue = _chatState.value // Lấy state một lần
+                val editingChatId = chatStateValue.editingChatId ?: return@launch
+                val segmentId = chatStateValue.selectedSegment?.id ?: return@launch
+
+                val chatToEdit = chatStateValue.chatList.find { it.id == editingChatId } ?: return@launch
+
                 val isFileMessage = chatToEdit.isFileMessage
                 val imageUrl = chatToEdit.imageUrl
                 val fileName = chatToEdit.fileName
-                
-                // Log để kiểm tra
+
                 Log.d("ChatViewModel", "Edit tin nhắn: ID=${editingChatId}, " +
                         "isFileMessage=${isFileMessage}, fileName=${fileName}, imageUrl=${imageUrl}, " +
                         "oldPrompt=${chatToEdit.prompt}, newPrompt=${newPrompt}")
-                
-                // Tạo ID mới cho tin nhắn đã chỉnh sửa để tránh trùng lặp key trong LazyColumn
-                val newChatId = UUID.randomUUID().toString()
-                
-                // Cập nhật UI ngay lập tức để tránh trễ
-                val editedChat = chatToEdit.copy(
-                    id = newChatId, // Sử dụng ID mới
+
+                val newChatId = UUID.randomUUID().toString() // Tạo ID mới
+
+                 val editedChat = chatToEdit.copy(
+                    id = newChatId, // ID mới
                     prompt = newPrompt,
-                    // Giữ nguyên các thông tin file và hình ảnh từ tin nhắn gốc
-                    isFileMessage = isFileMessage, 
+                    isFileMessage = isFileMessage,
                     imageUrl = imageUrl,
                     fileName = fileName
                 )
-                
-                // Lấy danh sách tin nhắn đến tin nhắn đang edit
-                val chatListBeforeEdit = chatState.chatList.takeWhile { it.timestamp <= chatToEdit.timestamp }
-                
-                // Tìm vị trí của tin nhắn đang chỉnh sửa 
-                val editedChatIndex = chatListBeforeEdit.indexOfFirst { it.id == editingChatId }
-                
-                // Danh sách tin nhắn mới gồm tất cả tin nhắn trước (bao gồm) tin nhắn đang edit
-                val updatedPartialList = if (editedChatIndex >= 0) {
-                    val listBeforeEditedChat = chatListBeforeEdit.take(editedChatIndex)
-                    listBeforeEditedChat + editedChat
+
+                 // Lấy danh sách tin nhắn đến tin nhắn đang edit (BAO GỒM tin nhắn đang edit)
+                val chatListIncludingEdit = chatStateValue.chatList.takeWhile { it.timestamp <= chatToEdit.timestamp }
+
+                // Tìm vị trí của tin nhắn gốc trong danh sách đã lọc
+                val originalChatIndex = chatListIncludingEdit.indexOfFirst { it.id == editingChatId }
+
+                // Danh sách tin nhắn mới gồm các tin nhắn trước đó VÀ tin nhắn đã edit
+                val updatedPartialList = if (originalChatIndex != -1) {
+                    chatListIncludingEdit.subList(0, originalChatIndex) + editedChat
                 } else {
-                    chatListBeforeEdit.filterNot { it.id == editingChatId } + editedChat
+                    // Trường hợp không tìm thấy (ít xảy ra), thay thế nếu có hoặc thêm vào cuối
+                    chatStateValue.chatList.filterNot { it.id == editingChatId } + editedChat
                 }
-                
-                // Cập nhật UI ngay lập tức với tin nhắn đã edit, nhưng chưa có phản hồi mới
-                _chatState.update { 
+
+
+                _chatState.update {
                     it.copy(
-                        chatList = updatedPartialList,
+                        chatList = updatedPartialList, // Chỉ hiển thị phần đã edit
                         isLoading = true,
                         isWaitingForResponse = true,
                         isEditing = false,
                         prompt = "",
                         editingChatId = null,
                         editingChatTimestamp = -1,
-                        // Đặt lại các thông tin edit về null
                         editingImageUrl = null,
                         editingFileName = null
                     )
                 }
-                
-                // Cập nhật tin nhắn đã chỉnh sửa vào Firestore (có thể chạy song song)
+
                 viewModelScope.launch(Dispatchers.IO) {
                     try {
-                        // Xử lý finalPrompt dựa trên loại tin nhắn
-                        val finalPrompt = if (isFileMessage && fileName != null) {
-                            // Kiểm tra xem có Uri trong cache cho file này không
+                        val finalPromptForApi: String? = if (isFileMessage && fileName != null) {
                             val cachedUri = fileUriCache[fileName]
-                            
                             if (cachedUri != null) {
-                                // Trích xuất nội dung file khi Uri có trong cache
                                 Log.d("ChatViewModel", "Trích xuất nội dung từ file cache: $fileName")
                                 val fileContent = getFileContent(cachedUri, fileName)
-                                
-                                // Kết hợp prompt với nội dung file
                                 "$newPrompt\n\n--- Nội dung từ file $fileName ---\n$fileContent\n--- Kết thúc nội dung file ---"
+                            } else if (imageUrl != null && imageUrl.startsWith("http")) {
+                                 // Nếu không có cache nhưng có URL (ví dụ từ Firebase), chỉ gửi prompt kèm tên file
+                                 "$newPrompt\n\n(File đính kèm: $fileName)"
                             } else {
-                                // Kiểm tra xem có thể tải lại file từ imageUrl không (nếu là URL từ Firebase)
-                                if (imageUrl != null && imageUrl.startsWith("http")) {
-                                    try {
-                                        Log.d("ChatViewModel", "Thử trích xuất nội dung từ URL: $imageUrl")
-                                        // Kết hợp prompt với xử lý file
-                                        "$newPrompt\n\n--- Xử lý file $fileName từ URL ---"
-                                    } catch (e: Exception) {
-                                        Log.e("ChatViewModel", "Lỗi khi tải file từ URL: ${e.message}")
-                                        "$newPrompt\n\n(File đính kèm: $fileName - không trích xuất được nội dung)"
-                                    }
-                                } else {
-                                    // Không có cached Uri và không phải URL từ Firebase
-                                    Log.d("ChatViewModel", "Không thể trích xuất nội dung file, sử dụng prompt đơn giản")
-                                    "$newPrompt\n\n(File đính kèm: $fileName)"
-                                }
+                                "$newPrompt\n\n(File đính kèm: $fileName - không thể đọc nội dung)"
                             }
                         } else {
-                            // Không phải file, sử dụng prompt nguyên bản
-                            newPrompt
+                             newPrompt // Không phải file, sử dụng prompt mới
                         }
-                        
-                        // Gọi repository để cập nhật tin nhắn và xóa tin nhắn mới hơn
-                        val response = repository.editChatMessage(editedChat, segmentId, finalPrompt)
-                        
-                        // Khi nhận được response, cập nhật UI thêm lần nữa
+
+                        // Truyền apiSettingsState.value vào repository.editChatMessage
+                        Log.d("APISettingsDebug", "ViewModel calling repository.editChatMessage with settings: ${_apiSettingsState.value}") // Log trước khi gọi
+                        val response = repository.editChatMessage(editedChat, segmentId, _apiSettingsState.value, finalPromptForApi)
+
                         withContext(Dispatchers.Main) {
-                            _chatState.update { 
+                            _chatState.update {
                                 it.copy(
-                                    chatList = updatedPartialList + response,
+                                    chatList = updatedPartialList + response, // Thêm response mới vào cuối
                                     isLoading = false,
                                     isWaitingForResponse = false,
-                                    typedMessages = _typedMessagesIds.toSet() - response.id // Chưa đánh dấu response mới là đã typing
+                                    typedMessages = _typedMessagesIds.toSet() - response.id // Không đánh dấu typed trước animation
                                 )
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("ChatViewModel", "Lỗi trong quá trình xử lý file: ${e.message}", e)
+                        Log.e("ChatViewModel", "Lỗi trong quá trình xử lý file khi edit: ${e.message}", e)
                         withContext(Dispatchers.Main) {
-                            insertModelChat("Lỗi trong quá trình xử lý file: ${e.message}", true)
+                            insertModelChat("Lỗi trong quá trình xử lý file khi edit: ${e.message}", true)
                             _chatState.update {
                                 it.copy(
                                     isLoading = false,
@@ -2023,10 +1991,10 @@ class ChatViewModel @Inject constructor(
                         }
                     }
                 }
-                
+
             } catch (e: Exception) {
                 Log.e("ChatViewModel", "Lỗi khi lưu tin nhắn đã chỉnh sửa: ${e.message}")
-                _chatState.update { 
+                _chatState.update {
                     it.copy(
                         isLoading = false,
                         isWaitingForResponse = false,
@@ -2034,10 +2002,122 @@ class ChatViewModel @Inject constructor(
                         prompt = ""
                     )
                 }
-                
-                // Thêm tin nhắn lỗi thông báo cho người dùng
                 insertModelChat("Lỗi khi lưu tin nhắn đã chỉnh sửa: ${e.message}", true)
             }
+        }
+    }
+
+    // State lưu trữ cài đặt API cho RightSideDrawer
+    private val _apiSettingsState = MutableStateFlow(ApiSettingsState())
+    val apiSettingsState = _apiSettingsState.asStateFlow()
+    
+    // State lưu trữ trạng thái hiển thị RightSideDrawer
+    // Sửa lỗi: Khai báo đúng là MutableStateFlow<Boolean>
+    private val _isRightDrawerOpen = MutableStateFlow(false) 
+    val isRightDrawerOpen = _isRightDrawerOpen.asStateFlow()
+    
+    // State điều khiển hiển thị Safety Settings Dialog
+    private val _showSafetySettingsDialog = MutableStateFlow(false)
+    val showSafetySettingsDialog = _showSafetySettingsDialog.asStateFlow()
+    
+    // Hàm cập nhật temperature
+    fun updateTemperature(value: Float) {
+        _apiSettingsState.update { it.copy(temperature = value) }
+    }
+    
+    // Hàm cập nhật thinking mode
+    fun updateThinkingMode(enabled: Boolean) {
+        _apiSettingsState.update { it.copy(thinkingModeEnabled = enabled) }
+    }
+    
+    // Hàm cập nhật thinking budget
+    fun updateThinkingBudget(enabled: Boolean) {
+        _apiSettingsState.update { it.copy(thinkingBudgetEnabled = enabled) }
+    }
+    
+    // Hàm cập nhật structured output
+    fun updateStructuredOutput(enabled: Boolean) {
+        _apiSettingsState.update { it.copy(structuredOutputEnabled = enabled) }
+    }
+    
+    // Hàm cập nhật code execution
+    fun updateCodeExecution(enabled: Boolean) {
+        _apiSettingsState.update { it.copy(codeExecutionEnabled = enabled) }
+    }
+    
+    // Hàm cập nhật function calling
+    fun updateFunctionCalling(enabled: Boolean) {
+        _apiSettingsState.update { it.copy(functionCallingEnabled = enabled) }
+    }
+    
+    // Hàm cập nhật grounding with Google Search
+    fun updateGroundingSearch(enabled: Boolean) {
+        _apiSettingsState.update { it.copy(groundingEnabled = enabled) }
+    }
+    
+    // Hàm cập nhật output length
+    fun updateOutputLength(value: String) {
+        _apiSettingsState.update { it.copy(outputLength = value) }
+    }
+    
+    // Hàm cập nhật top P
+    fun updateTopP(value: Float) {
+        _apiSettingsState.update { it.copy(topP = value) }
+    }
+    
+    // Hàm cập nhật stop sequence
+    fun updateStopSequence(value: String) {
+        _apiSettingsState.update { it.copy(stopSequence = value) }
+    }
+    
+    // Hàm mở/đóng right drawer
+    fun toggleRightDrawer() {
+        _isRightDrawerOpen.update { !it }
+    }
+    
+    // Hàm đóng right drawer
+    fun closeRightDrawer() {
+        _isRightDrawerOpen.update { false }
+    }
+    
+    // Hàm mở right drawer
+    fun openRightDrawer() {
+        _isRightDrawerOpen.update { true }
+    }
+
+    // Hàm mở Safety Settings Dialog
+    fun openSafetySettingsDialog() {
+        _showSafetySettingsDialog.value = true
+    }
+
+    // Hàm đóng Safety Settings Dialog
+    fun closeSafetySettingsDialog() {
+        _showSafetySettingsDialog.value = false
+    }
+    
+    // Hàm cập nhật cài đặt an toàn cụ thể
+    fun updateSafetySetting(category: HarmCategory, threshold: SafetyThreshold) {
+        _apiSettingsState.update {
+            when (category) {
+                HarmCategory.HARASSMENT -> it.copy(safetyHarassment = threshold)
+                HarmCategory.HATE_SPEECH -> it.copy(safetyHate = threshold)
+                HarmCategory.SEXUALLY_EXPLICIT -> it.copy(safetySexuallyExplicit = threshold)
+                HarmCategory.DANGEROUS_CONTENT -> it.copy(safetyDangerous = threshold)
+                // Thêm các loại khác nếu API hỗ trợ
+                else -> it // Thêm else branch để xử lý các trường hợp khác
+            }
+        }
+    }
+    
+    // Hàm reset cài đặt an toàn về mặc định
+    fun resetSafetySettingsToDefaults() {
+        _apiSettingsState.update {
+            it.copy(
+                safetyHarassment = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                safetyHate = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                safetySexuallyExplicit = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                safetyDangerous = SafetyThreshold.BLOCK_MEDIUM_AND_ABOVE
+            )
         }
     }
 }

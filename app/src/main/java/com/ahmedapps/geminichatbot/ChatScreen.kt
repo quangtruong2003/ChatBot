@@ -168,8 +168,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.semantics.text
+import androidx.compose.foundation.layout.BoxScope
 import com.ahmedapps.geminichatbot.ui.components.CustomTextField
 import com.ahmedapps.geminichatbot.ui.components.sanitizeMessage
+import androidx.compose.material3.DrawerDefaults
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.material3.DismissibleDrawerSheet
+import androidx.compose.material3.DismissibleNavigationDrawer
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
@@ -186,7 +193,43 @@ fun ChatScreen(
     var showWelcomeMessage by remember { mutableStateOf(true) }
 
     // State để quản lý việc hiển thị SideDrawer
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val leftDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    
+    // State cho RightSideDrawer
+    val rightDrawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val isRightDrawerOpen by chatViewModel.isRightDrawerOpen.collectAsState()
+    
+    // Lấy bàn phím controller
+    val keyboardController = LocalSoftwareKeyboardController.current
+    
+    // Cập nhật rightDrawerState dựa trên isRightDrawerOpen
+    LaunchedEffect(isRightDrawerOpen) {
+        if (isRightDrawerOpen) {
+            rightDrawerState.open()
+        } else {
+            rightDrawerState.close()
+        }
+    }
+    
+    // Theo dõi thay đổi của rightDrawerState
+    LaunchedEffect(rightDrawerState.currentValue) {
+        if (rightDrawerState.currentValue == DrawerValue.Closed && isRightDrawerOpen) {
+            chatViewModel.closeRightDrawer()
+        }
+        
+        // Ẩn bàn phím khi drawer đóng
+        if (rightDrawerState.currentValue == DrawerValue.Closed) {
+            keyboardController?.hide()
+        }
+    }
+    
+    // Theo dõi thay đổi của leftDrawerState - ẩn bàn phím khi drawer đóng
+    LaunchedEffect(leftDrawerState.currentValue) {
+        if (leftDrawerState.currentValue == DrawerValue.Closed) {
+            keyboardController?.hide()
+        }
+    }
+    
     val scope = rememberCoroutineScope()
 
     // Thêm state để kích hoạt hiển thị bàn phím sau khi edit
@@ -265,7 +308,8 @@ fun ChatScreen(
             snackbarHostState.showSnackbar("Ứng dụng cần quyền truy cập máy ảnh để chụp ảnh.")
         }
     }
-    val isDrawerOpen = drawerState.currentValue == DrawerValue.Open
+    val isLeftDrawerOpen = leftDrawerState.currentValue == DrawerValue.Open
+    val isRightDrawerOpened = rightDrawerState.currentValue == DrawerValue.Open
     LaunchedEffect(Unit) {
         if (!cameraPermissionState.status.isGranted) {
             cameraPermissionState.launchPermissionRequest()
@@ -274,8 +318,8 @@ fun ChatScreen(
 
     val focusManager = LocalFocusManager.current
     // Ẩn bàn phím khi Drawer mở
-    LaunchedEffect(drawerState.currentValue) {
-        if (drawerState.currentValue == DrawerValue.Open) {
+    LaunchedEffect(leftDrawerState.currentValue, rightDrawerState.currentValue) {
+        if (leftDrawerState.currentValue == DrawerValue.Open || rightDrawerState.currentValue == DrawerValue.Open) {
             focusManager.clearFocus()
         }
     }
@@ -703,874 +747,900 @@ fun ChatScreen(
         setupClipboardListener()
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            // open file don't close slide
-            ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.background,
-                modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .fillMaxHeight()
+    // LaunchedEffect để cập nhật trạng thái showWelcomeMessage
+    LaunchedEffect(chatState.imageUri, chatState.chatList) {
+        showWelcomeMessage = chatState.chatList.isEmpty()
+    }
 
+    // LaunchedEffect cho việc kiểm tra danh sách chat rỗng
+    LaunchedEffect(chatState.chatList.isEmpty()) {
+        if (chatState.chatList.isEmpty()) {
+            showWelcomeMessage = true
+        }
+    }
+
+    // Thêm hiệu ứng loading khi đang xử lý file PDF
+    if (chatViewModel.isProcessingFile.value) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                SideDrawer(
-                    onClose = {
-                        scope.launch {
-                            drawerState.close()
-                        }
-                    },
-                    chatViewModel = chatViewModel,
-                    onLogout = { showLogoutDialog = true },
-                    onShowUserDetail = {
-                        // Không đóng drawer khi mở UserDetailBottomSheet
-                        onShowUserDetail()
-                    }
-                )
-            }
-        },
-        scrimColor = Color.Transparent
-    ) {
-
-        Scaffold(
-            topBar = {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = "ChatAI",
-                                style = TextStyle(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 30.sp,
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            Color(0xFF1BA1E3),
-                                            Color(0xFF5489D6),
-                                            Color(0xFF9B72CB),
-                                            Color(0xFFD96570),
-                                            Color(0xFFF49C46)
-                                        )
-                                    ),
-                                    fontFamily = robotoFontFamily
-                                )
-                            )
-                            // Spacer between actions if needed
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            // Combined Icon Button for Model Selection
-                            Box(
-                                modifier = Modifier
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null, // Loại bỏ hiệu ứng hover
-                                        onClick = {
-                                            isClicked = !isClicked // Chuyển đổi trạng thái đã nhấp
-                                            showModelSelection = true
-                                            // Thêm phản hồi rung khi mở dropdown model
-                                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        }
-                                    )
-                                    .alpha(if (isClicked) 0.5f else 1f)
-                                    .padding(0.dp)
-                            ) {
-                                Row(
-
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    // AnimatedContent for Selected Model Icon
-                                    AnimatedContent(
-                                        targetState = selectedModel,
-                                        transitionSpec = {
-                                            fadeIn(animationSpec = tween(durationMillis = 300)) togetherWith
-                                                    fadeOut(animationSpec = tween(durationMillis = 300))
-                                        },
-                                        label = "SelectedModelIcon"
-                                    ) { targetModel ->
-                                        val modelDisplayName = chatViewModel.modelDisplayNameMap[targetModel] ?: targetModel
-                                        val iconResourceId = chatViewModel.modelIconMap[modelDisplayName] ?: R.drawable.ic_bot
-
-                                        Icon(
-                                            painter = painterResource(id = iconResourceId),
-                                            contentDescription = "Selected Model Icon",
-                                            tint = textColor,
-                                            modifier = Modifier.size(25.dp)
-                                        )
-                                    }
-
-                                    // AnimatedContent for Dropdown Toggle Icon
-                                    AnimatedContent(
-                                        targetState = showModelSelection,
-                                        transitionSpec = {
-                                            fadeIn(animationSpec = tween(300)) togetherWith
-                                                    fadeOut(animationSpec = tween(300))
-                                        },
-                                        label = "DropdownToggleIcon"
-                                    ) { targetState ->
-                                        Icon(
-                                            painter = painterResource(
-                                                id = if (targetState) {
-                                                    R.drawable.ic_closemodel
-                                                } else {
-                                                    R.drawable.ic_openmodel
-                                                }
-                                            ),
-                                            contentDescription = "Chọn model",
-                                            tint = textColor,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-
-                                // DropdownMenu associated with the combined icons
-                                DropdownMenu(
-                                    expanded = showModelSelection,
-                                    onDismissRequest = { showModelSelection = false },
-                                    properties = PopupProperties(focusable = false),
-                                    modifier = Modifier
-                                        .wrapContentSize(Alignment.Center)
-                                        .crop(vertical = 8.dp)
-                                        .background(
-                                            MaterialTheme.colorScheme.surface,
-                                            shape = RoundedCornerShape(15.dp)
-                                        )
-//                                            .background(
-//                                                backgroundColor,
-//                                                shape = RoundedCornerShape(15.dp)
-//                                            )
-                                        .fillMaxWidth(0.5f),
-                                    offset = DpOffset(x = 40.dp, y = 8.dp)
-                                ) {
-                                    chatViewModel.availableModels.forEachIndexed { index, model ->
-                                        DropdownMenuItem(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .wrapContentHeight(),
-                                            text = {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        val modelDisplayName = chatViewModel.modelDisplayNameMap[model] ?: model
-                                                        val iconResourceId = chatViewModel.modelIconMap[modelDisplayName] ?: R.drawable.ic_bot // Default to ic_bot if not found
-
-                                                        Icon(
-                                                            painter = painterResource(id = iconResourceId),
-                                                            contentDescription = "Model Icon",
-                                                            tint = textColor,
-                                                            modifier = Modifier.size(24.dp)
-                                                        )
-                                                        Spacer(modifier = Modifier.width(8.dp))
-                                                        Text(
-                                                            text = modelDisplayName,
-                                                            fontSize = 16.sp,
-                                                            color = textColor,
-                                                            fontWeight = if (model == selectedModel) FontWeight.Bold else FontWeight.Normal
-                                                        )
-                                                    }
-                                                    if (model == selectedModel) {
-                                                        Icon(
-                                                            painter = painterResource(id = R.drawable.ic_chonmodel),
-                                                            contentDescription = "Selected Model",
-                                                            tint = textColor,
-                                                            modifier = Modifier.size(24.dp)
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                            onClick = {
-                                                chatViewModel.selectModel(model)
-                                                showModelSelection = false
-                                                // Thêm phản hồi rung khi chọn model
-                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                        )
-                                        if (index < chatViewModel.availableModels.size - 1) {
-                                            Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp)
-                                        }
-                                    }
-                                    LaunchedEffect(key1 = showModelSelection) {
-                                        if (!showModelSelection) {
-                                            isClicked = false
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                    },
-
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch {
-                            drawerState.open()
-                            // Thêm phản hồi rung khi mở drawer
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        } }) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_listhistory),
-                                contentDescription = "Menu",
-                                tint = textColor,
-                                modifier = Modifier.size(35.dp)
-                            )
-                        }
-                    },
-                    actions = {
-                        // Existing Refresh IconButton
-                        IconButton(
-                            onClick = {
-                                chatViewModel.refreshChats()
-                                // Thêm phản hồi rung khi làm mới chat
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            },
-                            enabled = chatState.chatList.isNotEmpty()
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_newms),
-                                contentDescription = "Làm mới",
-                                tint = textColor,
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .alpha(if (chatState.chatList.isNotEmpty()) 1f else 0.5f)
-                            )
-                        }
-
-                    },
-                )
-            },
-            // Tùy chỉnh SnackbarHost để điều chỉnh vị trí
-            snackbarHost = {
-                SnackbarHost(
-                    hostState = snackbarHostState,
-                    modifier = Modifier
-                        .fillMaxWidth(),
-                    snackbar = { snackbarData ->
-                        Snackbar(
-                            snackbarData = snackbarData,
-                            modifier = Modifier
-                                .padding(bottom = 65.dp)
-                                .fillMaxWidth()
-                        )
-                    }
-                )
-            },
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier.then(if (!isDrawerOpen) Modifier.imePadding() else Modifier)
-        ) { paddingValues ->
-            val clipboardManager = LocalClipboardManager.current
-            val firstVisibleItemIndex by remember {
-                derivedStateOf {
-                    listState.firstVisibleItemIndex
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(top = paddingValues.calculateTopPadding())
-
-            ) {
-                AnimatedVisibility(
-                    visible = (showScrollToBottomButton && !chatState.isEditing) || (chatState.isEditing),
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 180.dp)
-                        .zIndex(1f)
-                ) {
-                    FloatingActionButton(
-                        onClick = {
-                            if (chatState.isEditing) {
-                                // Nếu đang ở chế độ chỉnh sửa, hủy chỉnh sửa
-                                chatViewModel.onEvent(ChatUiEvent.CancelEdit)
-                                focusManager.clearFocus()
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            } else {
-                                // Ngược lại thực hiện cuộn xuống dưới bình thường
-                                scope.launch {
-                                    shouldAutoScroll = true
-                                    userScrolledAwayFromBottom = false
-                                    if (chatState.chatList.isNotEmpty()) {
-                                        kotlinx.coroutines.delay(100)
-                                        listState.animateScrollToItem(Int.MAX_VALUE)
-                                    }
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .shadow(
-                                elevation = 8.dp,
-                                shape = CircleShape,
-                                clip = false
-                            ),
-                        shape = CircleShape,
-                        containerColor = if (chatState.isEditing) 
-                            MaterialTheme.colorScheme.error 
-                        else if (isSystemInDarkTheme()) 
-                            Color(0xFF1E1F22) 
-                        else 
-                            Color(0xFFEAEAEA),
-                        contentColor = if (chatState.isEditing) 
-                            Color.White 
-                        else if (isSystemInDarkTheme()) 
-                            Color.White 
-                        else 
-                            Color.Black,
-                        elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = 0.dp,
-                            pressedElevation = 12.dp,
-                            focusedElevation = 12.dp
-                        )
-                    ) {
-                        Icon(
-                            imageVector = if (chatState.isEditing)
-                                Icons.Filled.Close
-                            else
-                                Icons.Filled.ArrowDownward,
-                            contentDescription = if (chatState.isEditing)
-                                "Hủy chỉnh sửa"
-                            else
-                                "Cuộn xuống dưới"
-                        )
-                    }
-                }
-
-
-
-                // Nội dung chính của ChatScreen
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .navigationBarsPadding()
-                ) {
-                    // Box chứa nội dung chat với weight để nó mở rộng
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                focusManager.clearFocus()
-                            }
-                    ) {
-                        // LazyColumn hiển thị danh sách chat
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 8.dp),
-                            state = listState,
-                            verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom),
-                        ) {
-                            items(
-                                items = chatState.chatList,
-                                key = { chat -> 
-                                    // Tạo key duy nhất không bao giờ trùng lặp
-                                    if (chat.id.isEmpty()) {
-                                        // Nếu ID rỗng, sử dụng tổ hợp của timestamp và hashCode
-                                        "chat_${chat.timestamp}_${chat.hashCode()}_${System.identityHashCode(chat)}"
-                                    } else {
-                                        // Thêm thêm các yếu tố khác vào key để đảm bảo luôn duy nhất
-                                        // Bao gồm cả nội dung và thông tin file (nếu có)
-                                        val fileInfo = if (chat.isFileMessage) "_file_${chat.fileName?.hashCode() ?: 0}" else ""
-                                        val contentHash = chat.prompt.hashCode()
-                                        "${chat.id}_${chat.timestamp}_${contentHash}${fileInfo}"
-                                    }
-                                }
-                            ) { chat ->
-                                if (chat.isFromUser) {
-                                    UserChatItem(
-                                        prompt = chat.prompt,
-                                        imageUrl = chat.imageUrl,
-                                        isError = chat.isError,
-                                        isFileMessage = chat.isFileMessage,
-                                        fileName = chat.fileName,
-                                        onLongPress = { message ->
-                                            scope.launch {
-                                                val plainText = parseFormattedText(message).text
-                                                clipboardManager.setText(AnnotatedString(plainText))
-                                                snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
-                                            }
-                                        },
-                                        onImageClick = { url ->
-                                            val encodedUrl = Base64.encodeToString(url.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
-                                            navController.navigate("fullscreen_image/$encodedUrl")
-                                        },
-                                        snackbarHostState = snackbarHostState,
-                                        chatId = chat.id,
-                                        onDeleteClick = { chatId ->
-                                            chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
-                                        },
-                                        onEditClick = { chatId ->
-                                            // Gọi sự kiện EditChat với chatId, nội dung tin nhắn, timestamp,
-                                            // và quan trọng là imageUrl và fileName của tin nhắn gốc
-                                            chatViewModel.onEvent(ChatUiEvent.EditChat(
-                                                chatId = chatId,
-                                                message = chat.prompt,
-                                                timestamp = chat.timestamp,
-                                                imageUrl = chat.imageUrl,
-                                                fileName = chat.fileName
-                                            ))
-                                            // Kích hoạt hiển thị bàn phím
-                                            showKeyboardAfterEdit = true
-                                        },
-                                        isBeingEdited = chatState.isEditing && chatState.editingChatId == chat.id
-                                    )
-                                } else {
-                                    // Cần kiểm tra xem tin nhắn đã được hiển thị hiệu ứng typing chưa
-                                    val isMessageAlreadyTyped = chatViewModel.isMessageTyped(chat.id)
-                                    val shouldShowTypingEffect = !isMessageAlreadyTyped
-                                    
-                                    // Tìm prompt của user trước response này để sử dụng cho regenerate
-                                    val userPromptForThisResponse = if (!chat.isFromUser) {
-                                        val chatList = chatState.chatList
-                                        val chatIndex = chatList.indexOf(chat)
-                                        
-                                        // Tìm tin nhắn người dùng trước response này
-                                        if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
-                                            chatList[chatIndex - 1].prompt
-                                        } else ""
-                                    } else ""
-                                    
-                                    // Tìm tin nhắn user đầy đủ (không chỉ prompt)
-                                    val userMessage = if (!chat.isFromUser) {
-                                        val chatList = chatState.chatList
-                                        val chatIndex = chatList.indexOf(chat)
-                                        if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
-                                            chatList[chatIndex - 1]
-                                        } else null
-                                    } else null
-                                    
-                                    ModelChatItem(
-                                        response = chat.prompt,
-                                        isError = chat.isError,
-                                        onLongPress = { textToCopy ->
-                                            scope.launch {
-                                                val plainText = parseFormattedText(textToCopy).text
-                                                clipboardManager.setText(AnnotatedString(plainText))
-                                                snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
-                                            }
-                                        },
-                                        onImageClick = { imageUrl ->
-                                            val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
-                                            navController.navigate("fullscreen_image/$encodedUrl")
-                                        },
-                                        snackbarHostState = snackbarHostState,
-                                        chatId = chat.id,
-                                        isNewChat = shouldShowTypingEffect,
-                                        typingSpeed = TypingConfig.DEFAULT_TYPING_SPEED,
-                                        onAnimationComplete = {
-                                            chatViewModel.markMessageAsTyped(chat.id)
-                                        },
-                                        isMessageTyped = isMessageAlreadyTyped,
-                                        onDeleteClick = { chatId ->
-                                            chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
-                                        },
-                                        onRegenerateClick = { prompt, responseId, _ ->
-                                            // Kiểm tra nếu userMessage null
-                                            if (userMessage != null) {
-                                                // Xác định prompt thích hợp dựa trên loại tin nhắn
-                                                val finalPrompt = when {
-                                                    // Nếu có prompt do người dùng nhập, ưu tiên sử dụng
-                                                    prompt.isNotEmpty() -> prompt
-                                                    // Nếu có hình ảnh, tạo prompt mặc định cho hình ảnh
-                                                    userMessage.imageUrl != null -> "Hãy mô tả hình ảnh này"
-                                                    // Nếu có file, tạo prompt mặc định cho file
-                                                    userMessage.isFileMessage && userMessage.fileName != null -> "Hãy tóm tắt nội dung file ${userMessage.fileName}"
-                                                    // Trường hợp khác (hiếm gặp), để prompt rỗng
-                                                    else -> ""
-                                                }
-                                                
-                                                // Nếu có prompt hoặc là tin nhắn file/hình ảnh -> regenerate
-                                                if (finalPrompt.isNotEmpty() || userMessage.isFileMessage || userMessage.imageUrl != null) {
-                                                    chatViewModel.onEvent(
-                                                        ChatUiEvent.RegenerateResponse(
-                                                            userPrompt = finalPrompt, // Prompt đã xử lý
-                                                            responseId = responseId,
-                                                            imageUrl = userMessage.imageUrl, // URL hình ảnh nếu có
-                                                            fileName = userMessage.fileName, // Tên file nếu có
-                                                            timestamp = userMessage.timestamp // Timestamp để xóa tin nhắn mới hơn
-                                                        )
-                                                    )
-                                                } else {
-                                                    // Hiếm khi xảy ra trường hợp này, nhưng vẫn giữ để phòng ngừa
-                                                    scope.launch {
-                                                        snackbarHostState.showSnackbar("Không thể tạo lại cho tin nhắn này.")
-                                                    }
-                                                }
-                                            } else {
-                                                // Không tìm thấy tin nhắn user gốc
-                                                scope.launch {
-                                                    snackbarHostState.showSnackbar("Không tìm thấy tin nhắn gốc của người dùng.")
-                                                }
-                                            }
-                                        },
-                                        currentUserPrompt = userPromptForThisResponse,
-                                        availableModels = chatViewModel.availableModels,
-                                        modelDisplayNameMap = chatViewModel.modelDisplayNameMap,
-                                        modelIconMap = chatViewModel.modelIconMap,
-                                        selectedModel = selectedModel,
-                                        chat = userMessage, // Truyền tin nhắn user làm tham số
-                                        stopTypingMessageId = chatState.stopTypingMessageId
-                                    )
-                                }
-                            }
-
-                            // Chỉ báo "Đang suy nghĩ..." với key duy nhất và rõ ràng
-                            item(key = "waiting_indicator_unique") {
-                                if (chatState.isWaitingForResponse && chatState.imageUri == null) {
-                                    ModelChatItem(
-                                        response = "",
-                                        isError = false,
-                                        onLongPress = { },
-                                        onImageClick = { },
-                                        snackbarHostState = snackbarHostState,
-                                        isWaitingForResponse = true,
-                                        isMessageTyped = true
-                                    )
-                                }
-                            }
-                        }
-
-                        // Hiển thị WelcomeMessage như một lớp phủ nếu không có tin nhắn
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = showWelcomeMessage && chatState.chatList.isEmpty(),
-                            enter = fadeIn(animationSpec = tween(300)) + expandVertically(
-                                animationSpec = tween(300),
-                                expandFrom = Alignment.Top
-                            ),
-                            exit = fadeOut(animationSpec = tween(durationMillis = 250, easing = LinearOutSlowInEasing)) +
-                                   slideOutVertically(
-                                       animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
-                                       targetOffsetY = { -it / 4 } // Trượt lên một chút
-                                   ),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            WelcomeMessage { displayText, apiPrompt ->
-                                // 1) Hiển thị tin nhắn user "Bạn sẽ là XXX" (KHÔNG gọi API)
-                                val localUserPrompt = "$displayText"
-                                chatViewModel.insertLocalUserChat(localUserPrompt)
-
-                                // 2) Gọi API với apiPrompt
-                                scope.launch {
-                                    chatViewModel.getResponse(apiPrompt, chatState.selectedSegment?.id)
-                                }
-                            }
-                        }
-                    }
-
-                    // Box hiển thị hình ảnh và file đã chọn
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp)
-                    ) {
-                        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
-                        val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(70.dp)
-                        Column {
-                            // Khôi phục hiển thị ảnh với đầy đủ tính năng mới
-                            chatState.imageUri?.let { uri ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(70.dp)
-                                ) {
-                                    // Hình ảnh đã chọn
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(uri)
-                                            .size(coil.size.Size.ORIGINAL)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = "Hình ảnh đã chọn",
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .heightIn(max = maxImageHeight)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .clickable {
-                                                val encodedUrl = Base64.encodeToString(
-                                                    uri
-                                                        .toString()
-                                                        .toByteArray(Charsets.UTF_8),
-                                                    Base64.URL_SAFE or Base64.NO_WRAP
-                                                )
-                                                navController.navigate("fullscreen_image/$encodedUrl")
-                                            }
-                                    )
-
-                                    // Hiển thị chỉ báo loading khi đang xử lý ảnh
-                                    if (chatState.isImageProcessing) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(Color.Black.copy(alpha = 0.4f)),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(24.dp),
-                                                color = Color.White,
-                                                strokeWidth = 2.dp
-                                            )
-                                        }
-                                    }
-
-                                    // Nút 'X' để xóa ảnh
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .align(Alignment.TopEnd)
-                                            .offset(x = 4.dp, y = (-4).dp)
-                                            .clip(RoundedCornerShape(50))
-                                            .clickable {
-                                                chatViewModel.onEvent(ChatUiEvent.RemoveImage)
-                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Xóa ảnh",
-                                            tint = Color.White,
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(
-                                                    color = Color(0xFFAAAAAA),
-                                                    shape = RoundedCornerShape(50)
-                                                )
-                                                .padding(4.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            
-                            // Thêm phần hiển thị file vào đây
-                            chatState.fileUri?.let { uri ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.5f)
-                                        .padding(vertical = 4.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    // Icon file
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .padding(start = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(
-                                                id = if (chatState.isFileUploading) R.drawable.ic_fileuploaderror else R.drawable.ic_fileuploaded
-                                            ),
-                                            contentDescription = "File đã chọn",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                    
-                                    // Tên file nằm bên phải icon
-                                    Text(
-                                        text = chatState.fileName ?: "File không xác định",
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .padding(horizontal = 8.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    
-                                    // Nút 'X' để xóa file 
-                                    Box(
-                                        modifier = Modifier
-                                            .padding(end = 8.dp)
-                                            .size(20.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFAAAAAA))
-                                            .clickable {
-                                                chatViewModel.onEvent(ChatUiEvent.RemoveFile)
-                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Xóa file",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Box cho input field - quan trọng: đặt ở cuối Column để nó nằm ở dưới cùng
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp, start = 8.dp, end = 8.dp)
-                            .then(if (!isDrawerOpen) Modifier.imePadding() else Modifier)
-                            .background(
-                                MaterialTheme.colorScheme.surface,
-                                shape = RoundedCornerShape(20.dp)
-                            ),
-                    ) {
-                        // --- TextField nằm phía trên ---
-                        LaunchedEffect(chatState.imageUri, chatState.chatList) {
-                            showWelcomeMessage = chatState.chatList.isEmpty()
-                        }
-                        
-                        // CustomTextField với các tham số cần thiết
-                        CustomTextField(
-                            chatViewModel = chatViewModel,
-                            chatState = chatState,
-                            focusRequester = focusRequester,
-                            scope = scope,
-                            snackbarHostState = snackbarHostState,
-                            imagePicker = imagePicker,
-                            documentPickerLauncher = documentPickerLauncher,
-                            photoUri = photoUri,
-                            takePictureLauncher = takePictureLauncher,
-                            navController = navController,
-                            createImageUriInner = { createImageUriInner() },
-                            onPhotoUriChange = { newUri -> 
-                                photoUri = newUri 
-                            },
-                            onImageReceived = { uri -> 
-                                chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri))
-                            },
-                            showKeyboardAfterEdit = showKeyboardAfterEdit,
-                            onKeyboardShown = { showKeyboardAfterEdit = false }
-                        )
-                    }
-                }
-
-                // LaunchedEffect cho việc kiểm tra danh sách chat rỗng
-                LaunchedEffect(chatState.chatList.isEmpty()) {
-                    if (chatState.chatList.isEmpty()) {
-                        showWelcomeMessage = true
-                    }
-                }
-
-                // Thêm hiệu ứng loading khi đang xử lý file PDF
-                if (chatViewModel.isProcessingFile.value) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.5f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = "Đang xử lý file PDF...",
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-
-                // Nút scroll to bottom
-                AnimatedVisibility(
-                    visible = userScrolledAwayFromBottom && !chatState.isEditing,
-                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
-                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 180.dp)
-                        .zIndex(1f)
-                ) {
-                    FloatingActionButton(
-                        onClick = {
-                            // Thực hiện cuộn xuống dưới
-                            scope.launch {
-                                shouldAutoScroll = true // Allow potential future auto-scrolls
-                                userScrolledAwayFromBottom = false // Reset flag immediately
-                                if (chatState.chatList.isNotEmpty()) {
-                                    // Use a slightly longer delay, consistent with chat switching
-                                    kotlinx.coroutines.delay(100) // Increased delay
-                                    // Scroll to the absolute bottom using Int.MAX_VALUE
-                                    listState.animateScrollToItem(Int.MAX_VALUE)
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .shadow(
-                                elevation = 8.dp,
-                                shape = CircleShape,
-                                clip = false
-                            ),
-                        shape = CircleShape,
-                        containerColor = if (isSystemInDarkTheme()) 
-                            Color(0xFF1E1F22) 
-                        else 
-                            Color(0xFFEAEAEA),
-                        contentColor = if (isSystemInDarkTheme()) 
-                            Color.White 
-                        else 
-                            Color.Black,
-                        elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = 0.dp,
-                            pressedElevation = 12.dp,
-                            focusedElevation = 12.dp
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowDownward,
-                            contentDescription = "Cuộn xuống dưới"
-                        )
-                    }
-                }
-            }
-            if (showLogoutDialog) {
-                AlertDialog(
-                    onDismissRequest = { showLogoutDialog = false },
-                    title = { Text(text = "Đăng xuất") },
-                    text = { Text("Bạn có chắc chắn muốn đăng xuất?") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            // Thực hiện đăng xuất
-                            FirebaseAuth.getInstance().signOut()
-                            GoogleSignIn.getClient(
-                                context,
-                                GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                                    .build()
-                            ).signOut().addOnCompleteListener {
-                                navController.navigate("login") {
-                                    popUpTo("chat") { inclusive = true }
-                                }
-                            }
-                            showLogoutDialog = false
-                        }) {
-                            Text("Đồng ý")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = {
-                            showLogoutDialog = false // Đóng Dialog nếu người dùng hủy
-                        }) {
-                            Text("Hủy")
-                        }
-                    }
+                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Đang xử lý file PDF...",
+                    color = Color.White
                 )
             }
         }
     }
-}
+
+    // Left drawer - Sử dụng DismissibleNavigationDrawer để cho phép vuốt đóng từ trái sang phải
+    DismissibleNavigationDrawer(
+        drawerState = leftDrawerState,
+        drawerContent = {
+            DismissibleDrawerSheet(
+                drawerContainerColor = MaterialTheme.colorScheme.background,
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .fillMaxHeight()
+            ) {
+                SideDrawer(
+                    onClose = {
+                        scope.launch {
+                            leftDrawerState.close()
+                        }
+                    },
+                    chatViewModel = chatViewModel,
+                    onLogout = { showLogoutDialog = true },
+                    onShowUserDetail = onShowUserDetail
+                )
+            }
+        },
+        content = {
+            // Main Content (with Right Drawer functionality)
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Right drawer với hướng RTL để mở từ phải qua trái
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    ModalNavigationDrawer(
+                        drawerState = rightDrawerState,
+                        drawerContent = {
+                            // Sử dụng LTR trong drawer để nội dung không bị đảo ngược
+                            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                                ModalDrawerSheet(
+                                    drawerContainerColor = MaterialTheme.colorScheme.background,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.9f)
+                                        .fillMaxHeight()
+                                ) {
+                                    RightSideDrawer(
+                                        onClose = {
+                                            scope.launch {
+                                                rightDrawerState.close()
+                                                chatViewModel.closeRightDrawer()
+                                            }
+                                        },
+                                        chatViewModel = chatViewModel
+                                    )
+                                }
+                            }
+                        },
+                        content = {
+                            // Trở lại LTR cho nội dung chính
+                            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                                // Main Scaffold
+                                Scaffold(
+                                    topBar = {
+                                        CenterAlignedTopAppBar(
+                                            title = {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.Center
+                                                ) {
+                                                    Text(
+                                                        text = "ChatAI",
+                                                        style = TextStyle(
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 30.sp,
+                                                            brush = Brush.linearGradient(
+                                                                colors = listOf(
+                                                                    Color(0xFF1BA1E3),
+                                                                    Color(0xFF5489D6),
+                                                                    Color(0xFF9B72CB),
+                                                                    Color(0xFFD96570),
+                                                                    Color(0xFFF49C46)
+                                                                )
+                                                            ),
+                                                            fontFamily = robotoFontFamily
+                                                        )
+                                                    )
+                                                    
+                                                    Spacer(modifier = Modifier.width(8.dp))
+
+                                                    // Model selection button
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clickable(
+                                                                interactionSource = remember { MutableInteractionSource() },
+                                                                indication = null,
+                                                                onClick = {
+                                                                    isClicked = !isClicked
+                                                                    showModelSelection = true
+                                                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                }
+                                                            )
+                                                            .alpha(if (isClicked) 0.5f else 1f)
+                                                            .padding(0.dp)
+                                                    ) {
+                                                        Row(
+
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.End
+                                                        ) {
+                                                            // AnimatedContent for Selected Model Icon
+                                                            AnimatedContent(
+                                                                targetState = selectedModel,
+                                                                transitionSpec = {
+                                                                    fadeIn(animationSpec = tween(durationMillis = 300)) togetherWith
+                                                                            fadeOut(animationSpec = tween(durationMillis = 300))
+                                                                },
+                                                                label = "SelectedModelIcon"
+                                                            ) { targetModel ->
+                                                                val modelDisplayName = chatViewModel.modelDisplayNameMap[targetModel] ?: targetModel
+                                                                val iconResourceId = chatViewModel.modelIconMap[modelDisplayName] ?: R.drawable.ic_bot
+
+                                                                Icon(
+                                                                    painter = painterResource(id = iconResourceId),
+                                                                    contentDescription = "Selected Model Icon",
+                                                                    tint = textColor,
+                                                                    modifier = Modifier.size(25.dp)
+                                                                )
+                                                            }
+
+                                                            // AnimatedContent for Dropdown Toggle Icon
+                                                            AnimatedContent(
+                                                                targetState = showModelSelection,
+                                                                transitionSpec = {
+                                                                    fadeIn(animationSpec = tween(300)) togetherWith
+                                                                            fadeOut(animationSpec = tween(300))
+                                                                },
+                                                                label = "DropdownToggleIcon"
+                                                            ) { targetState ->
+                                                                Icon(
+                                                                    painter = painterResource(
+                                                                        id = if (targetState) {
+                                                                            R.drawable.ic_closemodel
+                                                                        } else {
+                                                                            R.drawable.ic_openmodel
+                                                                        }
+                                                                    ),
+                                                                    contentDescription = "Chọn model",
+                                                                    tint = textColor,
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
+                                                            }
+                                                        }
+
+                                                        // DropdownMenu associated with the combined icons
+                                                        DropdownMenu(
+                                                            expanded = showModelSelection,
+                                                            onDismissRequest = { showModelSelection = false },
+                                                            properties = PopupProperties(focusable = false),
+                                                            modifier = Modifier
+                                                                .wrapContentSize(Alignment.Center)
+                                                                .crop(vertical = 8.dp)
+                                                                .background(
+                                                                    MaterialTheme.colorScheme.surface,
+                                                                    shape = RoundedCornerShape(15.dp)
+                                                                )
+//                                            .background(
+//                                                backgroundColor,
+//                                                shape = RoundedCornerShape(15.dp)
+//                                            )
+                                                                .fillMaxWidth(0.5f),
+                                                            offset = DpOffset(x = 40.dp, y = 8.dp)
+                                                        ) {
+                                                            chatViewModel.availableModels.forEachIndexed { index, model ->
+                                                                DropdownMenuItem(
+                                                                    modifier = Modifier
+                                                                        .fillMaxWidth()
+                                                                        .wrapContentHeight(),
+                                                                    text = {
+                                                                        Row(
+                                                                            modifier = Modifier.fillMaxWidth(),
+                                                                            verticalAlignment = Alignment.CenterVertically,
+                                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                                        ) {
+                                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                                val modelDisplayName = chatViewModel.modelDisplayNameMap[model] ?: model
+                                                                                val iconResourceId = chatViewModel.modelIconMap[modelDisplayName] ?: R.drawable.ic_bot // Default to ic_bot if not found
+
+                                                                                Icon(
+                                                                                    painter = painterResource(id = iconResourceId),
+                                                                                    contentDescription = "Model Icon",
+                                                                                    tint = textColor,
+                                                                                    modifier = Modifier.size(24.dp)
+                                                                                )
+                                                                                Spacer(modifier = Modifier.width(8.dp))
+                                                                                Text(
+                                                                                    text = modelDisplayName,
+                                                                                    fontSize = 16.sp,
+                                                                                    color = textColor,
+                                                                                    fontWeight = if (model == selectedModel) FontWeight.Bold else FontWeight.Normal
+                                                                                )
+                                                                            }
+                                                                            if (model == selectedModel) {
+                                                                                Icon(
+                                                                                    painter = painterResource(id = R.drawable.ic_chonmodel),
+                                                                                    contentDescription = "Selected Model",
+                                                                                    tint = textColor,
+                                                                                    modifier = Modifier.size(24.dp)
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    onClick = {
+                                                                        chatViewModel.selectModel(model)
+                                                                        showModelSelection = false
+                                                                        // Thêm phản hồi rung khi chọn model
+                                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                    }
+                                                                )
+                                                                if (index < chatViewModel.availableModels.size - 1) {
+                                                                    Divider(color = Color(0x14FFFFFF), thickness = 0.6.dp)
+                                                                }
+                                                            }
+                                                            LaunchedEffect(key1 = showModelSelection) {
+                                                                if (!showModelSelection) {
+                                                                    isClicked = false
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            navigationIcon = {
+                                                IconButton(onClick = { 
+                                                    scope.launch {
+                                                        leftDrawerState.open()
+                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    }
+                                                }) {
+                                                    Icon(
+                                                        painter = painterResource(id = R.drawable.ic_listhistory),
+                                                        contentDescription = "Menu",
+                                                        tint = textColor,
+                                                        modifier = Modifier.size(35.dp)
+                                                    )
+                                                }
+                                            },
+                                            actions = {
+                                                // Settings button
+                                                IconButton(onClick = {
+                                                    chatViewModel.toggleRightDrawer()
+                                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                }) {
+                                                    Icon(
+                                                        painter = painterResource(id = R.drawable.ic_settings),
+                                                        contentDescription = "Cài đặt API",
+                                                        tint = textColor,
+                                                        modifier = Modifier.size(26.dp)
+                                                    )
+                                                }
+                                                
+                                                // Refresh button
+                                                IconButton(
+                                                    onClick = {
+                                                        chatViewModel.refreshChats()
+                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    },
+                                                    enabled = chatState.chatList.isNotEmpty()
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(id = R.drawable.ic_newms),
+                                                        contentDescription = "Làm mới",
+                                                        tint = textColor,
+                                                        modifier = Modifier
+                                                            .size(30.dp)
+                                                            .alpha(if (chatState.chatList.isNotEmpty()) 1f else 0.5f)
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    },
+                                    snackbarHost = {
+                                        SnackbarHost(
+                                            hostState = snackbarHostState,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            snackbar = { snackbarData ->
+                                                Snackbar(
+                                                    snackbarData = snackbarData,
+                                                    modifier = Modifier
+                                                        .padding(bottom = 65.dp)
+                                                        .fillMaxWidth()
+                                                )
+                                            }
+                                        )
+                                    },
+                                    contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                                    modifier = Modifier.then(if (!isLeftDrawerOpen) Modifier.imePadding() else Modifier)
+                                ) { paddingValues ->
+                                    // Scaffold content here
+                                    val clipboardManager = LocalClipboardManager.current
+                                    val firstVisibleItemIndex by remember {
+                                        derivedStateOf {
+                                            listState.firstVisibleItemIndex
+                                        }
+                                    }
+                                    
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(top = paddingValues.calculateTopPadding())
+                                    ) {
+                                        AnimatedVisibility(
+                                            visible = (showScrollToBottomButton && !chatState.isEditing) || (chatState.isEditing),
+                                            enter = fadeIn(),
+                                            exit = fadeOut(),
+                                            modifier = Modifier
+                                                .align(Alignment.BottomCenter)
+                                                .padding(bottom = 180.dp)
+                                                .zIndex(1f)
+                                        ) {
+                                            FloatingActionButton(
+                                                onClick = {
+                                                    if (chatState.isEditing) {
+                                                        chatViewModel.onEvent(ChatUiEvent.CancelEdit)
+                                                        focusManager.clearFocus()
+                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    } else {
+                                                        scope.launch {
+                                                            shouldAutoScroll = true
+                                                            userScrolledAwayFromBottom = false
+                                                            if (chatState.chatList.isNotEmpty()) {
+                                                                kotlinx.coroutines.delay(100)
+                                                                listState.animateScrollToItem(Int.MAX_VALUE)
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                modifier = Modifier
+                                                    .size(40.dp)
+                                                    .clip(CircleShape)
+                                                    .shadow(elevation = 8.dp, shape = CircleShape, clip = false),
+                                                shape = CircleShape,
+                                                containerColor = if (chatState.isEditing) 
+                                                    MaterialTheme.colorScheme.error 
+                                                else if (isSystemInDarkTheme()) 
+                                                    Color(0xFF1E1F22) 
+                                                else 
+                                                    Color(0xFFEAEAEA),
+                                                contentColor = if (chatState.isEditing) 
+                                                    Color.White 
+                                                else if (isSystemInDarkTheme()) 
+                                                    Color.White 
+                                                else 
+                                                    Color.Black,
+                                                elevation = FloatingActionButtonDefaults.elevation(
+                                                    defaultElevation = 0.dp,
+                                                    pressedElevation = 12.dp,
+                                                    focusedElevation = 12.dp
+                                                )
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (chatState.isEditing)
+                                                        Icons.Filled.Close
+                                                    else
+                                                        Icons.Filled.ArrowDownward,
+                                                    contentDescription = if (chatState.isEditing)
+                                                        "Hủy chỉnh sửa"
+                                                    else
+                                                        "Cuộn xuống dưới"
+                                                )
+                                            }
+                                        }
+
+                                        // Nội dung chính
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .navigationBarsPadding()
+                                        ) {
+                                            // Box chứa chat content
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .weight(1f)
+                                                    .clickable(
+                                                        interactionSource = remember { MutableInteractionSource() },
+                                                        indication = null
+                                                    ) {
+                                                        focusManager.clearFocus()
+                                                    }
+                                            ) {
+                                                // LazyColumn danh sách chat
+                                                LazyColumn(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(horizontal = 8.dp),
+                                                    state = listState,
+                                                    verticalArrangement = Arrangement.spacedBy(0.dp, Alignment.Bottom)
+                                                ) {
+                                                    items(
+                                                        items = chatState.chatList,
+                                                        key = { chat -> 
+                                                            if (chat.id.isEmpty()) {
+                                                                "chat_${chat.timestamp}_${chat.hashCode()}_${System.identityHashCode(chat)}"
+                                                            } else {
+                                                                val fileInfo = if (chat.isFileMessage) "_file_${chat.fileName?.hashCode() ?: 0}" else ""
+                                                                val contentHash = chat.prompt.hashCode()
+                                                                "${chat.id}_${chat.timestamp}_${contentHash}${fileInfo}"
+                                                            }
+                                                        }
+                                                    ) { chat ->
+                                                        if (chat.isFromUser) {
+                                                            UserChatItem(
+                                                                prompt = chat.prompt,
+                                                                imageUrl = chat.imageUrl,
+                                                                isError = chat.isError,
+                                                                isFileMessage = chat.isFileMessage,
+                                                                fileName = chat.fileName,
+                                                                onLongPress = { message ->
+                                                                    scope.launch {
+                                                                        val plainText = parseFormattedText(message).text
+                                                                        clipboardManager.setText(AnnotatedString(plainText))
+                                                                        snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
+                                                                    }
+                                                                },
+                                                                onImageClick = { url ->
+                                                                    val encodedUrl = Base64.encodeToString(url.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                                                                    navController.navigate("fullscreen_image/$encodedUrl")
+                                                                },
+                                                                snackbarHostState = snackbarHostState,
+                                                                chatId = chat.id,
+                                                                onDeleteClick = { chatId ->
+                                                                    chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
+                                                                },
+                                                                onEditClick = { chatId ->
+                                                                    // Gọi sự kiện EditChat với chatId, nội dung tin nhắn, timestamp,
+                                                                    // và quan trọng là imageUrl và fileName của tin nhắn gốc
+                                                                    chatViewModel.onEvent(ChatUiEvent.EditChat(
+                                                                        chatId = chatId,
+                                                                        message = chat.prompt,
+                                                                        timestamp = chat.timestamp,
+                                                                        imageUrl = chat.imageUrl,
+                                                                        fileName = chat.fileName
+                                                                    ))
+                                                                    // Kích hoạt hiển thị bàn phím
+                                                                    showKeyboardAfterEdit = true
+                                                                },
+                                                                isBeingEdited = chatState.isEditing && chatState.editingChatId == chat.id
+                                                            )
+                                                        } else {
+                                                            // Cần kiểm tra xem tin nhắn đã được hiển thị hiệu ứng typing chưa
+                                                            val isMessageAlreadyTyped = chatViewModel.isMessageTyped(chat.id)
+                                                            val shouldShowTypingEffect = !isMessageAlreadyTyped
+
+                                                            // Tìm prompt của user trước response này để sử dụng cho regenerate
+                                                            val userPromptForThisResponse = if (!chat.isFromUser) {
+                                                                val chatList = chatState.chatList
+                                                                val chatIndex = chatList.indexOf(chat)
+
+                                                                // Tìm tin nhắn người dùng trước response này
+                                                                if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
+                                                                    chatList[chatIndex - 1].prompt
+                                                                } else ""
+                                                            } else ""
+
+                                                            // Tìm tin nhắn user đầy đủ (không chỉ prompt)
+                                                            val userMessage = if (!chat.isFromUser) {
+                                                                val chatList = chatState.chatList
+                                                                val chatIndex = chatList.indexOf(chat)
+                                                                if (chatIndex > 0 && chatList[chatIndex - 1].isFromUser) {
+                                                                    chatList[chatIndex - 1]
+                                                                } else null
+                                                            } else null
+
+                                                            ModelChatItem(
+                                                                response = chat.prompt,
+                                                                isError = chat.isError,
+                                                                onLongPress = { textToCopy ->
+                                                                    scope.launch {
+                                                                        val plainText = parseFormattedText(textToCopy).text
+                                                                        clipboardManager.setText(AnnotatedString(plainText))
+                                                                        snackbarHostState.showSnackbar("Đã sao chép tin nhắn")
+                                                                    }
+                                                                },
+                                                                onImageClick = { imageUrl ->
+                                                                    val encodedUrl = Base64.encodeToString(imageUrl.toByteArray(Charsets.UTF_8), Base64.URL_SAFE or Base64.NO_WRAP)
+                                                                    navController.navigate("fullscreen_image/$encodedUrl")
+                                                                },
+                                                                snackbarHostState = snackbarHostState,
+                                                                chatId = chat.id,
+                                                                isNewChat = shouldShowTypingEffect,
+                                                                typingSpeed = TypingConfig.DEFAULT_TYPING_SPEED,
+                                                                onAnimationComplete = {
+                                                                    chatViewModel.markMessageAsTyped(chat.id)
+                                                                },
+                                                                isMessageTyped = isMessageAlreadyTyped,
+                                                                onDeleteClick = { chatId ->
+                                                                    chatViewModel.onEvent(ChatUiEvent.DeleteChat(chatId))
+                                                                },
+                                                                onRegenerateClick = { prompt, responseId, _ ->
+                                                                    // Kiểm tra nếu userMessage null
+                                                                    if (userMessage != null) {
+                                                                        // Xác định prompt thích hợp dựa trên loại tin nhắn
+                                                                        val finalPrompt = when {
+                                                                            // Nếu có prompt do người dùng nhập, ưu tiên sử dụng
+                                                                            prompt.isNotEmpty() -> prompt
+                                                                            // Nếu có hình ảnh, tạo prompt mặc định cho hình ảnh
+                                                                            userMessage.imageUrl != null -> "Hãy mô tả hình ảnh này"
+                                                                            // Nếu có file, tạo prompt mặc định cho file
+                                                                            userMessage.isFileMessage && userMessage.fileName != null -> "Hãy tóm tắt nội dung file ${userMessage.fileName}"
+                                                                            // Trường hợp khác (hiếm gặp), để prompt rỗng
+                                                                            else -> ""
+                                                                        }
+
+                                                                        // Nếu có prompt hoặc là tin nhắn file/hình ảnh -> regenerate
+                                                                        if (finalPrompt.isNotEmpty() || userMessage.isFileMessage || userMessage.imageUrl != null) {
+                                                                            chatViewModel.onEvent(
+                                                                                ChatUiEvent.RegenerateResponse(
+                                                                                    userPrompt = finalPrompt, // Prompt đã xử lý
+                                                                                    responseId = responseId,
+                                                                                    imageUrl = userMessage.imageUrl, // URL hình ảnh nếu có
+                                                                                    fileName = userMessage.fileName, // Tên file nếu có
+                                                                                    timestamp = userMessage.timestamp // Timestamp để xóa tin nhắn mới hơn
+                                                                                )
+                                                                            )
+                                                                        } else {
+                                                                            // Hiếm khi xảy ra trường hợp này, nhưng vẫn giữ để phòng ngừa
+                                                                            scope.launch {
+                                                                                snackbarHostState.showSnackbar("Không thể tạo lại cho tin nhắn này.")
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        // Không tìm thấy tin nhắn user gốc
+                                                                        scope.launch {
+                                                                            snackbarHostState.showSnackbar("Không tìm thấy tin nhắn gốc của người dùng.")
+                                                                        }
+                                                                    }
+                                                                },
+                                                                currentUserPrompt = userPromptForThisResponse,
+                                                                availableModels = chatViewModel.availableModels,
+                                                                modelDisplayNameMap = chatViewModel.modelDisplayNameMap,
+                                                                modelIconMap = chatViewModel.modelIconMap,
+                                                                selectedModel = selectedModel,
+                                                                chat = userMessage, // Truyền tin nhắn user làm tham số
+                                                                stopTypingMessageId = chatState.stopTypingMessageId
+                                                            )
+                                                        }
+                                                    }
+
+                                                    // Chỉ báo đang chờ phản hồi
+                                                    item(key = "waiting_indicator_unique") {
+                                                        if (chatState.isWaitingForResponse && chatState.imageUri == null) {
+                                                            ModelChatItem(
+                                                                response = "",
+                                                                isError = false,
+                                                                onLongPress = { },
+                                                                onImageClick = { },
+                                                                snackbarHostState = snackbarHostState,
+                                                                isWaitingForResponse = true,
+                                                                isMessageTyped = true
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                // Welcome message
+                                                androidx.compose.animation.AnimatedVisibility(
+                                                    visible = showWelcomeMessage && chatState.chatList.isEmpty(),
+                                                    enter = fadeIn(animationSpec = tween(300)) + expandVertically(
+                                                        animationSpec = tween(300),
+                                                        expandFrom = Alignment.Top
+                                                    ),
+                                                    exit = fadeOut(animationSpec = tween(durationMillis = 250)) +
+                                                           slideOutVertically(
+                                                               animationSpec = tween(durationMillis = 300),
+                                                               targetOffsetY = { -it / 4 }
+                                                           ),
+                                                    modifier = Modifier.fillMaxSize()
+                                                ) {
+                                                    WelcomeMessage { displayText, apiPrompt ->
+                                                        val localUserPrompt = "$displayText"
+                                                        chatViewModel.insertLocalUserChat(localUserPrompt)
+                                                        scope.launch {
+                                                            chatViewModel.getResponse(apiPrompt, chatState.selectedSegment?.id)
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // Box hiển thị ảnh/file
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(8.dp)
+                                            ) {
+                                                val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+                                                val maxImageHeight = (screenHeight * 0.3f).coerceAtLeast(70.dp)
+                                                Column {
+                                                    // Khôi phục hiển thị ảnh với đầy đủ tính năng mới
+                                                    chatState.imageUri?.let { uri ->
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(70.dp)
+                                                        ) {
+                                                            // Hình ảnh đã chọn
+                                                            AsyncImage(
+                                                                model = ImageRequest.Builder(context)
+                                                                    .data(uri)
+                                                                    .size(coil.size.Size.ORIGINAL)
+                                                                    .crossfade(true)
+                                                                    .build(),
+                                                                contentDescription = "Hình ảnh đã chọn",
+                                                                contentScale = ContentScale.Crop,
+                                                                modifier = Modifier
+                                                                    .fillMaxSize()
+                                                                    .heightIn(max = maxImageHeight)
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                                    .clickable {
+                                                                        val encodedUrl = Base64.encodeToString(
+                                                                            uri
+                                                                                .toString()
+                                                                                .toByteArray(Charsets.UTF_8),
+                                                                            Base64.URL_SAFE or Base64.NO_WRAP
+                                                                        )
+                                                                        navController.navigate("fullscreen_image/$encodedUrl")
+                                                                    }
+                                                            )
+
+                                                            // Hiển thị chỉ báo loading khi đang xử lý ảnh
+                                                            if (chatState.isImageProcessing) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .background(Color.Black.copy(alpha = 0.4f)),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    CircularProgressIndicator(
+                                                                        modifier = Modifier.size(24.dp),
+                                                                        color = Color.White,
+                                                                        strokeWidth = 2.dp
+                                                                    )
+                                                                }
+                                                            }
+
+                                                            // Nút 'X' để xóa ảnh
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(20.dp)
+                                                                    .align(Alignment.TopEnd)
+                                                                    .offset(x = 4.dp, y = (-4).dp)
+                                                                    .clip(RoundedCornerShape(50))
+                                                                    .clickable {
+                                                                        chatViewModel.onEvent(ChatUiEvent.RemoveImage)
+                                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                    }
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Close,
+                                                                    contentDescription = "Xóa ảnh",
+                                                                    tint = Color.White,
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .background(
+                                                                            color = Color(0xFFAAAAAA),
+                                                                            shape = RoundedCornerShape(50)
+                                                                        )
+                                                                        .padding(4.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // Thêm phần hiển thị file vào đây
+                                                    chatState.fileUri?.let { uri ->
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth(0.5f)
+                                                                .padding(vertical = 4.dp)
+                                                                .clip(RoundedCornerShape(10.dp))
+                                                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            // Icon file
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(40.dp)
+                                                                    .padding(start = 8.dp),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(
+                                                                    painter = painterResource(
+                                                                        id = if (chatState.isFileUploading) R.drawable.ic_fileuploaderror else R.drawable.ic_fileuploaded
+                                                                    ),
+                                                                    contentDescription = "File đã chọn",
+                                                                    tint = MaterialTheme.colorScheme.primary,
+                                                                    modifier = Modifier.size(24.dp)
+                                                                )
+                                                            }
+
+                                                            // Tên file nằm bên phải icon
+                                                            Text(
+                                                                text = chatState.fileName ?: "File không xác định",
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .padding(horizontal = 8.dp),
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                            // Hiển thị chỉ báo loading khi đang xử lý ảnh
+                                                            if (chatState.isImageProcessing) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .fillMaxSize()
+                                                                        .background(Color.Black.copy(alpha = 0.4f)),
+                                                                    contentAlignment = Alignment.Center
+                                                                ) {
+                                                                    CircularProgressIndicator(
+                                                                        modifier = Modifier.size(24.dp),
+                                                                        color = Color.White,
+                                                                        strokeWidth = 2.dp
+                                                                    )
+                                                                }
+                                                            }
+                                                            // Nút 'X' để xóa file
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .padding(end = 8.dp)
+                                                                    .size(20.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(Color(0xFFAAAAAA))
+                                                                    .clickable {
+                                                                        chatViewModel.onEvent(ChatUiEvent.RemoveFile)
+                                                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                    },
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Close,
+                                                                    contentDescription = "Xóa file",
+                                                                    tint = Color.White,
+                                                                    modifier = Modifier.size(12.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // Box cho input field
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(bottom = 16.dp, start = 8.dp, end = 8.dp)
+                                                    .then(if (!isLeftDrawerOpen) Modifier.imePadding() else Modifier)
+                                                    .background(
+                                                        MaterialTheme.colorScheme.surface,
+                                                        shape = RoundedCornerShape(20.dp)
+                                                    )
+                                            ) {
+                                                CustomTextField(
+                                                    chatViewModel = chatViewModel,
+                                                    chatState = chatState,
+                                                    focusRequester = focusRequester,
+                                                    scope = scope,
+                                                    snackbarHostState = snackbarHostState,
+                                                    imagePicker = imagePicker,
+                                                    documentPickerLauncher = documentPickerLauncher,
+                                                    photoUri = photoUri,
+                                                    takePictureLauncher = takePictureLauncher,
+                                                    navController = navController,
+                                                    createImageUriInner = { createImageUriInner() },
+                                                    onPhotoUriChange = { newUri -> photoUri = newUri },
+                                                    onImageReceived = { uri -> chatViewModel.onEvent(ChatUiEvent.OnImageSelected(uri)) },
+                                                    showKeyboardAfterEdit = showKeyboardAfterEdit,
+                                                    onKeyboardShown = { showKeyboardAfterEdit = false }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    // LaunchedEffect cho việc kiểm tra danh sách chat rỗng
+                                    LaunchedEffect(chatState.chatList.isEmpty()) {
+                                        if (chatState.chatList.isEmpty()) {
+                                            showWelcomeMessage = true
+                                        }
+                                    }
+                                    // Hiệu ứng loading PDF
+                                    if (chatViewModel.isProcessingFile.value) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color.Black.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                                Spacer(modifier = Modifier.height(16.dp))
+                                                Text(
+                                                    text = "Đang xử lý file PDF...",
+                                                    color = Color.White
+                                                )
+                                            }
+                                        }
+                                    }
+                                    // Nút scroll to bottom
+                                    AnimatedVisibility(
+                                        visible = userScrolledAwayFromBottom && !chatState.isEditing,
+                                        enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                                        exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(bottom = 180.dp)
+                                            .zIndex(1f)
+                                    ) {
+                                        FloatingActionButton(
+                                            onClick = {
+                                                // Thực hiện cuộn xuống dưới
+                                                scope.launch {
+                                                    shouldAutoScroll = true // Allow potential future auto-scrolls
+                                                    userScrolledAwayFromBottom = false // Reset flag immediately
+                                                    if (chatState.chatList.isNotEmpty()) {
+                                                        // Use a slightly longer delay, consistent with chat switching
+                                                        kotlinx.coroutines.delay(100) // Increased delay
+                                                        // Scroll to the absolute bottom using Int.MAX_VALUE
+                                                        listState.animateScrollToItem(Int.MAX_VALUE)
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .shadow(
+                                                    elevation = 8.dp,
+                                                    shape = CircleShape,
+                                                    clip = false
+                                                ),
+                                            shape = CircleShape,
+                                            containerColor = if (isSystemInDarkTheme())
+                                                Color(0xFF1E1F22)
+                                            else
+                                                Color(0xFFEAEAEA),
+                                            contentColor = if (isSystemInDarkTheme())
+                                                Color.White
+                                            else
+                                                Color.Black,
+                                            elevation = FloatingActionButtonDefaults.elevation(
+                                                defaultElevation = 0.dp,
+                                                pressedElevation = 12.dp,
+                                                focusedElevation = 12.dp
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.ArrowDownward,
+                                                contentDescription = "Cuộn xuống dưới"
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        })
+    }
+
 
