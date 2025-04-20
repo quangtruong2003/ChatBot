@@ -22,16 +22,14 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import fomatText.FormattedTextDisplay
-import fomatText.parseFormattedText
+import com.ahmedapps.geminichatbot.fomatText.FormattedTextDisplay
+import com.ahmedapps.geminichatbot.fomatText.parseFormattedText
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.IconButton
@@ -39,14 +37,10 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import android.widget.Toast
-import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Attachment
-import androidx.compose.ui.platform.LocalFocusManager
 import com.ahmedapps.geminichatbot.ui.components.AudioPlayerComponent
 import android.util.Log
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -62,9 +56,6 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
-import android.app.AlertDialog
-
-
 
 
 @OptIn(ExperimentalFoundationApi::class)

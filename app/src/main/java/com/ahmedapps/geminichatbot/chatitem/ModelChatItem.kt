@@ -3,14 +3,10 @@ package com.ahmedapps.geminichatbot
 
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -28,13 +24,11 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ahmedapps.geminichatbot.R
-import fomatText.FormattedTextDisplay
-import fomatText.parseFormattedText
-import fomatText.TypingConfig
+import com.ahmedapps.geminichatbot.fomatText.FormattedTextDisplay
+import com.ahmedapps.geminichatbot.fomatText.parseFormattedText
+import com.ahmedapps.geminichatbot.fomatText.TypingConfig
 import androidx.compose.runtime.*
 import com.ahmedapps.geminichatbot.data.Chat
 import kotlinx.coroutines.delay
@@ -42,7 +36,6 @@ import android.widget.Toast
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.window.PopupProperties
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween

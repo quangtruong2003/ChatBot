@@ -1,12 +1,10 @@
 // GeminiChatBotApplication.kt
-package com.ahmedapps.geminichatbot
+package com.ahmedapps.geminichatbot.data
 
 import android.app.Application
 import com.google.firebase.FirebaseApp
-import com.google.firebase.appcheck.FirebaseAppCheck
 
 import dagger.hilt.android.HiltAndroidApp
-import android.util.Log
 import com.ahmedapps.geminichatbot.services.PDFProcessingService
 
 
