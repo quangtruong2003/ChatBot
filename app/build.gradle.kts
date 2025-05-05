@@ -26,8 +26,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+//            isMinifyEnabled = true
+//            isShrinkResources = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -39,16 +40,6 @@ android {
             isTestCoverageEnabled = false
         }
     }
-    
-//    // Tạo các APK riêng cho từng kiến trúc CPU
-//    splits {
-//        abi {
-//            isEnable = true
-//            reset()
-//            include("arm64-v8a", "x86_64")
-//            isUniversalApk = false
-//        }
-//    }
     
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -151,11 +142,11 @@ dependencies {
 
     implementation("com.google.accompanist:accompanist-insets:0.23.1")
     implementation("com.google.accompanist:accompanist-insets-ui:0.23.1")
-    implementation("androidx.compose.foundation:foundation:1.8.0")
+    implementation("androidx.compose.foundation:foundation:1.7.8")
 
-    implementation("androidx.compose.material3:material3:1.3.2")
-    implementation("androidx.compose.material3:material3-window-size-class:1.3.2")
-    implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1.4.0-alpha13")
+    implementation("androidx.compose.material3:material3:1.3.1")
+    implementation("androidx.compose.material3:material3-window-size-class:1.3.1")
+    implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1.4.0-alpha10")
 
     // Dùng iText để xử lý PDF
     implementation("com.itextpdf:itextg:5.5.10")

@@ -962,7 +962,7 @@ fun CustomTextField(
                             shape = RoundedCornerShape(15.dp)
                         )
                         .width(IntrinsicSize.Max),
-                    offset = DpOffset(x = 0.dp, y = (-8).dp)
+                    offset = DpOffset(x = 0.dp, y = 0.dp)
                 ) {
                     DropdownMenuItem(
                         text = {
