@@ -357,9 +357,7 @@ data class AudioMessage(
  *    - Sau khi ghi âm, file được lưu trữ và đường dẫn được sử dụng trong AudioPlayerComponent
  * 
  * 2. Nhận dạng Giọng nói:
- *    - ImprovedVoiceRecognitionHelper sử dụng kết hợp cả nhận dạng online (VoiceRecognitionHelper)
- *      và offline (VoskRecognitionHelper)
- *    - VoskRecognitionHelper sử dụng AudioRecord để ghi âm và xử lý dữ liệu âm thanh theo thời gian thực
+ *    - VoiceRecognitionHelper sử dụng Android SpeechRecognizer để nhận dạng giọng nói
  *    - MediaRecorder.AudioSource.VOICE_RECOGNITION được sử dụng để tối ưu hóa chất lượng âm thanh cho nhận dạng giọng nói
  * 
  * 3. Chat với File Âm thanh:

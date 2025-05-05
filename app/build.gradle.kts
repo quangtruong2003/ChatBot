@@ -26,7 +26,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -38,6 +39,17 @@ android {
             isTestCoverageEnabled = false
         }
     }
+    
+//    // Tạo các APK riêng cho từng kiến trúc CPU
+//    splits {
+//        abi {
+//            isEnable = true
+//            reset()
+//            include("arm64-v8a", "x86_64")
+//            isUniversalApk = false
+//        }
+//    }
+    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -139,11 +151,11 @@ dependencies {
 
     implementation("com.google.accompanist:accompanist-insets:0.23.1")
     implementation("com.google.accompanist:accompanist-insets-ui:0.23.1")
-    implementation("androidx.compose.foundation:foundation:1.7.8")
+    implementation("androidx.compose.foundation:foundation:1.8.0")
 
-    implementation("androidx.compose.material3:material3:1.3.1")
-    implementation("androidx.compose.material3:material3-window-size-class:1.3.1")
-    implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1.4.0-alpha10")
+    implementation("androidx.compose.material3:material3:1.3.2")
+    implementation("androidx.compose.material3:material3-window-size-class:1.3.2")
+    implementation("androidx.compose.material3:material3-adaptive-navigation-suite:1.4.0-alpha13")
 
     // Dùng iText để xử lý PDF
     implementation("com.itextpdf:itextg:5.5.10")
@@ -164,14 +176,13 @@ dependencies {
     implementation("androidx.appcompat:appcompat-resources:$appcompat_version")
 
     implementation ("net.java.dev.jna:jna:5.13.0@aar")
-    implementation ("com.alphacephei:vosk-android:0.3.47")
+    // implementation ("com.alphacephei:vosk-android:0.3.47") // Thư viện nhận dạng giọng nói
 
     // Audio processing
     implementation("org.jcodec:jcodec:0.2.5")
     implementation("org.jcodec:jcodec-android:0.2.5")
     implementation("com.google.android.exoplayer:exoplayer-core:2.19.1")
-    implementation("com.arthenica:ffmpeg-kit-full:6.0-2.LTS")
-
+    implementation("com.arthenica:ffmpeg-kit-full:6.0-2.LTS") // FFmpeg đầy đủ, rất nặng
 
 }
 
